@@ -1,0 +1,33 @@
+{
+  "name": "x402-autonomous-agent",
+  "version": "1.0.0",
+  "description": "Autonomous trading agent using x402 payment protocol and Coinbase AgentKit",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "run-now": "ts-node src/index.ts --run-now"
+  },
+  "dependencies": {
+    "@coinbase/agentkit": "0.4.0",
+    "@coinbase/agentkit-langchain": "0.3.0",
+    "@langchain/langgraph": "0.2.36",
+    "@langchain/anthropic": "0.3.11",
+    "x402": "1.2.0",
+    "x402-fetch": "1.2.0",
+    "node-cron": "3.0.3",
+    "axios": "1.7.9",
+    "dotenv": "16.4.7",
+    "typescript": "5.7.3",
+    "@types/node": "22.10.7",
+    "@types/node-cron": "3.0.11"
+  },
+  "devDependencies": {
+    "ts-node": "10.9.2",
+    "@types/node-cron": "3.0.11"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
