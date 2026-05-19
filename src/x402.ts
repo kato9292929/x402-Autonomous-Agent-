@@ -1,11 +1,11 @@
-import { createSigner } from "x402/types";
-import { wrapFetchWithPayment } from "x402-fetch";
-import type { Hex } from "viem";
+import { createSigner, wrapFetchWithPayment } from "x402-fetch";
 
-let _fetchWithPayment: ReturnType<typeof wrapFetchWithPayment> | null = null;
+let _fetchWithPayment:
+  | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
+  | null = null;
 
 export async function initX402Fetch(): Promise<void> {
-  const privateKey = process.env.PAYMENT_PRIVATE_KEY as Hex | undefined;
+  const privateKey = process.env.PAYMENT_PRIVATE_KEY;
   if (!privateKey) {
     throw new Error("PAYMENT_PRIVATE_KEY is required for x402 payments");
   }
