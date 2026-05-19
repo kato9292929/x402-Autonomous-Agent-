@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { initializeWallet } from "./wallet";
 import { initX402Fetch, fetchWithX402 } from "./x402";
 
 interface Signal {
@@ -60,7 +59,6 @@ Powered by Nansen × Claude × x402
 export async function runAgent(): Promise<void> {
   console.log(`[${new Date().toISOString()}] x402 Autonomous Agent started`);
 
-  await initializeWallet();
   await initX402Fetch();
 
   // STEP 1: Smart Money Screener — $0.05 USDC
