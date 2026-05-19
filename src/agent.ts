@@ -1,7 +1,5 @@
 import "dotenv/config";
-import { initializeWallet } from "./wallet";
 import { initX402Fetch, fetchWithX402 } from "./x402";
-import { postToX } from "./twitter";
 
 interface Signal {
   token: string;
@@ -35,7 +33,7 @@ interface ExecuteResponse {
   txHash?: string;
 }
 
-function buildTweet(data: {
+function buildReport(data: {
   topSignal: Signal;
   decoded: DecodeResponse;
   memo: MemoResponse;
@@ -46,26 +44,21 @@ function buildTweet(data: {
   const executed = executionResult?.status === "executed";
   const flowM = (topSignal.netFlowUsd / 1_000_000).toFixed(2);
 
-  return `📊 x402 Daily Intelligence Report
-
+  return `
+📊 x402 Daily Intelligence Report
 🔍 Top Signal: ${topSignal.token} (${topSignal.chain})
 💰 Smart Money Net Flow: +$${flowM}M
 🐳 Whale Intent: ${decoded.intent} (${Math.round(decoded.confidence * 100)}%)
-
-${
-    executed
-      ? `✅ Executed: $10 swap on Base mainnet\nTx: ${executionResult!.txHash}`
-      : "⏸ 執行条件未達。監視継続。"
-  }
-
+${executed
+    ? `✅ Executed: $10 swap on Base mainnet\nTx: ${executionResult!.txHash}`
+    : "⏸ 執行条件未達。監視継続。"}
 Powered by Nansen × Claude × x402
-#x402 #DeFi #APAC`;
+  `.trim();
 }
 
 export async function runAgent(): Promise<void> {
   console.log(`[${new Date().toISOString()}] x402 Autonomous Agent started`);
 
-  await initializeWallet();
   await initX402Fetch();
 
   // STEP 1: Smart Money Screener — $0.05 USDC
@@ -81,9 +74,7 @@ export async function runAgent(): Promise<void> {
 
   if (strongBuySignals.length === 0) {
     console.log("No strong buy signals today. Skipping execution.");
-    await postToX(
-      "📊 x402 Daily Scan: 本日はSTRONG BUYシグナルなし。待機継続。\n#x402 #DeFi #APAC"
-    );
+    console.log("📊 x402 Daily Scan: 本日はSTRONG BUYシグナルなし。待機継続。");
     return;
   }
 
@@ -153,10 +144,9 @@ export async function runAgent(): Promise<void> {
     );
   }
 
-  // STEP 7: Post to X
-  console.log("[STEP 7] Posting results to X...");
-  const tweet = buildTweet({ topSignal, decoded, memo, market, executionResult });
-  await postToX(tweet);
+  // STEP 7: Log report
+  const report = buildReport({ topSignal, decoded, memo, market, executionResult });
+  console.log("\n" + report + "\n");
 
   console.log(`[${new Date().toISOString()}] Agent run complete`);
 }
