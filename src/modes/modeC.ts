@@ -1,4 +1,4 @@
-import { MODE_C_ENDPOINTS } from "../config";
+import { ENDPOINTS_MODE_C } from "../config";
 import { callEndpoint, getConsecutiveFailures } from "../caller";
 import { logRun } from "../logger";
 import { sendWebhookSummary } from "../notify";
@@ -8,7 +8,7 @@ const FAILURE_ALERT_THRESHOLD = 3;
 
 export async function runModeC(): Promise<void> {
   const startMs = Date.now();
-  console.log(`[MODE C] Weekly report started — ${MODE_C_ENDPOINTS.length} endpoints`);
+  console.log(`[MODE C] Weekly report started — ${ENDPOINTS_MODE_C.length} endpoints`);
 
   const log: RunLog = {
     timestamp: new Date().toISOString(),
@@ -20,7 +20,7 @@ export async function runModeC(): Promise<void> {
     errors: [],
   };
 
-  for (const ep of MODE_C_ENDPOINTS) {
+  for (const ep of ENDPOINTS_MODE_C) {
     const result = await callEndpoint(ep);
     log.results.push(result);
 

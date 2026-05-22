@@ -1,4 +1,4 @@
-import { MODE_B_ENDPOINTS } from "../config";
+import { ENDPOINTS_MODE_B } from "../config";
 import { callEndpoint, getConsecutiveFailures } from "../caller";
 import { logRun } from "../logger";
 import { sendWebhookSummary } from "../notify";
@@ -8,7 +8,7 @@ const FAILURE_ALERT_THRESHOLD = 3;
 
 export async function runModeB(): Promise<void> {
   const startMs = Date.now();
-  console.log(`[MODE B] Daily briefing started — ${MODE_B_ENDPOINTS.length} endpoints`);
+  console.log(`[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.length} endpoints`);
 
   const log: RunLog = {
     timestamp: new Date().toISOString(),
@@ -20,7 +20,7 @@ export async function runModeB(): Promise<void> {
     errors: [],
   };
 
-  for (const ep of MODE_B_ENDPOINTS) {
+  for (const ep of ENDPOINTS_MODE_B) {
     const result = await callEndpoint(ep);
     log.results.push(result);
 

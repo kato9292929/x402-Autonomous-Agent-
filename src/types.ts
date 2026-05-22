@@ -1,12 +1,4 @@
-export interface EndpointConfig {
-  name: string;
-  url: string;
-  path: string;
-  costUsdc: number;
-  method?: "GET" | "POST";
-  body?: Record<string, unknown>;
-}
-
+// EndpointConfig is defined in config.ts
 export interface EndpointResult {
   endpoint: string;
   product: string;

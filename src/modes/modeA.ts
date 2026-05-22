@@ -27,7 +27,8 @@ export async function runModeA(): Promise<void> {
   try {
     // STEP 1: Smart Money Screener — $0.05
     const signalsRes = await fetchWithX402(
-      "https://x402smct.vercel.app/api/signals?chain=base"
+      process.env.SMART_MONEY_SCREENER_URL ??
+        "https://smartmoneyscreener.vercel.app/api/screener/smart-money"
     );
     const signalsData = (await signalsRes.json()) as { signals?: Signal[] };
     log.results.push({ endpoint: "/api/signals", product: "Smart Money Screener", status: "success", costUsdc: 0.05, responsePeek: "", durationMs: 0 });
