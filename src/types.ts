@@ -5,6 +5,7 @@ export interface EndpointResult {
   status: "success" | "error";
   costUsdc: number;
   responsePeek: string;
+  txHash?: string;
   error?: string;
   durationMs: number;
 }

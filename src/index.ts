@@ -1,6 +1,5 @@
 import "dotenv/config";
 import cron from "node-cron";
-import { initX402Fetch } from "./x402";
 import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC } from "./modes/modeC";
@@ -21,8 +20,6 @@ async function weeklyRun(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await initX402Fetch();
-
   // Mode A + B: every day at 06:00 JST (21:00 UTC)
   cron.schedule("0 21 * * *", async () => {
     try {

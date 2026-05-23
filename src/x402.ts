@@ -1,27 +1,16 @@
-import { createSigner, wrapFetchWithPayment } from "x402-fetch";
+import { wrapFetchWithPayment } from "x402-fetch";
+import { privateKeyToAccount } from "viem/accounts";
 
-let _fetchWithPayment:
-  | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
-  | null = null;
-
-export async function initX402Fetch(): Promise<void> {
-  const privateKey = process.env.PAYMENT_PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error("PAYMENT_PRIVATE_KEY is required for x402 payments");
-  }
-
-  const signer = await createSigner("base", privateKey);
-  // Allow up to $2.00 USDC per request (covers Alpha Memo's $1.00 cost)
-  const maxValue = BigInt(2_000_000); // 2 USDC in 6-decimal units
-  _fetchWithPayment = wrapFetchWithPayment(fetch, signer, maxValue);
+const privateKey = process.env.PRIVATE_KEY;
+if (!privateKey) {
+  throw new Error("PRIVATE_KEY environment variable is required");
 }
 
-export async function fetchWithX402(
-  url: string,
-  options: RequestInit = {}
-): Promise<Response> {
-  if (!_fetchWithPayment) {
-    throw new Error("x402 fetch not initialized. Call initX402Fetch() first.");
-  }
-  return _fetchWithPayment(url, options);
-}
+const account = privateKeyToAccount(privateKey as `0x${string}`);
+
+// Allow up to $3.00 USDC per request (covers weekly reports at $3.00)
+export const fetchWithPayment = wrapFetchWithPayment(
+  fetch,
+  account as unknown as import("x402-fetch").Signer,
+  BigInt(3_000_000)
+);

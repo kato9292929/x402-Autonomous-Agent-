@@ -11,4 +11,8 @@ declare module "x402-fetch" {
     signer: Signer,
     maxValue?: bigint
   ): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+  export function decodeXPaymentResponse(
+    header: string
+  ): { transaction: string; [key: string]: unknown };
 }
