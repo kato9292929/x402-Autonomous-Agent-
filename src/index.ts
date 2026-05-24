@@ -3,6 +3,7 @@ import cron from "node-cron";
 import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC } from "./modes/modeC";
+import { runAnalystDailyNote } from "./jobs/analyst-daily-note";
 
 async function dailyRun(): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
@@ -10,6 +11,7 @@ async function dailyRun(): Promise<void> {
   console.log(`${"=".repeat(60)}`);
   await runModeB();
   await runModeA();
+  await runAnalystDailyNote();
 }
 
 async function weeklyRun(): Promise<void> {
@@ -20,7 +22,7 @@ async function weeklyRun(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  // Mode A + B: every day at 06:00 JST (21:00 UTC)
+  // Mode A + B + analyst-daily-note: every day at 06:00 JST (21:00 UTC)
   cron.schedule("0 21 * * *", async () => {
     try {
       await dailyRun();
@@ -39,8 +41,8 @@ async function main(): Promise<void> {
   });
 
   console.log("x402 Autonomous Agent started");
-  console.log("  Mode A + B: daily   at 06:00 JST (21:00 UTC)");
-  console.log("  Mode C:     Mondays at 06:00 JST (21:00 UTC)");
+  console.log("  Mode A + B + analyst-note: daily   at 06:00 JST (21:00 UTC)");
+  console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
 
   if (process.argv.includes("--run-now")) {
     console.log("\n[AGENT] Manual run triggered");
@@ -50,6 +52,11 @@ async function main(): Promise<void> {
   if (process.argv.includes("--run-weekly")) {
     console.log("\n[AGENT] Manual weekly run triggered");
     await weeklyRun();
+  }
+
+  if (process.argv.includes("--run-analyst")) {
+    console.log("\n[AGENT] Manual analyst-daily-note run triggered");
+    await runAnalystDailyNote();
   }
 }
 
