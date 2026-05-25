@@ -8,7 +8,14 @@
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@x402/fetch": ["node_modules/@x402/fetch/dist/cjs/index"],
+      "@x402/core/types": ["node_modules/@x402/core/dist/cjs/types/index"],
+      "@x402/core/client": ["node_modules/@x402/core/dist/cjs/client/index"],
+      "@x402/core/http": ["node_modules/@x402/core/dist/cjs/http/index"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

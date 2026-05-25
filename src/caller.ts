@@ -1,4 +1,4 @@
-import { decodeXPaymentResponse } from "x402-fetch";
+import { decodePaymentResponseHeader } from "@x402/fetch";
 import { fetchWithPayment } from "./x402";
 import { getRequestBody } from "./bodies";
 import type { EndpointConfig } from "./config";
@@ -29,11 +29,13 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
 
     const data = (await res.json()) as Record<string, unknown>;
 
-    const xPaymentHeader = res.headers.get("X-PAYMENT-RESPONSE");
+    // v2 uses PAYMENT-RESPONSE header; v1 used X-PAYMENT-RESPONSE
+    const paymentResponseHeader =
+      res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
     let txHash: string | undefined;
-    if (xPaymentHeader) {
+    if (paymentResponseHeader) {
       try {
-        const decoded = decodeXPaymentResponse(xPaymentHeader);
+        const decoded = decodePaymentResponseHeader(paymentResponseHeader);
         txHash = decoded.transaction;
       } catch {
         // header present but unparseable — non-fatal
