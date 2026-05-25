@@ -21,6 +21,12 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
         : {};
 
     const res = await fetchWithPayment(ep.url, options);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "(no body)");
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+    }
+
     const data = (await res.json()) as Record<string, unknown>;
 
     const xPaymentHeader = res.headers.get("X-PAYMENT-RESPONSE");
