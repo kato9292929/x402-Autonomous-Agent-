@@ -1,11 +1,10 @@
 /**
- * Payment diagnostics script.
+ * Payment diagnostics script for @x402/fetch v2.
  * Run: node dist/test-payment.js
- *
- * Prints every step of the x402 flow for one endpoint so failures are visible.
  */
 import "dotenv/config";
-import { createSigner } from "x402-fetch";
+import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
+import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
 
 const TARGET_URL =
@@ -19,89 +18,68 @@ async function diagnose(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("=== x402 Payment Diagnostics ===");
+  console.log("=== x402 v2 Payment Diagnostics ===");
   console.log(`Target URL: ${TARGET_URL}`);
 
-  // ── Step 1: LocalAccount address ──────────────────────────────
-  const localAccount = privateKeyToAccount(privateKey as `0x${string}`);
-  console.log(`\n[1] LocalAccount address: ${localAccount.address}`);
+  // ── Step 1: Build signer ────────────────────────────────────────
+  const account = privateKeyToAccount(privateKey as `0x${string}`);
+  const signer = toClientEvmSigner(account);
+  console.log(`\n[1] Signer address: ${account.address}`);
 
-  // ── Step 2: createSigner (x402 official) ──────────────────────
-  console.log("\n[2] Creating signer via createSigner('base', key)...");
-  let signer: Awaited<ReturnType<typeof createSigner>>;
-  try {
-    signer = await createSigner("base", privateKey);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = signer as any;
-    console.log(`    signer type: ${typeof s}`);
-    console.log(`    signer.chain: ${JSON.stringify(s?.chain?.name ?? s?.chain?.id ?? "(no chain)")}`);
-    console.log(`    signer.account?.address: ${s?.account?.address ?? s?.address ?? "(no address)"}`);
-  } catch (err) {
-    console.error(`    createSigner failed: ${err}`);
-    process.exit(1);
-  }
+  // ── Step 2: Build x402Client ────────────────────────────────────
+  const evmScheme = new ExactEvmScheme(signer);
+  const client = new x402Client()
+    .register("eip155:8453", evmScheme)  // v2
+    .registerV1("base", evmScheme);       // v1 compat
 
-  // ── Step 3: Send initial request → expect 402 ─────────────────
+  console.log(`\n[2] x402Client built with eip155:8453 (v2) + base (v1)`);
+
+  // ── Step 3: Initial request ─────────────────────────────────────
   console.log("\n[3] Sending initial request (expect 402)...");
   const firstRes = await fetch(TARGET_URL);
   console.log(`    status: ${firstRes.status}`);
   const firstBody = await firstRes.text();
-  console.log(`    body (raw): ${firstBody.slice(0, 300)}`);
+  console.log(`    body (first 300 chars): ${firstBody.slice(0, 300)}`);
+
+  const paymentRequiredHeader = firstRes.headers.get("PAYMENT-REQUIRED");
+  console.log(`    PAYMENT-REQUIRED header: ${paymentRequiredHeader ? paymentRequiredHeader.slice(0, 80) + "..." : "(none)"}`);
 
   if (firstRes.status !== 402) {
-    console.warn("    WARNING: did not get 402, stopping");
+    console.warn("    WARNING: did not get 402 — stopping");
     return;
   }
 
-  // ── Step 4: Parse 402 challenge ───────────────────────────────
-  console.log("\n[4] Parsing 402 challenge...");
-  let challenge: { x402Version: number; accepts: unknown[] };
-  try {
-    challenge = JSON.parse(firstBody);
-    console.log(`    x402Version: ${challenge.x402Version}`);
-    console.log(`    accepts (count): ${challenge.accepts?.length}`);
-    console.log(`    accepts[0]: ${JSON.stringify(challenge.accepts?.[0], null, 2)}`);
-  } catch (err) {
-    console.error(`    JSON parse error: ${err}`);
-    console.error(`    Raw body was: ${JSON.stringify(firstBody.slice(0, 200))}`);
-    return;
-  }
-
-  // ── Step 5: Build payment header manually ─────────────────────
-  console.log("\n[5] Building payment header via createSigner flow...");
-  const { wrapFetchWithPayment } = await import("x402-fetch");
-  const fetchWithPayment = wrapFetchWithPayment(fetch, signer, BigInt(3_000_000));
-
-  // ── Step 6: Full x402 fetch (402 → sign → retry) ──────────────
-  console.log("\n[6] Full fetchWithPayment call...");
+  // ── Step 4: Full payment flow ───────────────────────────────────
+  console.log("\n[4] Running full wrapFetchWithPayment call...");
+  const fetchWithPay = wrapFetchWithPayment(fetch, client);
   let secondRes: Response;
   try {
-    secondRes = await fetchWithPayment(TARGET_URL);
+    secondRes = await fetchWithPay(TARGET_URL);
   } catch (err) {
     console.error(`    fetchWithPayment threw: ${err}`);
     return;
   }
 
   console.log(`    second response status: ${secondRes.status}`);
-  const xPayment = secondRes.headers.get("X-PAYMENT-RESPONSE");
-  console.log(`    X-PAYMENT-RESPONSE header: ${xPayment ?? "(none)"}`);
+  const paymentResponseHeader =
+    secondRes.headers.get("PAYMENT-RESPONSE") ?? secondRes.headers.get("X-PAYMENT-RESPONSE");
+  console.log(`    PAYMENT-RESPONSE header: ${paymentResponseHeader ? paymentResponseHeader.slice(0, 60) + "..." : "(none)"}`);
 
   const secondBody = await secondRes.text();
-  console.log(`    body (raw, first 400 chars):\n    ${secondBody.slice(0, 400)}`);
+  console.log(`    body (first 400 chars):\n${secondBody.slice(0, 400)}`);
 
   if (!secondRes.ok) {
     console.error(`\n  ✗ Payment FAILED (HTTP ${secondRes.status})`);
     return;
   }
 
-  // ── Step 7: Decode txHash ─────────────────────────────────────
-  if (xPayment) {
+  // ── Step 5: Decode txHash ───────────────────────────────────────
+  if (paymentResponseHeader) {
     try {
-      const { decodeXPaymentResponse } = await import("x402-fetch");
-      const decoded = decodeXPaymentResponse(xPayment);
-      console.log(`\n[7] txHash: ${decoded.transaction}`);
+      const decoded = decodePaymentResponseHeader(paymentResponseHeader);
+      console.log(`\n[5] txHash: ${decoded.transaction}`);
     } catch (err) {
-      console.warn(`    decodeXPaymentResponse error: ${err}`);
+      console.warn(`    decodePaymentResponseHeader error: ${err}`);
     }
   }
 
