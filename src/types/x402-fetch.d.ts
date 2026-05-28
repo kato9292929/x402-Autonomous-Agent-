@@ -1,14 +1,3 @@
-declare module "x402-fetch" {
-  export type Signer = unknown;
-
-  export function createSigner(
-    network: string,
-    privateKey: string
-  ): Promise<Signer>;
-
-  export function wrapFetchWithPayment(
-    fetchFn: typeof globalThis.fetch,
-    signer: Signer,
-    maxValue?: bigint
-  ): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-}
+// @x402/fetch v2 re-exports are resolved from node_modules directly.
+// This file is intentionally empty — no manual declarations needed.
+export {};

@@ -6,7 +6,6 @@ export function getRequestBody(
     "portfolio-intelligence": {
       walletAddress: process.env.PORTFOLIO_ANALYZE_TARGET ?? "",
       chain: "base",
-      riskTolerance: "MEDIUM",
     },
   };
   return bodies[endpointId];

@@ -1,4 +1,4 @@
-import { fetchWithX402 } from "../x402";
+import { fetchWithPayment } from "../x402";
 import type { RunLog } from "../types";
 import { logRun } from "../logger";
 
@@ -26,7 +26,7 @@ export async function runModeA(): Promise<void> {
 
   try {
     // STEP 1: Smart Money Screener — $0.05
-    const signalsRes = await fetchWithX402(
+    const signalsRes = await fetchWithPayment(
       process.env.SMART_MONEY_SCREENER_URL ??
         "https://smartmoneyscreener.vercel.app/api/screener/smart-money"
     );
@@ -50,7 +50,7 @@ export async function runModeA(): Promise<void> {
     const top = strongBuys[0];
 
     // STEP 2: Whale Intent Decoder — $0.30
-    const decodeRes = await fetchWithX402("https://x402wid.vercel.app/api/decode", {
+    const decodeRes = await fetchWithPayment("https://x402wid.vercel.app/api/decode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: top.token, chain: top.chain, amount: top.netFlowUsd }),
@@ -61,14 +61,14 @@ export async function runModeA(): Promise<void> {
     log.totalTxCount += 1;
 
     // STEP 3: Divergence Analyzer — $0.15
-    const divRes = await fetchWithX402("https://x402nansenpolymarket.vercel.app/api/divergence/scan");
+    const divRes = await fetchWithPayment("https://x402nansenpolymarket.vercel.app/api/divergence/scan");
     const divergence = (await divRes.json()) as Record<string, unknown>;
     log.results.push({ endpoint: "/api/divergence/scan", product: "Divergence Analyzer", status: "success", costUsdc: 0.15, responsePeek: JSON.stringify(divergence).slice(0, 120), durationMs: 0 });
     log.totalCostUsdc += 0.15;
     log.totalTxCount += 1;
 
     // STEP 4: Alpha Memo Protocol — $1.00
-    const memoRes = await fetchWithX402("https://x402amp.vercel.app/api/memo/daily");
+    const memoRes = await fetchWithPayment("https://x402amp.vercel.app/api/memo/daily");
     const memo = (await memoRes.json()) as Record<string, unknown>;
     log.results.push({ endpoint: "/api/memo/daily", product: "Alpha Memo Protocol", status: "success", costUsdc: 1.00, responsePeek: JSON.stringify(memo).slice(0, 120), durationMs: 0 });
     log.totalCostUsdc += 1.00;
@@ -78,7 +78,7 @@ export async function runModeA(): Promise<void> {
     const intentOk = ["ACCUMULATION", "POSITION_BUILDING"].includes(decoded.intent);
     if (intentOk && decoded.confidence >= 0.7) {
       console.log("[MODE A] Conditions met. Executing...");
-      const execRes = await fetchWithX402("https://x402smct.vercel.app/api/execute", {
+      const execRes = await fetchWithPayment("https://x402smct.vercel.app/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: top.token, chain: top.chain, amountUsd: 10 }),
