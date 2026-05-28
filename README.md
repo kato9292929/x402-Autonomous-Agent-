@@ -98,6 +98,19 @@ npm start           # Start cron scheduler
 | Whale Intent Decoder | https://x402wid.vercel.app |
 | Divergence Analyzer | https://x402nansenpolymarket.vercel.app |
 | Alpha Memo Protocol | https://x402amp.vercel.app |
+| Onchain Stock Data Analyst | https://osd-coral.vercel.app/api/analyst |
+
+---
+
+## Analyst Daily Note Job
+
+毎朝 06:00 JST に Onchain Stock Data の Analyst API を叩き、日次ノート記事を自動生成します。
+
+- **実行時刻**: 毎朝 06:00 JST（node-cron）
+- **対象銘柄**: `config/analyst-tickers.json` で管理
+- **同期必須**: `config/analyst-tickers.json` は Onchain Stock Data リポジトリの `data/stocks.json` と必ず同期させること。同期していない銘柄は `ticker_not_found` エラーとなります。
+- **銘柄追加手順**: 新しい銘柄を追加するときは、**先に Onchain Stock Data 側の `data/stocks.json` に追加** してから、本リポジトリの `config/analyst-tickers.json` に追加してください。
+- **Onchain Stock Data リポジトリ**: https://github.com/kato9292929/onchain-stock-data
 
 ---
 
