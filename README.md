@@ -76,6 +76,24 @@ unset or `privatekey` (the default) keeps the legacy `PAYMENT_PRIVATE_KEY` path,
 so existing deployments are unchanged until you set `SIGNER_BACKEND=circle`.
 Adding Circle env vars alone does **not** switch the signer.
 
+### Production cutover (Railway)
+
+Merging the integration does **not** change production behavior — the AA keeps
+signing with `PAYMENT_PRIVATE_KEY` until you deliberately flip the flag. When
+ready to cut over to Circle:
+
+1. **Fund the wallet** — send USDC to `CIRCLE_EVM_WALLET_ADDRESS` on the target
+   network (testnet: Base Sepolia via https://faucet.circle.com).
+2. **Set the allowlist** — `CIRCLE_ALLOWLIST` = the `payTo` addresses of the
+   endpoints the agent pays (and confirm `CIRCLE_PER_TX_LIMIT_USD` /
+   `CIRCLE_DAILY_LIMIT_USD`).
+3. **Flip the flag** — set `SIGNER_BACKEND=circle` in the Railway Variables tab
+   (with `CIRCLE_API_KEY`, `CIRCLE_ENTITY_SECRET`, `CIRCLE_EVM_WALLET_ID`,
+   `CIRCLE_EVM_WALLET_ADDRESS`). The next daily run signs via Circle.
+
+Rollback is instant: set `SIGNER_BACKEND=privatekey` (or unset it) to return to
+the legacy key.
+
 Both `eip155:8453` (Base mainnet) and `eip155:84532` (Base Sepolia testnet) are
 registered, so the same wallet works on either network — switch by pointing the
 endpoints at testnet or mainnet.
