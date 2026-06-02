@@ -25,21 +25,23 @@ export function getSpendingControls(): SpendingControls {
 /**
  * Build the EVM signer for x402 payments.
  *
- * Preferred: Circle Developer-Controlled Wallets — the key lives in Circle's
- * HSM and signing happens via the `signTypedData` API.
- *
- * Fallback: the legacy `PAYMENT_PRIVATE_KEY` local signer, kept so existing
- * deployments keep working until Circle env vars are provisioned. Set
- * `SIGNER_BACKEND=privatekey` to force it, or `SIGNER_BACKEND=circle` to require
- * Circle.
+ * Selection is an explicit, production-safe opt-in via `SIGNER_BACKEND`:
+ *   - unset / "privatekey" (DEFAULT) → legacy local `PAYMENT_PRIVATE_KEY` signer.
+ *     Existing deployments are unchanged until you flip the flag — adding Circle
+ *     env vars alone does NOT switch the signer.
+ *   - "circle" → Circle Developer-Controlled Wallets. The key lives in Circle's
+ *     HSM and signing happens via the `signTypedData` API.
  */
 function buildEvmSigner(): ClientEvmSigner {
-  const backend = process.env.SIGNER_BACKEND?.toLowerCase();
+  const backend = (process.env.SIGNER_BACKEND ?? "privatekey").toLowerCase();
 
-  const useCircle =
-    backend === "circle" || (backend !== "privatekey" && isCircleConfigured());
-
-  if (useCircle) {
+  if (backend === "circle") {
+    if (!isCircleConfigured()) {
+      throw new Error(
+        "SIGNER_BACKEND=circle but Circle is not configured. Set CIRCLE_API_KEY " +
+          "and CIRCLE_ENTITY_SECRET (and run circle:setup for the wallet)."
+      );
+    }
     console.log("[x402] Signer backend: Circle Developer-Controlled Wallets");
     return createCircleEvmSigner();
   }
@@ -47,14 +49,14 @@ function buildEvmSigner(): ClientEvmSigner {
   const privateKey = process.env.PAYMENT_PRIVATE_KEY;
   if (!privateKey) {
     throw new Error(
-      "No signer available: set Circle env vars (CIRCLE_API_KEY, " +
-        "CIRCLE_ENTITY_SECRET, CIRCLE_EVM_WALLET_ID, CIRCLE_EVM_WALLET_ADDRESS) " +
-        "or PAYMENT_PRIVATE_KEY."
+      "No signer available: set PAYMENT_PRIVATE_KEY, or set SIGNER_BACKEND=circle " +
+        "with Circle env vars (CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, " +
+        "CIRCLE_EVM_WALLET_ID, CIRCLE_EVM_WALLET_ADDRESS)."
     );
   }
   console.warn(
     "[x402] Signer backend: legacy PAYMENT_PRIVATE_KEY (local key). " +
-      "Configure Circle Wallets to retire this."
+      "Set SIGNER_BACKEND=circle to use Circle Wallets."
   );
   return toClientEvmSigner(privateKeyToAccount(privateKey as `0x${string}`));
 }

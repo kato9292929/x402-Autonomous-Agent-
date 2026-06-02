@@ -71,8 +71,10 @@ npm run circle:setup         # paste the printed CIRCLE_*_WALLET_ID / _ADDRESS i
 TEST_URL=<base-sepolia-x402-endpoint> npm run circle:verify
 ```
 
-`SIGNER_BACKEND` selects the signer: `circle` (default when Circle env vars are
-present) or `privatekey` (legacy fallback using `PAYMENT_PRIVATE_KEY`).
+`SIGNER_BACKEND` selects the signer, as an **explicit, production-safe opt-in**:
+unset or `privatekey` (the default) keeps the legacy `PAYMENT_PRIVATE_KEY` path,
+so existing deployments are unchanged until you set `SIGNER_BACKEND=circle`.
+Adding Circle env vars alone does **not** switch the signer.
 
 Both `eip155:8453` (Base mainnet) and `eip155:84532` (Base Sepolia testnet) are
 registered, so the same wallet works on either network — switch by pointing the
