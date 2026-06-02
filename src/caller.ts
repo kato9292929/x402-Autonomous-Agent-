@@ -1,5 +1,5 @@
 import { decodePaymentResponseHeader } from "@x402/fetch";
-import { fetchWithPayment } from "./x402";
+import { fetchWithPayment, getSpendingControls } from "./x402";
 import { getRequestBody } from "./bodies";
 import type { EndpointConfig } from "./config";
 import type { EndpointResult } from "./types";
@@ -34,6 +34,12 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
       res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
     let txHash: string | undefined;
     if (paymentResponseHeader) {
+      // A payment settled — record it against the daily spending budget.
+      try {
+        getSpendingControls().record(ep.cost);
+      } catch {
+        // spending controls not initialized (e.g. unit context) — non-fatal
+      }
       try {
         const decoded = decodePaymentResponseHeader(paymentResponseHeader);
         txHash = decoded.transaction;
