@@ -1,6 +1,15 @@
-import { fetchWithPayment } from "../x402";
+import { fetchWithPayment, getSpendingControls } from "../x402";
 import type { RunLog } from "../types";
 import { logRun } from "../logger";
+
+/** Record a settled payment against the daily spending budget (non-fatal). */
+function recordSpend(usd: number): void {
+  try {
+    getSpendingControls().record(usd);
+  } catch {
+    // spending controls not initialized — non-fatal
+  }
+}
 
 interface Signal {
   token: string;
@@ -34,6 +43,7 @@ export async function runModeA(): Promise<void> {
     log.results.push({ endpoint: "/api/signals", product: "Smart Money Screener", status: "success", costUsdc: 0.05, responsePeek: "", durationMs: 0 });
     log.totalCostUsdc += 0.05;
     log.totalTxCount += 1;
+    recordSpend(0.05);
 
     const strongBuys = (signalsData.signals ?? []).filter(
       (s) => s.signal === "BUY" && s.smartWallets >= 5
@@ -59,6 +69,7 @@ export async function runModeA(): Promise<void> {
     log.results.push({ endpoint: "/api/decode", product: "Whale Intent Decoder", status: "success", costUsdc: 0.30, responsePeek: JSON.stringify(decoded).slice(0, 120), durationMs: 0 });
     log.totalCostUsdc += 0.30;
     log.totalTxCount += 1;
+    recordSpend(0.30);
 
     // STEP 3: Divergence Analyzer — $0.15
     const divRes = await fetchWithPayment("https://x402nansenpolymarket.vercel.app/api/divergence/scan");
@@ -66,6 +77,7 @@ export async function runModeA(): Promise<void> {
     log.results.push({ endpoint: "/api/divergence/scan", product: "Divergence Analyzer", status: "success", costUsdc: 0.15, responsePeek: JSON.stringify(divergence).slice(0, 120), durationMs: 0 });
     log.totalCostUsdc += 0.15;
     log.totalTxCount += 1;
+    recordSpend(0.15);
 
     // STEP 4: Alpha Memo Protocol — $1.00
     const memoRes = await fetchWithPayment("https://x402amp.vercel.app/api/memo/daily");
@@ -73,6 +85,7 @@ export async function runModeA(): Promise<void> {
     log.results.push({ endpoint: "/api/memo/daily", product: "Alpha Memo Protocol", status: "success", costUsdc: 1.00, responsePeek: JSON.stringify(memo).slice(0, 120), durationMs: 0 });
     log.totalCostUsdc += 1.00;
     log.totalTxCount += 1;
+    recordSpend(1.00);
 
     // STEP 5: Execute if conditions met — $0.10
     const intentOk = ["ACCUMULATION", "POSITION_BUILDING"].includes(decoded.intent);
@@ -87,6 +100,7 @@ export async function runModeA(): Promise<void> {
       log.results.push({ endpoint: "/api/execute", product: "Copy Terminal", status: "success", costUsdc: 0.10, responsePeek: JSON.stringify(execResult).slice(0, 120), durationMs: 0 });
       log.totalCostUsdc += 0.10;
       log.totalTxCount += 1;
+      recordSpend(0.10);
       console.log("[MODE A] Execution result:", JSON.stringify(execResult));
     } else {
       console.log(`[MODE A] Conditions not met (intent=${decoded.intent}, confidence=${decoded.confidence})`);

@@ -7,10 +7,14 @@
     "build": "tsc",
     "start": "npm run build && node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "run-now": "ts-node src/index.ts --run-now"
+    "run-now": "ts-node src/index.ts --run-now",
+    "circle:register": "ts-node src/scripts/circle-register-entity-secret.ts",
+    "circle:setup": "ts-node src/scripts/circle-setup-wallets.ts",
+    "circle:verify": "ts-node src/scripts/circle-verify.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
+    "@circle-fin/developer-controlled-wallets": "^10.6.0",
     "@types/node": "22.10.7",
     "@types/node-cron": "3.0.11",
     "@x402/core": "^2.13.0",
