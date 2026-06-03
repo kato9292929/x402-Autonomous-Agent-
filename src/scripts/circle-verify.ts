@@ -66,7 +66,7 @@ function checkSpendingControls(): void {
   console.log(`    over daily budget ($19+$2>$20)→ ${overDaily.length === 0 ? "REJECT ✓" : "ACCEPT ✗ (unexpected)"}`);
 }
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   console.log("=== Circle Wallets × x402 verification ===");
 
   console.log("\n[1] Config");
@@ -108,7 +108,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error("[circle:verify] Failed:", err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+if (require.main === module) {
+  run().catch((err) => {
+    console.error("[circle:verify] Failed:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

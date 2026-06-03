@@ -28,7 +28,7 @@ function parseNetworks(): Blockchain[] {
     .filter(Boolean) as Blockchain[];
 }
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   const client = getCircleClient();
   const networks = parseNetworks();
   const walletSetName =
@@ -81,7 +81,9 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((err) => {
-  console.error("[circle:setup] Failed:", err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+if (require.main === module) {
+  run().catch((err) => {
+    console.error("[circle:setup] Failed:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}
