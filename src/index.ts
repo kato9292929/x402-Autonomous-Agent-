@@ -22,7 +22,59 @@ async function weeklyRun(): Promise<void> {
   await runModeC();
 }
 
+/**
+ * One-off Circle setup tasks, dispatched via the RUN_TASK env var so they can be
+ * triggered from the Railway dashboard (Variables) without changing the locked
+ * Start Command. Set RUN_TASK=<task>, redeploy, read the logs, then clear it.
+ *
+ *   RUN_TASK=gen-secret  → print a fresh 32-byte hex Entity Secret
+ *   RUN_TASK=register    → register the Entity Secret ciphertext (once)
+ *   RUN_TASK=setup       → create the wallet set + wallets (CIRCLE_NETWORKS=BASE for mainnet)
+ *   RUN_TASK=verify      → run the Circle × x402 verification (TEST_URL for a live payment)
+ *
+ * The process exits when the task finishes — it does NOT start the daily agent.
+ */
+async function runOneOffTask(task: string): Promise<void> {
+  switch (task) {
+    case "gen-secret": {
+      const { generateEntitySecret } = await import(
+        "@circle-fin/developer-controlled-wallets"
+      );
+      console.log("----ENTITY-SECRET----");
+      generateEntitySecret();
+      console.log("----END----");
+      return;
+    }
+    case "register": {
+      await (await import("./scripts/circle-register-entity-secret")).run();
+      return;
+    }
+    case "setup": {
+      await (await import("./scripts/circle-setup-wallets")).run();
+      return;
+    }
+    case "verify": {
+      await (await import("./scripts/circle-verify")).run();
+      return;
+    }
+    default:
+      throw new Error(
+        `Unknown RUN_TASK="${task}". Use one of: gen-secret | register | setup | verify.`
+      );
+  }
+}
+
 async function main(): Promise<void> {
+  const task = process.env.RUN_TASK?.trim().toLowerCase();
+  if (task) {
+    console.log(
+      `[AGENT] RUN_TASK=${task} — running one-off task (not the daily agent)`
+    );
+    await runOneOffTask(task);
+    console.log(`[AGENT] RUN_TASK=${task} done. Exiting.`);
+    process.exit(0);
+  }
+
   await initX402Fetch();
 
   // Mode A + B + analyst-daily-note: every day at 06:00 JST (21:00 UTC)

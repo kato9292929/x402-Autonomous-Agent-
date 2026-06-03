@@ -16,7 +16,7 @@ import "dotenv/config";
 import * as path from "path";
 import { registerEntitySecretCiphertext } from "@circle-fin/developer-controlled-wallets";
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   const apiKey = process.env.CIRCLE_API_KEY;
   const entitySecret = process.env.CIRCLE_ENTITY_SECRET;
 
@@ -53,4 +53,6 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+if (require.main === module) {
+  run();
+}
