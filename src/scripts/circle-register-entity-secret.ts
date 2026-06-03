@@ -18,8 +18,12 @@ import * as fs from "fs";
 import { registerEntitySecretCiphertext } from "@circle-fin/developer-controlled-wallets";
 
 export async function run(): Promise<void> {
-  const apiKey = process.env.CIRCLE_API_KEY;
-  const entitySecret = process.env.CIRCLE_ENTITY_SECRET;
+  // Strip stray whitespace/newlines and surrounding quotes that a copy-paste
+  // into the Railway dashboard can introduce.
+  const sanitize = (v: string | undefined): string | undefined =>
+    v?.trim().replace(/^["']|["']$/g, "");
+  const apiKey = sanitize(process.env.CIRCLE_API_KEY);
+  const entitySecret = sanitize(process.env.CIRCLE_ENTITY_SECRET);
 
   if (!apiKey || !entitySecret) {
     console.error(
@@ -27,6 +31,15 @@ export async function run(): Promise<void> {
     );
     process.exit(1);
   }
+
+  // Non-secret diagnostic: shows the SHAPE of the key the container received.
+  // A valid Circle key is "<ENV>:<id>:<secret>" → 3 colon-separated parts.
+  const parts = apiKey.split(":");
+  console.log(
+    `[circle:register] API key shape — length=${apiKey.length}, ` +
+      `colon-parts=${parts.length}, env-prefix="${parts[0]}", ` +
+      `entitySecret length=${entitySecret.length}`
+  );
 
   const recoveryFileDownloadPath = path.join(process.cwd(), "data");
   // On Railway the working dir has no "data" folder; the SDK's file write would
