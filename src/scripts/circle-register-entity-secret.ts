@@ -14,6 +14,7 @@
  */
 import "dotenv/config";
 import * as path from "path";
+import * as fs from "fs";
 import { registerEntitySecretCiphertext } from "@circle-fin/developer-controlled-wallets";
 
 export async function run(): Promise<void> {
@@ -28,6 +29,10 @@ export async function run(): Promise<void> {
   }
 
   const recoveryFileDownloadPath = path.join(process.cwd(), "data");
+  // On Railway the working dir has no "data" folder; the SDK's file write would
+  // throw AFTER the secret is registered server-side, leaving us "registered"
+  // but with the recovery file lost. Create the dir up front to avoid that.
+  fs.mkdirSync(recoveryFileDownloadPath, { recursive: true });
 
   console.log("[circle:register] Registering entity secret ciphertext...");
   try {
@@ -40,7 +45,15 @@ export async function run(): Promise<void> {
     console.log(
       `[circle:register] Recovery file written under: ${recoveryFileDownloadPath}`
     );
-    if (res.data) {
+    // Railway's filesystem is ephemeral, so also print the recovery file to the
+    // logs. SAVE THIS — it's the only way to recover the entity secret later.
+    const recoveryFile = (res.data as { recoveryFile?: string } | undefined)
+      ?.recoveryFile;
+    if (recoveryFile) {
+      console.log("----RECOVERY-FILE----");
+      console.log(recoveryFile);
+      console.log("----END----");
+    } else if (res.data) {
       console.log(JSON.stringify(res.data, null, 2));
     }
   } catch (err) {
