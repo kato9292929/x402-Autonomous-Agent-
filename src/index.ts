@@ -5,6 +5,7 @@ import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC } from "./modes/modeC";
 import { runAnalystDailyNote } from "./jobs/analyst-daily-note";
+import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
@@ -23,6 +24,7 @@ async function weeklyRun(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  startHttpServer();
   await initX402Fetch();
 
   // Mode A + B + analyst-daily-note: every day at 06:00 JST (21:00 UTC)

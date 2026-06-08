@@ -9,6 +9,7 @@ export interface EndpointConfig {
   cost: number;
   chain: "base" | "solana" | "polygon" | "bnb";
   mode: "B" | "C";
+  captureFullData?: boolean;
 }
 
 export const ENDPOINTS_MODE_B: EndpointConfig[] = [
@@ -101,6 +102,26 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     cost: 0.20,
     chain: "base",
     mode: "B",
+  },
+  {
+    id: "birdeye-ohlcv",
+    name: "Birdeye OHLCV",
+    url: getEnvOrDefault("BIRDEYE_OHLCV_URL", "https://osd-coral.vercel.app/api/wrappers/birdeye-ohlcv"),
+    method: "POST",
+    cost: 0.10,
+    chain: "base",
+    mode: "B",
+    captureFullData: true,
+  },
+  {
+    id: "perplexity-research",
+    name: "Perplexity Research",
+    url: getEnvOrDefault("PERPLEXITY_RESEARCH_URL", "https://osd-coral.vercel.app/api/wrappers/perplexity-research"),
+    method: "POST",
+    cost: 0.50,
+    chain: "base",
+    mode: "B",
+    captureFullData: true,
   },
 ];
 

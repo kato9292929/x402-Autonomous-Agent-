@@ -8,6 +8,7 @@ export interface EndpointResult {
   txHash?: string;
   error?: string;
   durationMs: number;
+  fullData?: Record<string, unknown>;
 }
 
 export interface RunLog {

@@ -1,13 +1,76 @@
+import * as fs from "fs";
+import * as path from "path";
 import { ENDPOINTS_MODE_B } from "../config";
 import { callEndpoint, getConsecutiveFailures } from "../caller";
 import { logRun } from "../logger";
 import { sendWebhookSummary } from "../notify";
-import type { RunLog } from "../types";
+import type { EndpointResult, RunLog } from "../types";
 
 const FAILURE_ALERT_THRESHOLD = 3;
+const EXTERNAL_IDS = new Set(["birdeye-ohlcv", "perplexity-research"]);
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function ensureDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function saveExternalData(
+  results: EndpointResult[],
+  endpointIdByUrl: Map<string, string>,
+  date: string
+): void {
+  const externalDir = path.join(process.cwd(), "data", "external");
+  const txDir = path.join(process.cwd(), "data", "transactions");
+  ensureDir(externalDir);
+  ensureDir(txDir);
+
+  const txEntries: Array<{ name: string; endpointId: string; txHash?: string; costUsdc: number }> = [];
+
+  for (const result of results) {
+    const id = endpointIdByUrl.get(result.endpoint);
+    if (!id || !EXTERNAL_IDS.has(id)) continue;
+
+    if (result.status === "success" && result.fullData) {
+      const label = id === "birdeye-ohlcv" ? "birdeye" : "perplexity";
+      const filePath = path.join(externalDir, `${label}-${date}.json`);
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({ fetched_at: new Date().toISOString(), data: result.fullData }, null, 2),
+        "utf-8"
+      );
+      console.log(`[MODE B] External data saved: ${filePath}`);
+    } else if (result.status === "error") {
+      const label = id === "birdeye-ohlcv" ? "Birdeye OHLCV" : "Perplexity Research";
+      console.warn(`[MODE B] External data missing for ${label} — ${result.error}`);
+    }
+
+    if (result.txHash) {
+      txEntries.push({
+        name: result.product,
+        endpointId: id,
+        txHash: result.txHash,
+        costUsdc: result.costUsdc,
+      });
+    }
+  }
+
+  if (txEntries.length > 0) {
+    const txPath = path.join(txDir, `external-${date}.json`);
+    fs.writeFileSync(
+      txPath,
+      JSON.stringify({ date, transactions: txEntries }, null, 2),
+      "utf-8"
+    );
+    console.log(`[MODE B] Transaction log saved: ${txPath}`);
+  }
+}
 
 export async function runModeB(): Promise<void> {
   const startMs = Date.now();
+  const date = todayDate();
   console.log(`[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.length} endpoints`);
 
   const log: RunLog = {
@@ -19,6 +82,9 @@ export async function runModeB(): Promise<void> {
     durationMs: 0,
     errors: [],
   };
+
+  // Map URL → endpoint id for post-loop lookup
+  const endpointIdByUrl = new Map(ENDPOINTS_MODE_B.map((ep) => [ep.url, ep.id]));
 
   for (const ep of ENDPOINTS_MODE_B) {
     const result = await callEndpoint(ep);
@@ -40,6 +106,9 @@ export async function runModeB(): Promise<void> {
       }
     }
   }
+
+  // Persist Birdeye / Perplexity full responses + transaction log
+  saveExternalData(log.results, endpointIdByUrl, date);
 
   log.durationMs = Date.now() - startMs;
   logRun(log);
