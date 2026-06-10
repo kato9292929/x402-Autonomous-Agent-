@@ -52,6 +52,7 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
       responsePeek: JSON.stringify(data).slice(0, 120),
       txHash,
       durationMs: Date.now() - startMs,
+      ...(ep.captureFullData ? { fullData: data } : {}),
     };
   } catch (err) {
     const prev = failureCounts.get(ep.id) ?? 0;

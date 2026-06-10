@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "npm run build && node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "run-now": "ts-node src/index.ts --run-now"
+    "run-now": "ts-node src/index.ts --run-now",
+    "test": "npm run build && node --test dist/__tests__/**/*.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",

@@ -25,10 +25,12 @@ async function fetchAnalyst(
 ): Promise<TickerResult> {
   const startMs = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  const analystUrl = `${baseUrl}/api/analyst`;
 
   try {
-    const res = await fetch(`${baseUrl}/api/analyst`, {
+    console.log(`[ANALYST-NOTE] → POST ${analystUrl} (ticker=${ticker})`);
+    const res = await fetch(analystUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
