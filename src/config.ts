@@ -123,6 +123,28 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     mode: "B",
     captureFullData: true,
   },
+  // ── Solana endpoints (manual 402 via Circle DCW) ─────────────────────────
+  {
+    id: "hyre-defi-intelligence",
+    name: "Hyre DeFi Intelligence",
+    // TODO: Replace with confirmed Hyre/PayAI endpoint URL once verified
+    // See https://pay.sh catalog or Hyre documentation for current URLs
+    url: getEnvOrDefault("HYRE_DEFI_INTELLIGENCE_URL", "https://api.hyre.ai/api/defi/intelligence"),
+    method: "GET",
+    cost: 0.05,
+    chain: "solana",
+    mode: "B",
+  },
+  {
+    id: "hyre-market-signals",
+    name: "Hyre Market Signals",
+    // TODO: Replace with confirmed Hyre/PayAI endpoint URL once verified
+    url: getEnvOrDefault("HYRE_MARKET_SIGNALS_URL", "https://api.hyre.ai/api/market/signals"),
+    method: "GET",
+    cost: 0.05,
+    chain: "solana",
+    mode: "B",
+  },
 ];
 
 export const ENDPOINTS_MODE_C: EndpointConfig[] = [
