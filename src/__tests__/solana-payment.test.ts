@@ -131,17 +131,28 @@ test("buildPaymentProofHeader produces valid base64url JSON", () => {
 
 // ── Chain routing ─────────────────────────────────────────────────────────────
 
-test("MODE B has no Solana endpoints (Hyre removed, awaiting osd verification)", async () => {
+test("MODE B has 3 osd Solana endpoints (osd-ipo, osd-holders, osd-liquidity)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
   const solanaEndpoints = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEndpoints.length, 0, "Should have no Solana endpoints until osd Solana is verified");
+  assert.equal(solanaEndpoints.length, 3, "Should have exactly 3 osd Solana endpoints");
+
+  const ids = solanaEndpoints.map((e) => e.id);
+  assert.ok(ids.includes("osd-ipo"), "osd-ipo should be present");
+  assert.ok(ids.includes("osd-holders"), "osd-holders should be present");
+  assert.ok(ids.includes("osd-liquidity"), "osd-liquidity should be present");
+
+  for (const ep of solanaEndpoints) {
+    assert.ok(ep.url.includes("osd-coral.vercel.app"), `${ep.id} must point to osd-coral`);
+    assert.equal(ep.method, "GET");
+    assert.equal(ep.cost, 0.01);
+  }
 });
 
-test("MODE B contains only Base endpoints", async () => {
+test("MODE B contains both Base and Solana endpoints", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
   const chains = new Set(ENDPOINTS_MODE_B.map((e) => e.chain));
   assert.ok(chains.has("base"), "MODE B should have Base endpoints");
-  assert.ok(!chains.has("solana"), "MODE B should have no Solana endpoints yet");
+  assert.ok(chains.has("solana"), "MODE B should have Solana endpoints");
 });
 
 test("PMI (private-market) is not in MODE B", async () => {

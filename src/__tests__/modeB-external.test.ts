@@ -78,9 +78,9 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 11 endpoints (9 base + birdeye + perplexity, Hyre/PMI removed)", async () => {
+test("MODE B has 14 endpoints (11 base + 3 osd Solana, Hyre/PMI removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 11, "MODE B should have exactly 11 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
 
@@ -91,7 +91,7 @@ test("MODE B has 11 endpoints (9 base + birdeye + perplexity, Hyre/PMI removed)"
   assert.ok(!ids.includes("hyre-defi-intelligence"), "hyre-defi-intelligence should NOT be in MODE B");
   assert.ok(!ids.includes("hyre-market-signals"), "hyre-market-signals should NOT be in MODE B");
 
-  // External data endpoints
+  // External data endpoints (Base)
   assert.ok(ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should be in MODE B");
   assert.ok(ids.includes("perplexity-research"), "perplexity-research should be in MODE B");
 
@@ -100,7 +100,17 @@ test("MODE B has 11 endpoints (9 base + birdeye + perplexity, Hyre/PMI removed)"
   const perplexity = ENDPOINTS_MODE_B.find((e) => e.id === "perplexity-research")!;
   assert.equal(perplexity.captureFullData, true);
 
-  // No Solana endpoints until osd Solana facilitator is verified in production
+  // osd Solana endpoints
+  assert.ok(ids.includes("osd-ipo"), "osd-ipo should be in MODE B");
+  assert.ok(ids.includes("osd-holders"), "osd-holders should be in MODE B");
+  assert.ok(ids.includes("osd-liquidity"), "osd-liquidity should be in MODE B");
+
   const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEps.length, 0, "Should have no Solana endpoints yet");
+  assert.equal(solanaEps.length, 3, "Should have exactly 3 Solana endpoints");
+
+  for (const ep of solanaEps) {
+    assert.ok(ep.url.includes("osd-coral.vercel.app"), `${ep.id} should point to osd-coral.vercel.app`);
+    assert.equal(ep.method, "GET");
+    assert.equal(ep.cost, 0.01);
+  }
 });
