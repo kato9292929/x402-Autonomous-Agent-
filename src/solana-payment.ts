@@ -10,7 +10,7 @@
  *   4. Wait for transaction signature
  *   5. Retry request with X-PAYMENT-RESPONSE / PAYMENT-RESPONSE proof header
  */
-import { createCircleTransfer, waitForTransactionSignature } from "./circle";
+import { createSolanaTransfer, waitForSolanaSignature } from "./circle/transfer";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -132,14 +132,14 @@ export async function fetchWithSolanaPayment(
   );
 
   // Step 3: send USDC via Circle DCW
-  const { transactionId } = await createCircleTransfer({
+  const { transactionId } = await createSolanaTransfer({
     walletId: config.walletId,
     destinationAddress: req.payTo,
     amountDecimal,
   });
 
   // Step 4: wait for Solana transaction signature
-  const signature = await waitForTransactionSignature(transactionId);
+  const signature = await waitForSolanaSignature(transactionId);
 
   // Step 5: retry with proof header
   const proofHeader = buildPaymentProofHeader(signature, config.walletAddress, req);

@@ -131,21 +131,21 @@ test("buildPaymentProofHeader produces valid base64url JSON", () => {
 
 // ── Chain routing ─────────────────────────────────────────────────────────────
 
-test("MODE B has Solana endpoints with chain=solana", async () => {
+test("MODE B has no Solana endpoints (Hyre removed, awaiting osd verification)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
   const solanaEndpoints = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.ok(solanaEndpoints.length >= 1, "At least 1 Solana endpoint in MODE B");
-
-  for (const ep of solanaEndpoints) {
-    assert.equal(ep.chain, "solana");
-    assert.ok(ep.url.length > 0, `${ep.id} should have a URL`);
-    assert.ok(["GET", "POST"].includes(ep.method));
-  }
+  assert.equal(solanaEndpoints.length, 0, "Should have no Solana endpoints until osd Solana is verified");
 });
 
-test("MODE B contains both Base and Solana endpoints", async () => {
+test("MODE B contains only Base endpoints", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
   const chains = new Set(ENDPOINTS_MODE_B.map((e) => e.chain));
   assert.ok(chains.has("base"), "MODE B should have Base endpoints");
-  assert.ok(chains.has("solana"), "MODE B should have Solana endpoints");
+  assert.ok(!chains.has("solana"), "MODE B should have no Solana endpoints yet");
+});
+
+test("PMI (private-market) is not in MODE B", async () => {
+  const { ENDPOINTS_MODE_B } = await import("../config");
+  const ids = ENDPOINTS_MODE_B.map((e) => e.id);
+  assert.ok(!ids.includes("private-market"), "PMI should have been removed");
 });

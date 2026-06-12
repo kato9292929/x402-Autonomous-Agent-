@@ -1,25 +1,48 @@
+/**
+ * x402 fetch initialization for Base (EVM) payments.
+ *
+ * SIGNER_BACKEND env var selects the signing backend:
+ *   "circle"     — Circle Developer-Controlled Wallet (CIRCLE_EVM_WALLET_ID + CIRCLE_EVM_WALLET_ADDRESS)
+ *   "privatekey" — Local EOA private key (PAYMENT_PRIVATE_KEY)  ← default
+ */
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
 import type { PaymentRequirements } from "@x402/core/types";
-
-const MAX_USDC = BigInt(3_000_000); // $3.00 USDC (6 decimals) — covers weekly $3.00 reports
+import { getCircleEvmSignerFromEnv } from "./circle/evm-signer";
+import { DEFAULT_MAX_BASE_MICRO_USDC } from "./circle/spending-controls";
 
 let _fetchWithPayment:
   | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
   | null = null;
 
-export async function initX402Fetch(): Promise<void> {
-  const privateKey = process.env.PAYMENT_PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error("PAYMENT_PRIVATE_KEY environment variable is required");
+function buildEvmScheme(): ExactEvmScheme {
+  const backend = process.env.SIGNER_BACKEND ?? "privatekey";
+
+  if (backend === "circle") {
+    console.log("[X402] Using Circle DCW signer for Base (SIGNER_BACKEND=circle)");
+    const signer = getCircleEvmSignerFromEnv();
+    console.log(`[X402] Circle EVM wallet: ${signer.address}`);
+    return new ExactEvmScheme(signer);
   }
 
+  // default: privatekey
+  const privateKey = process.env.PAYMENT_PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error(
+      "PAYMENT_PRIVATE_KEY is required when SIGNER_BACKEND=privatekey (default). " +
+      "Set SIGNER_BACKEND=circle to use Circle DCW instead."
+    );
+  }
   const account = privateKeyToAccount(privateKey as `0x${string}`);
-  // toClientEvmSigner adapts a LocalAccount to the ClientEvmSigner interface.
-  // Only address + signTypedData are needed for the base EIP-3009 flow.
-  const signer = toClientEvmSigner(account);
-  const evmScheme = new ExactEvmScheme(signer);
+  console.log(`[X402] Using private key signer for Base: ${account.address}`);
+  // toClientEvmSigner adapts LocalAccount to ClientEvmSigner (address + signTypedData)
+  return new ExactEvmScheme(toClientEvmSigner(account));
+}
+
+export async function initX402Fetch(): Promise<void> {
+  const evmScheme = buildEvmScheme();
+  const maxUsdc = DEFAULT_MAX_BASE_MICRO_USDC;
 
   const client = new x402Client()
     // v2 servers: CAIP-2 network identifier
@@ -31,7 +54,7 @@ export async function initX402Fetch(): Promise<void> {
       (_version: number, reqs: PaymentRequirements[]) =>
         reqs.filter((r) => {
           try {
-            return BigInt(r.amount) <= MAX_USDC;
+            return BigInt(r.amount) <= maxUsdc;
           } catch {
             return false;
           }

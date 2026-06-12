@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as crypto from "node:crypto";
-import { encryptEntitySecret } from "../circle";
+import { encryptEntitySecret } from "../circle/client";
 
 // ── encryptEntitySecret ───────────────────────────────────────────────────────
 
