@@ -78,17 +78,23 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 12 endpoints (10 original + birdeye + perplexity)", async () => {
+test("MODE B has 14 endpoints (10 original + birdeye + perplexity + 2 Solana)", async () => {
   // Dynamic import to avoid triggering env checks at module load
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 12, "MODE B should have exactly 12 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
   assert.ok(ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should be in MODE B");
   assert.ok(ids.includes("perplexity-research"), "perplexity-research should be in MODE B");
+  assert.ok(ids.includes("hyre-defi-intelligence"), "hyre-defi-intelligence should be in MODE B");
+  assert.ok(ids.includes("hyre-market-signals"), "hyre-market-signals should be in MODE B");
 
   const birdeye = ENDPOINTS_MODE_B.find((e) => e.id === "birdeye-ohlcv")!;
   assert.equal(birdeye.captureFullData, true);
   const perplexity = ENDPOINTS_MODE_B.find((e) => e.id === "perplexity-research")!;
   assert.equal(perplexity.captureFullData, true);
+
+  // Solana endpoints
+  const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
+  assert.equal(solanaEps.length, 2, "Should have 2 Solana endpoints");
 });
