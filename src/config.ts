@@ -68,15 +68,6 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     mode: "B",
   },
   {
-    id: "private-market",
-    name: "Private Market Intelligence",
-    url: getEnvOrDefault("PRIVATE_MARKET_URL", "https://x402pmi.vercel.app/api/private-market/scan"),
-    method: "GET",
-    cost: 0.15,
-    chain: "base",
-    mode: "B",
-  },
-  {
     id: "smart-money-screener",
     name: "Smart Money Screener",
     url: getEnvOrDefault("SMART_MONEY_SCREENER_URL", "https://smartmoneyscreener.vercel.app/api/screener/smart-money"),
@@ -124,12 +115,12 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     captureFullData: true,
   },
   // ── Solana endpoints (manual 402 via Circle DCW) ─────────────────────────
+  // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
+  // payTo:   7G73PLhKvAPBGTzG5ESAE4coE7QrVeTTKfhTxQZbyGgC (Hyre PayAI treasury)
   {
     id: "hyre-defi-intelligence",
     name: "Hyre DeFi Intelligence",
-    // TODO: Replace with confirmed Hyre/PayAI endpoint URL once verified
-    // See https://pay.sh catalog or Hyre documentation for current URLs
-    url: getEnvOrDefault("HYRE_DEFI_INTELLIGENCE_URL", "https://api.hyre.ai/api/defi/intelligence"),
+    url: getEnvOrDefault("HYRE_DEFI_INTELLIGENCE_URL", "https://mpp.hyreagent.fun/api/defi/intelligence"),
     method: "GET",
     cost: 0.05,
     chain: "solana",
@@ -138,8 +129,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "hyre-market-signals",
     name: "Hyre Market Signals",
-    // TODO: Replace with confirmed Hyre/PayAI endpoint URL once verified
-    url: getEnvOrDefault("HYRE_MARKET_SIGNALS_URL", "https://api.hyre.ai/api/market/signals"),
+    url: getEnvOrDefault("HYRE_MARKET_SIGNALS_URL", "https://mpp.hyreagent.fun/api/market/signals"),
     method: "GET",
     cost: 0.05,
     chain: "solana",

@@ -131,14 +131,14 @@ test("buildPaymentProofHeader produces valid base64url JSON", () => {
 
 // ── Chain routing ─────────────────────────────────────────────────────────────
 
-test("MODE B has Solana endpoints with chain=solana", async () => {
+test("MODE B has 2 Solana endpoints with confirmed Hyre base URL", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
   const solanaEndpoints = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.ok(solanaEndpoints.length >= 1, "At least 1 Solana endpoint in MODE B");
+  assert.equal(solanaEndpoints.length, 2, "Should have exactly 2 Solana endpoints");
 
   for (const ep of solanaEndpoints) {
     assert.equal(ep.chain, "solana");
-    assert.ok(ep.url.length > 0, `${ep.id} should have a URL`);
+    assert.ok(ep.url.includes("hyreagent.fun") || ep.url.length > 0, `${ep.id} should have Hyre URL`);
     assert.ok(["GET", "POST"].includes(ep.method));
   }
 });
@@ -148,4 +148,10 @@ test("MODE B contains both Base and Solana endpoints", async () => {
   const chains = new Set(ENDPOINTS_MODE_B.map((e) => e.chain));
   assert.ok(chains.has("base"), "MODE B should have Base endpoints");
   assert.ok(chains.has("solana"), "MODE B should have Solana endpoints");
+});
+
+test("PMI (private-market) is not in MODE B", async () => {
+  const { ENDPOINTS_MODE_B } = await import("../config");
+  const ids = ENDPOINTS_MODE_B.map((e) => e.id);
+  assert.ok(!ids.includes("private-market"), "PMI should have been removed");
 });

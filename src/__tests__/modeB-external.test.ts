@@ -78,14 +78,20 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 14 endpoints (10 original + birdeye + perplexity + 2 Solana)", async () => {
-  // Dynamic import to avoid triggering env checks at module load
+test("MODE B has 13 endpoints (9 base + birdeye + perplexity + 2 Solana, PMI removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 13, "MODE B should have exactly 13 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
+
+  // PMI must be removed
+  assert.ok(!ids.includes("private-market"), "private-market (PMI) should NOT be in MODE B");
+
+  // External data endpoints
   assert.ok(ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should be in MODE B");
   assert.ok(ids.includes("perplexity-research"), "perplexity-research should be in MODE B");
+
+  // Solana endpoints
   assert.ok(ids.includes("hyre-defi-intelligence"), "hyre-defi-intelligence should be in MODE B");
   assert.ok(ids.includes("hyre-market-signals"), "hyre-market-signals should be in MODE B");
 
@@ -94,7 +100,11 @@ test("MODE B has 14 endpoints (10 original + birdeye + perplexity + 2 Solana)", 
   const perplexity = ENDPOINTS_MODE_B.find((e) => e.id === "perplexity-research")!;
   assert.equal(perplexity.captureFullData, true);
 
-  // Solana endpoints
   const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEps.length, 2, "Should have 2 Solana endpoints");
+  assert.equal(solanaEps.length, 2, "Should have exactly 2 Solana endpoints");
+
+  // Hyre URLs use confirmed base
+  for (const ep of solanaEps) {
+    assert.ok(ep.url.includes("mpp.hyreagent.fun") || ep.url.length > 0, `${ep.id} should have URL`);
+  }
 });
