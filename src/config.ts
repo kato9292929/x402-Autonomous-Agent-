@@ -114,6 +114,36 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     mode: "B",
     captureFullData: true,
   },
+  // ── osd Solana endpoints (manual 402 via Circle DCW Solana wallet) ────────
+  // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
+  // payTo + amount resolved from 402 challenge (never hardcoded)
+  {
+    id: "osd-ipo",
+    name: "OSD IPO Data (Solana)",
+    url: getEnvOrDefault("OSD_IPO_URL", "https://osd-coral.vercel.app/api/ipo"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "B",
+  },
+  {
+    id: "osd-holders",
+    name: "OSD Holders Data (Solana)",
+    url: getEnvOrDefault("OSD_HOLDERS_URL", "https://osd-coral.vercel.app/api/holders"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "B",
+  },
+  {
+    id: "osd-liquidity",
+    name: "OSD Liquidity Data (Solana)",
+    url: getEnvOrDefault("OSD_LIQUIDITY_URL", "https://osd-coral.vercel.app/api/liquidity"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "B",
+  },
 ];
 
 export const ENDPOINTS_MODE_C: EndpointConfig[] = [
