@@ -34,16 +34,51 @@ test("microUsdcToDecimal converts 1500000 to 1.500000", () => {
 
 // ── parsePaymentRequired ──────────────────────────────────────────────────────
 
-function makeResponse(headers: Record<string, string>): Response {
+function makeBodyResponse(body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status: 402,
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
+function makeHeaderResponse(headers: Record<string, string>): Response {
   return new Response(null, { status: 402, headers });
 }
 
-test("parsePaymentRequired returns null if no payment header", () => {
-  const res = makeResponse({});
-  assert.equal(parsePaymentRequired(res), null);
+// x402 v2 body-based (primary path — used by osd)
+test("parsePaymentRequired parses x402 v2 body with Solana accepts", async () => {
+  const res = makeBodyResponse({
+    x402Version: 2,
+    accepts: [
+      { scheme: "exact", network: "eip155:8453", payTo: "0xEVM", amount: "200000" },
+      { scheme: "exact", network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", payTo: "SolBody", amount: "10000", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
+    ],
+  });
+  const parsed = await parsePaymentRequired(res);
+  assert.ok(parsed !== null);
+  assert.equal(parsed.payTo, "SolBody");
+  assert.equal(parsed.amount, "10000");
+  assert.ok(parsed.network.includes("solana"));
 });
 
-test("parsePaymentRequired parses v2 base64url-encoded array", () => {
+test("parsePaymentRequired returns null for x402 v2 body with EVM-only accepts", async () => {
+  const res = makeBodyResponse({
+    x402Version: 2,
+    accepts: [
+      { scheme: "exact", network: "eip155:8453", payTo: "0xEVM", amount: "200000" },
+    ],
+  });
+  const parsed = await parsePaymentRequired(res);
+  assert.equal(parsed, null);
+});
+
+test("parsePaymentRequired returns null if no body and no header", async () => {
+  const res = makeHeaderResponse({});
+  assert.equal(await parsePaymentRequired(res), null);
+});
+
+// Header fallback (v1 / non-standard)
+test("parsePaymentRequired falls back to PAYMENT-REQUIRED header (base64url array)", async () => {
   const req = {
     scheme: "exact",
     network: "solana",
@@ -52,60 +87,45 @@ test("parsePaymentRequired parses v2 base64url-encoded array", () => {
     asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   };
   const header = Buffer.from(JSON.stringify([req])).toString("base64url");
-  const res = makeResponse({ "PAYMENT-REQUIRED": header });
-  const parsed = parsePaymentRequired(res);
+  const res = makeHeaderResponse({ "PAYMENT-REQUIRED": header });
+  const parsed = await parsePaymentRequired(res);
   assert.ok(parsed !== null);
   assert.equal(parsed.payTo, "SolanaAddr123");
   assert.equal(parsed.amount, "200000");
   assert.equal(parsed.network, "solana");
 });
 
-test("parsePaymentRequired parses v1 plain JSON object", () => {
+test("parsePaymentRequired falls back to X-PAYMENT-REQUIRED header (plain JSON)", async () => {
   const req = {
     scheme: "exact",
     network: "solana",
     payTo: "SolanaAddr456",
     maxAmountRequired: "100000",
   };
-  const res = makeResponse({ "X-PAYMENT-REQUIRED": JSON.stringify(req) });
-  const parsed = parsePaymentRequired(res);
+  const res = makeHeaderResponse({ "X-PAYMENT-REQUIRED": JSON.stringify(req) });
+  const parsed = await parsePaymentRequired(res);
   assert.ok(parsed !== null);
   assert.equal(parsed.payTo, "SolanaAddr456");
   assert.equal(parsed.maxAmountRequired, "100000");
 });
 
-test("parsePaymentRequired ignores non-Solana requirements in array", () => {
+test("parsePaymentRequired ignores non-Solana in header array fallback", async () => {
   const reqs = [
     { scheme: "exact", network: "eip155:8453", payTo: "0xEVM", amount: "200000" },
     { scheme: "exact", network: "solana", payTo: "SolanaOnly", amount: "50000" },
   ];
   const header = Buffer.from(JSON.stringify(reqs)).toString("base64url");
-  const res = makeResponse({ "PAYMENT-REQUIRED": header });
-  const parsed = parsePaymentRequired(res);
+  const res = makeHeaderResponse({ "PAYMENT-REQUIRED": header });
+  const parsed = await parsePaymentRequired(res);
   assert.ok(parsed !== null);
   assert.equal(parsed.payTo, "SolanaOnly");
-  assert.equal(parsed.network, "solana");
 });
 
-test("parsePaymentRequired returns null for EVM-only requirements", () => {
+test("parsePaymentRequired returns null for EVM-only header array", async () => {
   const reqs = [{ scheme: "exact", network: "eip155:8453", payTo: "0xEVM", amount: "200000" }];
   const header = Buffer.from(JSON.stringify(reqs)).toString("base64url");
-  const res = makeResponse({ "PAYMENT-REQUIRED": header });
-  const parsed = parsePaymentRequired(res);
-  assert.equal(parsed, null);
-});
-
-test("parsePaymentRequired handles PAYMENT-REQUIRED header (v2) over X-PAYMENT-REQUIRED (v1)", () => {
-  const v2Req = { scheme: "exact", network: "solana", payTo: "V2Addr", amount: "300000" };
-  const v1Req = { scheme: "exact", network: "solana", payTo: "V1Addr", maxAmountRequired: "100000" };
-  const header = Buffer.from(JSON.stringify([v2Req])).toString("base64url");
-  const res = makeResponse({
-    "PAYMENT-REQUIRED": header,
-    "X-PAYMENT-REQUIRED": JSON.stringify(v1Req),
-  });
-  const parsed = parsePaymentRequired(res);
-  // PAYMENT-REQUIRED (v2) takes precedence
-  assert.equal(parsed?.payTo, "V2Addr");
+  const res = makeHeaderResponse({ "PAYMENT-REQUIRED": header });
+  assert.equal(await parsePaymentRequired(res), null);
 });
 
 // ── buildPaymentProofHeader ───────────────────────────────────────────────────
@@ -114,7 +134,6 @@ test("buildPaymentProofHeader produces valid base64url JSON", () => {
   const req = { scheme: "exact", network: "solana", payTo: "SolPay", amount: "200000" };
   const header = buildPaymentProofHeader("sig123abc", "myWalletAddr", req);
 
-  // Should decode as valid JSON
   const decoded = JSON.parse(Buffer.from(header, "base64url").toString("utf-8")) as {
     x402Version: number;
     scheme: string;

@@ -6,12 +6,8 @@
  * a local private key (SIGNER_BACKEND=circle).
  *
  * Circle API endpoint used:
- *   POST https://api.circle.com/v1/w3s/developer/wallets/{walletId}/sign/typedData
- *
- * If this endpoint returns an error, verify:
- *   1. CIRCLE_EVM_WALLET_ID is correct and the wallet is active
- *   2. The wallet has sufficient USDC on Base mainnet
- *   3. Circle DCW v1 typed-data signing is enabled for your entity
+ *   POST https://api.circle.com/v1/w3s/developer/sign/typedData
+ *   body: { walletId, data, entitySecretCiphertext }
  *
  * Reference: https://developers.circle.com/w3s/reference/developersigntyped
  */
@@ -29,22 +25,20 @@ export function createCircleEvmSigner(
       const apiKey = getRequiredApiKey();
       const entitySecretCiphertext = await buildEntitySecretCiphertext(apiKey);
 
-      const res = await fetch(
-        `${CIRCLE_API}/developer/wallets/${walletId}/sign/typedData`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            data: JSON.stringify({ domain, types, primaryType, message }, (_k, v) =>
-              typeof v === "bigint" ? v.toString() : v
-            ),
-            entitySecretCiphertext,
-          }),
-        }
-      );
+      const res = await fetch(`${CIRCLE_API}/developer/sign/typedData`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          walletId,
+          data: JSON.stringify({ domain, types, primaryType, message }, (_k, v) =>
+            typeof v === "bigint" ? v.toString() : v
+          ),
+          entitySecretCiphertext,
+        }),
+      });
 
       if (!res.ok) {
         const body = await res.text().catch(() => "(no body)");
