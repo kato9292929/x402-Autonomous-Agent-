@@ -51,8 +51,8 @@ export async function createSolanaTransfer(
     throw new Error(`[CIRCLE:SOL] transfer failed: HTTP ${res.status} — ${body.slice(0, 300)}`);
   }
 
-  const json = (await res.json()) as { data: { transaction: { id: string } } };
-  const transactionId = json.data?.transaction?.id;
+  const json = (await res.json()) as { data: { id: string; state?: string } };
+  const transactionId = json.data?.id;
   if (!transactionId) throw new Error("[CIRCLE:SOL] transfer: no transactionId in response");
 
   console.log(`[CIRCLE:SOL] Transfer submitted: ${transactionId}`);
