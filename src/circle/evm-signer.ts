@@ -38,7 +38,9 @@ export function createCircleEvmSigner(
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            data: JSON.stringify({ domain, types, primaryType, message }),
+            data: JSON.stringify({ domain, types, primaryType, message }, (_k, v) =>
+              typeof v === "bigint" ? v.toString() : v
+            ),
             entitySecretCiphertext,
           }),
         }
