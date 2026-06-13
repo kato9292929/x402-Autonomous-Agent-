@@ -128,6 +128,33 @@ test("parsePaymentRequired returns null for EVM-only header array", async () => 
   assert.equal(await parsePaymentRequired(res), null);
 });
 
+// osd actual format: header contains base64-encoded { x402Version:2, accepts:[...] }
+test("parsePaymentRequired parses osd format: header with base64 { x402Version:2, accepts:[] }", async () => {
+  const v2body = {
+    x402Version: 2,
+    error: "Payment required",
+    resource: { url: "https://osd-coral.vercel.app/api/ipo" },
+    accepts: [
+      { scheme: "exact", network: "eip155:8453", payTo: "0xEVM", amount: "10000" },
+      {
+        scheme: "exact",
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        amount: "10000",
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        payTo: "4s8XQC2WzRfgH8Xiep7ybnCW11VKRCMwxQF6jknx3VPf",
+        extra: { feePayer: "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP" },
+      },
+    ],
+  };
+  const header = Buffer.from(JSON.stringify(v2body)).toString("base64");
+  const res = makeHeaderResponse({ "payment-required": header });
+  const parsed = await parsePaymentRequired(res);
+  assert.ok(parsed !== null);
+  assert.equal(parsed.payTo, "4s8XQC2WzRfgH8Xiep7ybnCW11VKRCMwxQF6jknx3VPf");
+  assert.equal(parsed.amount, "10000");
+  assert.ok(parsed.network.includes("solana"));
+});
+
 // ── buildPaymentProofHeader ───────────────────────────────────────────────────
 
 test("buildPaymentProofHeader produces valid base64url JSON", () => {

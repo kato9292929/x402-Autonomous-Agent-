@@ -76,14 +76,24 @@ export async function parsePaymentRequired(response: Response): Promise<SolanaPa
   }
 
   if (Array.isArray(decoded)) {
+    // v1 header format: array of requirements directly
     const req = (decoded as SolanaPaymentRequirements[]).find(
       (r) => typeof r.network === "string" && r.network.toLowerCase().includes("solana")
     );
     return req ?? null;
   }
 
-  const obj = decoded as SolanaPaymentRequirements;
-  if (obj?.network?.toLowerCase().includes("solana")) return obj;
+  // v2 header format: { x402Version, accepts: [...] } — same shape as body but delivered via header
+  const obj = decoded as { accepts?: SolanaPaymentRequirements[]; network?: string };
+  if (Array.isArray(obj?.accepts)) {
+    const req = obj.accepts.find(
+      (r) => typeof r.network === "string" && r.network.toLowerCase().includes("solana")
+    );
+    return req ?? null;
+  }
+
+  // v1 single-object format: decoded object IS the requirement
+  if (obj?.network?.toLowerCase().includes("solana")) return obj as SolanaPaymentRequirements;
 
   return null;
 }
