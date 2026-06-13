@@ -42,6 +42,14 @@ export function createCircleEvmSigner(
 
       const typesWithDomain = { EIP712Domain: eip712Domain, ...types };
 
+      const dataStr = JSON.stringify(
+        { domain, types: typesWithDomain, primaryType, message },
+        (_k, v) => (typeof v === "bigint" ? v.toString() : v)
+      );
+
+      // Temporary debug log — remove after Base signing is confirmed working
+      console.log("[CIRCLE:EVM] data sent to sign/typedData:", dataStr);
+
       const res = await fetch(`${CIRCLE_API}/developer/sign/typedData`, {
         method: "POST",
         headers: {
@@ -50,10 +58,7 @@ export function createCircleEvmSigner(
         },
         body: JSON.stringify({
           walletId,
-          data: JSON.stringify(
-            { domain, types: typesWithDomain, primaryType, message },
-            (_k, v) => (typeof v === "bigint" ? v.toString() : v)
-          ),
+          data: dataStr,
           entitySecretCiphertext,
         }),
       });
