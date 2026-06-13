@@ -5,7 +5,7 @@
  *
  * Flow:
  *   1. Send initial request → expect 402
- *   2. Parse PAYMENT-REQUIRED header for payTo / amount
+ *   2. Parse payment requirements from 402 body (x402 v2) or header fallback (v1)
  *   3. Create Solana USDC transfer via Circle DCW
  *   4. Wait for transaction signature
  *   5. Retry request with X-PAYMENT-RESPONSE / PAYMENT-RESPONSE proof header
@@ -39,7 +39,25 @@ export function microUsdcToDecimal(microUsdc: string | bigint): string {
   return `${whole}.${String(frac).padStart(6, "0")}`;
 }
 
-export function parsePaymentRequired(response: Response): SolanaPaymentRequirements | null {
+export async function parsePaymentRequired(response: Response): Promise<SolanaPaymentRequirements | null> {
+  // x402 v2: payment requirements are in the response body
+  // { x402Version: 2, accepts: [{ scheme, network, payTo, amount, asset }] }
+  try {
+    const body = await response.json() as {
+      x402Version?: number;
+      accepts?: SolanaPaymentRequirements[];
+    };
+    if (Array.isArray(body?.accepts)) {
+      const req = body.accepts.find(
+        (r) => typeof r.network === "string" && r.network.toLowerCase().includes("solana")
+      );
+      if (req) return req;
+    }
+  } catch {
+    // body not JSON — fall through to header fallback
+  }
+
+  // Fallback: header-based (v1 servers or non-standard implementations)
   const header =
     response.headers.get("PAYMENT-REQUIRED") ??
     response.headers.get("X-PAYMENT-REQUIRED");
@@ -47,11 +65,9 @@ export function parsePaymentRequired(response: Response): SolanaPaymentRequireme
 
   let decoded: unknown;
   try {
-    // v2: base64url-encoded JSON
     decoded = JSON.parse(Buffer.from(header, "base64url").toString("utf-8"));
   } catch {
     try {
-      // v1: plain JSON string
       decoded = JSON.parse(header);
     } catch {
       console.warn("[SOLANA] Failed to parse PAYMENT-REQUIRED header");
@@ -59,7 +75,6 @@ export function parsePaymentRequired(response: Response): SolanaPaymentRequireme
     }
   }
 
-  // Array format (v2): find first Solana requirement
   if (Array.isArray(decoded)) {
     const req = (decoded as SolanaPaymentRequirements[]).find(
       (r) => typeof r.network === "string" && r.network.toLowerCase().includes("solana")
@@ -67,7 +82,6 @@ export function parsePaymentRequired(response: Response): SolanaPaymentRequireme
     return req ?? null;
   }
 
-  // Object format (v1)
   const obj = decoded as SolanaPaymentRequirements;
   if (obj?.network?.toLowerCase().includes("solana")) return obj;
 
@@ -109,10 +123,10 @@ export async function fetchWithSolanaPayment(
     return firstRes;
   }
 
-  // Step 2: parse challenge
-  const req = parsePaymentRequired(firstRes);
+  // Step 2: parse challenge (x402 v2 body, with header fallback)
+  const req = await parsePaymentRequired(firstRes);
   if (!req) {
-    throw new Error(`[SOLANA] 402 received but no Solana payment requirements in headers (url: ${urlStr})`);
+    throw new Error(`[SOLANA] 402 received but no Solana payment requirements found (url: ${urlStr})`);
   }
 
   const rawAmount = req.amount ?? req.maxAmountRequired ?? "0";
