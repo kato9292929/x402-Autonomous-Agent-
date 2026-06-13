@@ -14,6 +14,15 @@
 import type { ClientEvmSigner } from "@x402/evm";
 import { CIRCLE_API, buildEntitySecretCiphertext, getRequiredApiKey } from "./client";
 
+// Standard EIP-712 domain field types — used to build EIP712Domain for Circle
+const EIP712_DOMAIN_FIELD_TYPES: Record<string, string> = {
+  name: "string",
+  version: "string",
+  chainId: "uint256",
+  verifyingContract: "address",
+  salt: "bytes32",
+};
+
 export function createCircleEvmSigner(
   walletId: string,
   walletAddress: `0x${string}`
@@ -25,6 +34,14 @@ export function createCircleEvmSigner(
       const apiKey = getRequiredApiKey();
       const entitySecretCiphertext = await buildEntitySecretCiphertext(apiKey);
 
+      // Circle requires EIP712Domain in types; viem/x402 omits it (uses domain object instead).
+      // Derive EIP712Domain from the actual domain keys so it matches exactly.
+      const eip712Domain = Object.keys(domain)
+        .filter((k) => k in EIP712_DOMAIN_FIELD_TYPES)
+        .map((k) => ({ name: k, type: EIP712_DOMAIN_FIELD_TYPES[k] }));
+
+      const typesWithDomain = { EIP712Domain: eip712Domain, ...types };
+
       const res = await fetch(`${CIRCLE_API}/developer/sign/typedData`, {
         method: "POST",
         headers: {
@@ -33,8 +50,9 @@ export function createCircleEvmSigner(
         },
         body: JSON.stringify({
           walletId,
-          data: JSON.stringify({ domain, types, primaryType, message }, (_k, v) =>
-            typeof v === "bigint" ? v.toString() : v
+          data: JSON.stringify(
+            { domain, types: typesWithDomain, primaryType, message },
+            (_k, v) => (typeof v === "bigint" ? v.toString() : v)
           ),
           entitySecretCiphertext,
         }),
