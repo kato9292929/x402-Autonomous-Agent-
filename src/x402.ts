@@ -1,12 +1,18 @@
 /**
- * x402 fetch initialization for Base (EVM) payments.
+ * x402 fetch initialization for Base (EVM) and Solana payments.
  *
- * SIGNER_BACKEND env var selects the signing backend:
+ * EVM signing backend (SIGNER_BACKEND):
  *   "circle"     — Circle Developer-Controlled Wallet (CIRCLE_EVM_WALLET_ID + CIRCLE_EVM_WALLET_ADDRESS)
  *   "privatekey" — Local EOA private key (PAYMENT_PRIVATE_KEY)  ← default
+ *
+ * Solana signing: native keypair from SOLANA_PRIVATE_KEY (base58-encoded 64-byte keypair).
+ * SOLANA_PRIVATE_KEY is optional — if absent, Solana endpoints are skipped.
  */
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
+import { registerExactSvmScheme } from "@x402/svm/exact/client";
+import { createKeyPairSignerFromBytes } from "@solana/kit";
+import { base58 } from "@scure/base";
 import { privateKeyToAccount } from "viem/accounts";
 import type { PaymentRequirements } from "@x402/core/types";
 import { getCircleEvmSignerFromEnv } from "./circle/evm-signer";
@@ -26,7 +32,6 @@ function buildEvmScheme(): ExactEvmScheme {
     return new ExactEvmScheme(signer);
   }
 
-  // default: privatekey
   const privateKey = process.env.PAYMENT_PRIVATE_KEY;
   if (!privateKey) {
     throw new Error(
@@ -36,7 +41,6 @@ function buildEvmScheme(): ExactEvmScheme {
   }
   const account = privateKeyToAccount(privateKey as `0x${string}`);
   console.log(`[X402] Using private key signer for Base: ${account.address}`);
-  // toClientEvmSigner adapts LocalAccount to ClientEvmSigner (address + signTypedData)
   return new ExactEvmScheme(toClientEvmSigner(account));
 }
 
@@ -45,11 +49,8 @@ export async function initX402Fetch(): Promise<void> {
   const maxUsdc = DEFAULT_MAX_BASE_MICRO_USDC;
 
   const client = new x402Client()
-    // v2 servers: CAIP-2 network identifier
     .register("eip155:8453", evmScheme)
-    // v1 servers: legacy network name ("base") — keeps old endpoints working
     .registerV1("base", evmScheme)
-    // Block requests priced above our cap
     .registerPolicy(
       (_version: number, reqs: PaymentRequirements[]) =>
         reqs.filter((r) => {
@@ -60,6 +61,18 @@ export async function initX402Fetch(): Promise<void> {
           }
         })
     );
+
+  // Solana: register SVM scheme if SOLANA_PRIVATE_KEY is set
+  const solanaPrivateKey = process.env.SOLANA_PRIVATE_KEY;
+  if (solanaPrivateKey) {
+    // SOLANA_PRIVATE_KEY: base58-encoded 64-byte keypair (32-byte seed + 32-byte pubkey)
+    const keyBytes = base58.decode(solanaPrivateKey);
+    const svmSigner = await createKeyPairSignerFromBytes(keyBytes);
+    registerExactSvmScheme(client, { signer: svmSigner });
+    console.log(`[X402] Solana SVM scheme registered (address: ${svmSigner.address})`);
+  } else {
+    console.log("[X402] SOLANA_PRIVATE_KEY not set — Solana endpoints will be skipped");
+  }
 
   _fetchWithPayment = wrapFetchWithPayment(fetch, client);
 }
