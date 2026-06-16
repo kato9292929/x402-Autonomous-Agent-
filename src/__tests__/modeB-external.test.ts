@@ -111,7 +111,9 @@ test("MODE B has 16 endpoints (11 base + 5 osd Solana, Hyre/PMI removed)", async
   assert.equal(solanaEps.length, 5, "Should have exactly 5 Solana endpoints");
 
   for (const ep of solanaEps) {
-    assert.ok(ep.url.includes("osd-coral.vercel.app"), `${ep.id} should point to osd-coral.vercel.app`);
+    // osd endpoints → osd-coral; JIN endpoints → jin-orcin-pi
+    const expectedHost = ep.id.startsWith("osd-jin-") ? "jin-orcin-pi.vercel.app" : "osd-coral.vercel.app";
+    assert.ok(ep.url.includes(expectedHost), `${ep.id} should point to ${expectedHost}`);
     assert.equal(ep.method, "GET");
     assert.equal(ep.cost, 0.01);
   }
