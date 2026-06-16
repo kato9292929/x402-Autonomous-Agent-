@@ -78,9 +78,9 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 14 endpoints (11 base + 3 osd Solana, Hyre/PMI removed)", async () => {
+test("MODE B has 16 endpoints (11 base + 5 osd Solana, Hyre/PMI removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 16, "MODE B should have exactly 16 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
 
@@ -104,12 +104,16 @@ test("MODE B has 14 endpoints (11 base + 3 osd Solana, Hyre/PMI removed)", async
   assert.ok(ids.includes("osd-ipo"), "osd-ipo should be in MODE B");
   assert.ok(ids.includes("osd-holders"), "osd-holders should be in MODE B");
   assert.ok(ids.includes("osd-liquidity"), "osd-liquidity should be in MODE B");
+  assert.ok(ids.includes("osd-jin-latest"), "osd-jin-latest should be in MODE B");
+  assert.ok(ids.includes("osd-jin-movers"), "osd-jin-movers should be in MODE B");
 
   const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEps.length, 3, "Should have exactly 3 Solana endpoints");
+  assert.equal(solanaEps.length, 5, "Should have exactly 5 Solana endpoints");
 
   for (const ep of solanaEps) {
-    assert.ok(ep.url.includes("osd-coral.vercel.app"), `${ep.id} should point to osd-coral.vercel.app`);
+    // osd endpoints → osd-coral; JIN endpoints → jin-orcin-pi
+    const expectedHost = ep.id.startsWith("osd-jin-") ? "jin-orcin-pi.vercel.app" : "osd-coral.vercel.app";
+    assert.ok(ep.url.includes(expectedHost), `${ep.id} should point to ${expectedHost}`);
     assert.equal(ep.method, "GET");
     assert.equal(ep.cost, 0.01);
   }
