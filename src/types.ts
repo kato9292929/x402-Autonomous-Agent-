@@ -2,11 +2,12 @@
 export interface EndpointResult {
   endpoint: string;
   product: string;
-  status: "success" | "error";
+  status: "success" | "degraded" | "error";
   costUsdc: number;
   responsePeek: string;
   txHash?: string;
   error?: string;
+  degradedReason?: string;
   durationMs: number;
   fullData?: Record<string, unknown>;
 }
@@ -17,6 +18,7 @@ export interface RunLog {
   results: EndpointResult[];
   totalCostUsdc: number;
   totalTxCount: number;
+  totalDegradedCount: number;
   durationMs: number;
   errors: string[];
 }

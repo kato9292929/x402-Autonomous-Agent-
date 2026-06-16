@@ -1,6 +1,7 @@
 import { decodePaymentResponseHeader } from "@x402/fetch";
 import { fetchWithPayment } from "./x402";
 import { getRequestBody } from "./bodies";
+import { detectDegraded } from "./stub-detector";
 import type { EndpointConfig } from "./config";
 import type { EndpointResult } from "./types";
 
@@ -44,6 +45,22 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
     }
 
     failureCounts.set(ep.id, 0);
+
+    const detection = detectDegraded(data);
+    if (detection.degraded) {
+      console.warn(`[CALLER:${ep.chain}] ~ ${ep.name} — degraded: ${detection.reason}`);
+      return {
+        endpoint: ep.url,
+        product: ep.name,
+        status: "degraded",
+        costUsdc: ep.cost,
+        responsePeek: JSON.stringify(data).slice(0, 120),
+        txHash,
+        degradedReason: detection.reason,
+        durationMs: Date.now() - startMs,
+        ...(ep.captureFullData ? { fullData: data } : {}),
+      };
+    }
 
     return {
       endpoint: ep.url,
