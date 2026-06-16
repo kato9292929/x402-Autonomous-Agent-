@@ -8,8 +8,6 @@ import type { EndpointResult, RunLog } from "../types";
 
 const FAILURE_ALERT_THRESHOLD = 3;
 const EXTERNAL_IDS = new Set([
-  "birdeye-ohlcv",
-  "perplexity-research",
   "osd-jin-latest",
   "osd-jin-movers",
 ]);
@@ -39,8 +37,6 @@ function saveExternalData(
     if (!id || !EXTERNAL_IDS.has(id)) continue;
 
     const labelMap: Record<string, string> = {
-      "birdeye-ohlcv": "birdeye",
-      "perplexity-research": "perplexity",
       "osd-jin-latest": "jin-latest",
       "osd-jin-movers": "jin-movers",
     };

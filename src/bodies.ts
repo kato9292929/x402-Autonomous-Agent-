@@ -23,15 +23,6 @@ export function getRequestBody(
       walletAddress: process.env.PORTFOLIO_ANALYZE_TARGET ?? "",
       chain: "base",
     },
-    "birdeye-ohlcv": {
-      symbols: tickers,
-      type: "1D",
-      limit: 30,
-    },
-    "perplexity-research": {
-      tickers,
-      lookback_hours: 24,
-    },
   };
   return bodies[endpointId];
 }

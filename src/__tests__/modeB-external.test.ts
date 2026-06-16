@@ -21,23 +21,23 @@ test("External data directories are created and files written correctly", () => 
   fs.mkdirSync(externalDir, { recursive: true });
   fs.mkdirSync(txDir, { recursive: true });
 
-  const birdeyePayload = { NVDA: [{ open: 130 }], TSLA: [{ open: 180 }] };
-  const perplexityPayload = { NVDA: [{ headline: "NVDA beats earnings" }] };
+  const jinLatestPayload = { date, excl: 120.5, incl: 118.2, yoy: 3.1 };
+  const jinMoversPayload = { movers: [{ ticker: "AAPL", change: 2.1 }] };
 
   fs.writeFileSync(
-    path.join(externalDir, `birdeye-${date}.json`),
-    JSON.stringify({ fetched_at: new Date().toISOString(), data: birdeyePayload }, null, 2),
+    path.join(externalDir, `jin-latest-${date}.json`),
+    JSON.stringify({ fetched_at: new Date().toISOString(), data: jinLatestPayload }, null, 2),
     "utf-8"
   );
   fs.writeFileSync(
-    path.join(externalDir, `perplexity-${date}.json`),
-    JSON.stringify({ fetched_at: new Date().toISOString(), data: perplexityPayload }, null, 2),
+    path.join(externalDir, `jin-movers-${date}.json`),
+    JSON.stringify({ fetched_at: new Date().toISOString(), data: jinMoversPayload }, null, 2),
     "utf-8"
   );
 
   const txEntries = [
-    { name: "Birdeye OHLCV", endpointId: "birdeye-ohlcv", txHash: "0xabc", costUsdc: 0.10 },
-    { name: "Perplexity Research", endpointId: "perplexity-research", txHash: "0xdef", costUsdc: 0.50 },
+    { name: "JIN Index Latest", endpointId: "osd-jin-latest", txHash: "sig1abc", costUsdc: 0.01 },
+    { name: "JIN Movers", endpointId: "osd-jin-movers", txHash: "sig2def", costUsdc: 0.01 },
   ];
   fs.writeFileSync(
     path.join(txDir, `external-${date}.json`),
@@ -46,22 +46,22 @@ test("External data directories are created and files written correctly", () => 
   );
 
   // Verify files exist and parse correctly
-  const birdeyeFile = JSON.parse(
-    fs.readFileSync(path.join(externalDir, `birdeye-${date}.json`), "utf-8")
+  const jinLatestFile = JSON.parse(
+    fs.readFileSync(path.join(externalDir, `jin-latest-${date}.json`), "utf-8")
   ) as { data: Record<string, unknown> };
-  assert.ok(Array.isArray(birdeyeFile.data["NVDA"]), "birdeye NVDA should be array");
+  assert.equal(jinLatestFile.data["date"], date, "jin-latest date should match");
 
-  const perplexityFile = JSON.parse(
-    fs.readFileSync(path.join(externalDir, `perplexity-${date}.json`), "utf-8")
+  const jinMoversFile = JSON.parse(
+    fs.readFileSync(path.join(externalDir, `jin-movers-${date}.json`), "utf-8")
   ) as { data: Record<string, unknown> };
-  assert.ok(Array.isArray(perplexityFile.data["NVDA"]), "perplexity NVDA should be array");
+  assert.ok(Array.isArray(jinMoversFile.data["movers"]), "jin-movers.movers should be array");
 
   const txFile = JSON.parse(
     fs.readFileSync(path.join(txDir, `external-${date}.json`), "utf-8")
   ) as { date: string; transactions: Array<{ txHash?: string }> };
   assert.equal(txFile.date, date);
   assert.equal(txFile.transactions.length, 2);
-  assert.equal(txFile.transactions[0]?.txHash, "0xabc");
+  assert.equal(txFile.transactions[0]?.txHash, "sig1abc");
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -78,9 +78,9 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 16 endpoints (11 base + 5 osd Solana, Hyre/PMI removed)", async () => {
+test("MODE B has 14 endpoints (9 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 16, "MODE B should have exactly 16 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
 
@@ -91,14 +91,9 @@ test("MODE B has 16 endpoints (11 base + 5 osd Solana, Hyre/PMI removed)", async
   assert.ok(!ids.includes("hyre-defi-intelligence"), "hyre-defi-intelligence should NOT be in MODE B");
   assert.ok(!ids.includes("hyre-market-signals"), "hyre-market-signals should NOT be in MODE B");
 
-  // External data endpoints (Base)
-  assert.ok(ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should be in MODE B");
-  assert.ok(ids.includes("perplexity-research"), "perplexity-research should be in MODE B");
-
-  const birdeye = ENDPOINTS_MODE_B.find((e) => e.id === "birdeye-ohlcv")!;
-  assert.equal(birdeye.captureFullData, true);
-  const perplexity = ENDPOINTS_MODE_B.find((e) => e.id === "perplexity-research")!;
-  assert.equal(perplexity.captureFullData, true);
+  // birdeye and perplexity removed
+  assert.ok(!ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should NOT be in MODE B (removed)");
+  assert.ok(!ids.includes("perplexity-research"), "perplexity-research should NOT be in MODE B (removed)");
 
   // osd Solana endpoints
   assert.ok(ids.includes("osd-ipo"), "osd-ipo should be in MODE B");
