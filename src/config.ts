@@ -104,16 +104,6 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     mode: "B",
     captureFullData: true,
   },
-  {
-    id: "perplexity-research",
-    name: "Perplexity Research",
-    url: getEnvOrDefault("PERPLEXITY_RESEARCH_URL", "https://osd-coral.vercel.app/api/wrappers/perplexity-research"),
-    method: "POST",
-    cost: 0.50,
-    chain: "base",
-    mode: "B",
-    captureFullData: true,
-  },
   // ── osd Solana endpoints (manual 402 via Circle DCW Solana wallet) ────────
   // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
   // payTo + amount resolved from 402 challenge (never hardcoded)

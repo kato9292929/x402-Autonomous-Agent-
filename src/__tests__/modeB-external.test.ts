@@ -78,9 +78,9 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 16 endpoints (11 base + 5 osd Solana, Hyre/PMI removed)", async () => {
+test("MODE B has 15 endpoints (10 base + 5 osd Solana, Perplexity/Hyre/PMI removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 16, "MODE B should have exactly 16 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 15, "MODE B should have exactly 15 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
 
@@ -93,12 +93,10 @@ test("MODE B has 16 endpoints (11 base + 5 osd Solana, Hyre/PMI removed)", async
 
   // External data endpoints (Base)
   assert.ok(ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should be in MODE B");
-  assert.ok(ids.includes("perplexity-research"), "perplexity-research should be in MODE B");
+  assert.ok(!ids.includes("perplexity-research"), "perplexity-research should NOT be in MODE B (removed)");
 
   const birdeye = ENDPOINTS_MODE_B.find((e) => e.id === "birdeye-ohlcv")!;
   assert.equal(birdeye.captureFullData, true);
-  const perplexity = ENDPOINTS_MODE_B.find((e) => e.id === "perplexity-research")!;
-  assert.equal(perplexity.captureFullData, true);
 
   // osd Solana endpoints
   assert.ok(ids.includes("osd-ipo"), "osd-ipo should be in MODE B");
