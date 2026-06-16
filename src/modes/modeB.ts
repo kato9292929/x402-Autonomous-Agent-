@@ -7,7 +7,12 @@ import { sendWebhookSummary } from "../notify";
 import type { EndpointResult, RunLog } from "../types";
 
 const FAILURE_ALERT_THRESHOLD = 3;
-const EXTERNAL_IDS = new Set(["birdeye-ohlcv", "perplexity-research"]);
+const EXTERNAL_IDS = new Set([
+  "birdeye-ohlcv",
+  "perplexity-research",
+  "osd-jin-latest",
+  "osd-jin-movers",
+]);
 
 function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -33,8 +38,15 @@ function saveExternalData(
     const id = endpointIdByUrl.get(result.endpoint);
     if (!id || !EXTERNAL_IDS.has(id)) continue;
 
+    const labelMap: Record<string, string> = {
+      "birdeye-ohlcv": "birdeye",
+      "perplexity-research": "perplexity",
+      "osd-jin-latest": "jin-latest",
+      "osd-jin-movers": "jin-movers",
+    };
+    const label = labelMap[id] ?? id;
+
     if (result.status === "success" && result.fullData) {
-      const label = id === "birdeye-ohlcv" ? "birdeye" : "perplexity";
       const filePath = path.join(externalDir, `${label}-${date}.json`);
       fs.writeFileSync(
         filePath,
@@ -43,7 +55,6 @@ function saveExternalData(
       );
       console.log(`[MODE B] External data saved: ${filePath}`);
     } else if (result.status === "error") {
-      const label = id === "birdeye-ohlcv" ? "Birdeye OHLCV" : "Perplexity Research";
       console.warn(`[MODE B] External data missing for ${label} — ${result.error}`);
     }
 

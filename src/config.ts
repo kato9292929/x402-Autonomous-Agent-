@@ -144,6 +144,26 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     chain: "solana",
     mode: "B",
   },
+  {
+    id: "osd-jin-latest",
+    name: "JIN Index Latest (Solana)",
+    url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://osd-coral.vercel.app/api/jin/latest"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "B",
+    captureFullData: true,
+  },
+  {
+    id: "osd-jin-movers",
+    name: "JIN Movers (Solana)",
+    url: getEnvOrDefault("OSD_JIN_MOVERS_URL", "https://osd-coral.vercel.app/api/jin/movers"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "B",
+    captureFullData: true,
+  },
 ];
 
 export const ENDPOINTS_MODE_C: EndpointConfig[] = [
