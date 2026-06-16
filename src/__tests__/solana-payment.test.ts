@@ -49,7 +49,7 @@ test("PMI (private-market) is not in MODE B", async () => {
   assert.ok(!ids.includes("private-market"), "PMI should have been removed");
 });
 
-test("MODE B has 15 endpoints total", async () => {
+test("MODE B has 14 endpoints total", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 15, "Should have 10 Base + 5 Solana = 15 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 14, "Should have 9 Base + 5 Solana = 14 endpoints");
 });

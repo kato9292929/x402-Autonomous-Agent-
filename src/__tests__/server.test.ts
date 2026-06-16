@@ -41,30 +41,30 @@ function findLatestFile(dir: string, prefix: string): string | null {
 }
 
 function loadExternalData(externalDir: string) {
-  const empty = { fetched_at: null as string | null, birdeye: {} as Record<string, unknown>, perplexity: {} as Record<string, unknown> };
-  const birdeyePath = findLatestFile(externalDir, "birdeye-");
-  const perplexityPath = findLatestFile(externalDir, "perplexity-");
-  if (!birdeyePath && !perplexityPath) return empty;
+  const empty = { fetched_at: null as string | null, jin_latest: {} as Record<string, unknown>, jin_movers: {} as Record<string, unknown> };
+  const jinLatestPath = findLatestFile(externalDir, "jin-latest-");
+  const jinMoversPath = findLatestFile(externalDir, "jin-movers-");
+  if (!jinLatestPath && !jinMoversPath) return empty;
 
-  let birdeye: Record<string, unknown> = {};
-  let perplexity: Record<string, unknown> = {};
+  let jin_latest: Record<string, unknown> = {};
+  let jin_movers: Record<string, unknown> = {};
   let fetchedAt: string | null = null;
 
-  if (birdeyePath) {
+  if (jinLatestPath) {
     try {
-      const p = JSON.parse(fs.readFileSync(birdeyePath, "utf-8")) as { fetched_at?: string; data?: Record<string, unknown> };
-      birdeye = p.data ?? {};
+      const p = JSON.parse(fs.readFileSync(jinLatestPath, "utf-8")) as { fetched_at?: string; data?: Record<string, unknown> };
+      jin_latest = p.data ?? {};
       fetchedAt = p.fetched_at ?? null;
     } catch { /* ignore */ }
   }
-  if (perplexityPath) {
+  if (jinMoversPath) {
     try {
-      const p = JSON.parse(fs.readFileSync(perplexityPath, "utf-8")) as { fetched_at?: string; data?: Record<string, unknown> };
-      perplexity = p.data ?? {};
+      const p = JSON.parse(fs.readFileSync(jinMoversPath, "utf-8")) as { fetched_at?: string; data?: Record<string, unknown> };
+      jin_movers = p.data ?? {};
       if (!fetchedAt) fetchedAt = p.fetched_at ?? null;
     } catch { /* ignore */ }
   }
-  return { fetched_at: fetchedAt, birdeye, perplexity };
+  return { fetched_at: fetchedAt, jin_latest, jin_movers };
 }
 
 // Port 0 = OS assigns a free port, avoiding EADDRINUSE between test runs
@@ -97,29 +97,29 @@ test("GET /api/latest-external-data returns 200 with empty payload when no data 
   try {
     const { status, body } = await get(`http://localhost:${port}/api/latest-external-data`);
     assert.equal(status, 200);
-    const json = JSON.parse(body) as { fetched_at: unknown; birdeye: unknown; perplexity: unknown };
+    const json = JSON.parse(body) as { fetched_at: unknown; jin_latest: unknown; jin_movers: unknown };
     assert.equal(json.fetched_at, null);
-    assert.deepEqual(json.birdeye, {});
-    assert.deepEqual(json.perplexity, {});
+    assert.deepEqual(json.jin_latest, {});
+    assert.deepEqual(json.jin_movers, {});
   } finally {
     await closeServer(server);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 
-test("GET /api/latest-external-data returns saved birdeye + perplexity data", async () => {
+test("GET /api/latest-external-data returns saved JIN data", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aa-srv2-"));
-  const date = "2026-06-08";
-  const fetchedAt = "2026-06-08T21:00:00.000Z";
+  const date = "2026-06-16";
+  const fetchedAt = "2026-06-16T21:00:00.000Z";
 
   fs.writeFileSync(
-    path.join(tmpDir, `birdeye-${date}.json`),
-    JSON.stringify({ fetched_at: fetchedAt, data: { NVDA: [{ open: 100 }] } }),
+    path.join(tmpDir, `jin-latest-${date}.json`),
+    JSON.stringify({ fetched_at: fetchedAt, data: { date, excl: 120.5, incl: 118.2 } }),
     "utf-8"
   );
   fs.writeFileSync(
-    path.join(tmpDir, `perplexity-${date}.json`),
-    JSON.stringify({ fetched_at: fetchedAt, data: { NVDA: [{ headline: "test" }] } }),
+    path.join(tmpDir, `jin-movers-${date}.json`),
+    JSON.stringify({ fetched_at: fetchedAt, data: { movers: [{ ticker: "AAPL", change: 2.1 }] } }),
     "utf-8"
   );
 
@@ -127,10 +127,10 @@ test("GET /api/latest-external-data returns saved birdeye + perplexity data", as
   try {
     const { status, body } = await get(`http://localhost:${port}/api/latest-external-data`);
     assert.equal(status, 200);
-    const json = JSON.parse(body) as { fetched_at: string; birdeye: Record<string, unknown>; perplexity: Record<string, unknown> };
+    const json = JSON.parse(body) as { fetched_at: string; jin_latest: Record<string, unknown>; jin_movers: Record<string, unknown> };
     assert.equal(json.fetched_at, fetchedAt);
-    assert.ok(Array.isArray(json.birdeye["NVDA"]), "birdeye.NVDA should be array");
-    assert.ok(Array.isArray(json.perplexity["NVDA"]), "perplexity.NVDA should be array");
+    assert.equal(json.jin_latest["date"], date);
+    assert.ok(Array.isArray(json.jin_movers["movers"]), "jin_movers.movers should be array");
   } finally {
     await closeServer(server);
     fs.rmSync(tmpDir, { recursive: true, force: true });

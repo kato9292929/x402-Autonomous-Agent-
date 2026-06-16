@@ -5,8 +5,8 @@ import { IDENTITY_REGISTRY, AGENT_REGISTRY_ID } from "./erc8004/contract";
 
 interface ExternalDataResponse {
   fetched_at: string | null;
-  birdeye: Record<string, unknown>;
-  perplexity: Record<string, unknown>;
+  jin_latest: Record<string, unknown>;
+  jin_movers: Record<string, unknown>;
 }
 
 function findLatestFile(dir: string, prefix: string): string | null {
@@ -56,44 +56,44 @@ function buildAgentCard(): Record<string, unknown> {
 
 function loadExternalData(): ExternalDataResponse {
   const externalDir = path.join(process.cwd(), "data", "external");
-  const empty: ExternalDataResponse = { fetched_at: null, birdeye: {}, perplexity: {} };
+  const empty: ExternalDataResponse = { fetched_at: null, jin_latest: {}, jin_movers: {} };
 
-  const birdeyePath = findLatestFile(externalDir, "birdeye-");
-  const perplexityPath = findLatestFile(externalDir, "perplexity-");
+  const jinLatestPath = findLatestFile(externalDir, "jin-latest-");
+  const jinMoversPath = findLatestFile(externalDir, "jin-movers-");
 
-  if (!birdeyePath && !perplexityPath) return empty;
+  if (!jinLatestPath && !jinMoversPath) return empty;
 
-  let birdeye: Record<string, unknown> = {};
-  let perplexity: Record<string, unknown> = {};
+  let jin_latest: Record<string, unknown> = {};
+  let jin_movers: Record<string, unknown> = {};
   let fetchedAt: string | null = null;
 
-  if (birdeyePath) {
+  if (jinLatestPath) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(birdeyePath, "utf-8")) as {
+      const parsed = JSON.parse(fs.readFileSync(jinLatestPath, "utf-8")) as {
         fetched_at?: string;
         data?: Record<string, unknown>;
       };
-      birdeye = parsed.data ?? {};
+      jin_latest = parsed.data ?? {};
       fetchedAt = parsed.fetched_at ?? null;
     } catch {
       // unreadable — leave empty
     }
   }
 
-  if (perplexityPath) {
+  if (jinMoversPath) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(perplexityPath, "utf-8")) as {
+      const parsed = JSON.parse(fs.readFileSync(jinMoversPath, "utf-8")) as {
         fetched_at?: string;
         data?: Record<string, unknown>;
       };
-      perplexity = parsed.data ?? {};
+      jin_movers = parsed.data ?? {};
       if (!fetchedAt) fetchedAt = parsed.fetched_at ?? null;
     } catch {
       // unreadable — leave empty
     }
   }
 
-  return { fetched_at: fetchedAt, birdeye, perplexity };
+  return { fetched_at: fetchedAt, jin_latest, jin_movers };
 }
 
 export function startHttpServer(): void {

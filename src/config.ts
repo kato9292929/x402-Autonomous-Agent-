@@ -94,16 +94,6 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     chain: "base",
     mode: "B",
   },
-  {
-    id: "birdeye-ohlcv",
-    name: "Birdeye OHLCV",
-    url: getEnvOrDefault("BIRDEYE_OHLCV_URL", "https://osd-coral.vercel.app/api/wrappers/birdeye-ohlcv"),
-    method: "POST",
-    cost: 0.10,
-    chain: "base",
-    mode: "B",
-    captureFullData: true,
-  },
   // ── osd Solana endpoints (manual 402 via Circle DCW Solana wallet) ────────
   // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
   // payTo + amount resolved from 402 challenge (never hardcoded)
