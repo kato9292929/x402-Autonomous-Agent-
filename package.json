@@ -8,6 +8,7 @@
     "start": "npm run build && node dist/index.js",
     "dev": "ts-node src/index.ts",
     "run-now": "ts-node src/index.ts --run-now",
+    "verify-products": "ts-node src/scripts/verify-products.ts",
     "test": "npm run build && node --test dist/__tests__/**/*.test.js"
   },
   "dependencies": {
