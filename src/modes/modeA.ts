@@ -20,6 +20,7 @@ export async function runModeA(): Promise<void> {
     results: [],
     totalCostUsdc: 0,
     totalTxCount: 0,
+    totalDegradedCount: 0,
     durationMs: 0,
     errors: [],
   };

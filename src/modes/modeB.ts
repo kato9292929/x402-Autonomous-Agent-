@@ -86,6 +86,7 @@ export async function runModeB(): Promise<void> {
     results: [],
     totalCostUsdc: 0,
     totalTxCount: 0,
+    totalDegradedCount: 0,
     durationMs: 0,
     errors: [],
   };
@@ -101,6 +102,10 @@ export async function runModeB(): Promise<void> {
       log.totalCostUsdc += result.costUsdc;
       log.totalTxCount += 1;
       console.log(`[MODE B] ✓ ${ep.name} — ${result.responsePeek}`);
+    } else if (result.status === "degraded") {
+      log.totalCostUsdc += result.costUsdc;
+      log.totalDegradedCount += 1;
+      console.warn(`[MODE B] ~ ${ep.name} — degraded: ${result.degradedReason}`);
     } else {
       log.errors.push(`${ep.name}: ${result.error ?? "unknown error"}`);
       console.error(`[MODE B] ✗ ${ep.name} — ${result.error}`);
@@ -114,7 +119,7 @@ export async function runModeB(): Promise<void> {
     }
   }
 
-  // Persist Birdeye / Perplexity full responses + transaction log
+  // Persist JIN full responses + transaction log
   saveExternalData(log.results, endpointIdByUrl, date);
 
   log.durationMs = Date.now() - startMs;
@@ -123,7 +128,8 @@ export async function runModeB(): Promise<void> {
 
   const ok = log.results.filter((r) => r.status === "success").length;
   const ng = log.results.filter((r) => r.status === "error").length;
+  const dg = log.totalDegradedCount;
   console.log(
-    `[MODE B] Complete — ${ok} OK, ${ng} errors, $${log.totalCostUsdc.toFixed(3)} USDC, ${Math.round(log.durationMs / 1000)}s`
+    `[MODE B] Complete — ${ok} OK, ${dg} degraded, ${ng} errors, $${log.totalCostUsdc.toFixed(3)} USDC, ${Math.round(log.durationMs / 1000)}s`
   );
 }
