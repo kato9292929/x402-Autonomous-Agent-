@@ -75,7 +75,7 @@ function saveExternalData(
   }
 }
 
-export async function runModeB(): Promise<void> {
+export async function runModeB(): Promise<RunLog> {
   const startMs = Date.now();
   const date = todayDate();
   console.log(`[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.length} endpoints`);
@@ -132,4 +132,6 @@ export async function runModeB(): Promise<void> {
   console.log(
     `[MODE B] Complete — ${ok} OK, ${dg} degraded, ${ng} errors, $${log.totalCostUsdc.toFixed(3)} USDC, ${Math.round(log.durationMs / 1000)}s`
   );
+
+  return log;
 }

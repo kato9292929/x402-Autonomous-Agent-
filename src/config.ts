@@ -57,6 +57,8 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     cost: 0.15,
     chain: "base",
     mode: "B",
+    // Mode A reuses this full response as its decision input (no re-fetch, no double charge)
+    captureFullData: true,
   },
   {
     id: "hyperliquid-intelligence",
@@ -66,6 +68,8 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     cost: 0.20,
     chain: "base",
     mode: "B",
+    // Mode A reuses this full response as its conviction input (no re-fetch, no double charge)
+    captureFullData: true,
   },
   {
     id: "smart-money-screener",
