@@ -1,19 +1,53 @@
+/**
+ * Mode A — daily decision loop.
+ *
+ * Mode A no longer gates on the (empty) Smart Money Screener and no longer
+ * exits early. It runs every day, reuses the Divergence Analyzer and
+ * Hyperliquid Intelligence responses that Mode B already paid for (no
+ * re-fetch, no double charge), pays once for the Whale Intent Decoder to read
+ * direction, scores the three signals, and records exactly one daily call
+ * (BUY / SKIP + direction + size proposal) to an append-only store tied to the
+ * ERC-8004 agentId.
+ *
+ * Scope guard: the execution endpoint (smct /api/execute) is intentionally NOT
+ * wired here. Records carry executed:false — they describe what the agent
+ * decided, never a fill or P&L.
+ */
 import { fetchWithPayment } from "../x402";
-import type { RunLog } from "../types";
+import { ENDPOINTS_MODE_B } from "../config";
+import { AGENT_REGISTRY_ID } from "../erc8004/contract";
+import type { RunLog, EndpointResult } from "../types";
 import { logRun } from "../logger";
+import {
+  extractDivergenceSignal,
+  extractHyperliquidSignal,
+} from "./signal-extract";
+import { scoreDecision, type WhaleIntentSignal } from "./scoring";
+import { appendDecision, type DecisionRecord } from "../store/decision-store";
 
-interface Signal {
-  token: string;
-  chain: string;
-  signal: string;
-  smartWallets: number;
-  netFlowUsd: number;
+const DEFAULT_AGENT_ID = "55560";
+const WID_COST_USDC = 0.3;
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-export async function runModeA(): Promise<void> {
-  const startMs = Date.now();
-  console.log("[MODE A] Signal-driven run started");
+/** Find a Mode B result by endpoint id (matched via its configured URL). */
+function findModeBResult(
+  modeBLog: RunLog | undefined,
+  endpointId: string
+): EndpointResult | undefined {
+  if (!modeBLog) return undefined;
+  const ep = ENDPOINTS_MODE_B.find((e) => e.id === endpointId);
+  if (!ep) return undefined;
+  return modeBLog.results.find((r) => r.endpoint === ep.url);
+}
 
+export async function runModeA(modeBLog?: RunLog): Promise<void> {
+  const startMs = Date.now();
+  console.log("[MODE A] Daily decision run started");
+
+  const agentId = process.env.ERC8004_AGENT_ID ?? DEFAULT_AGENT_ID;
   const log: RunLog = {
     timestamp: new Date().toISOString(),
     mode: "A",
@@ -25,78 +59,145 @@ export async function runModeA(): Promise<void> {
     errors: [],
   };
 
-  try {
-    // STEP 1: Smart Money Screener — $0.05
-    const signalsRes = await fetchWithPayment(
-      process.env.SMART_MONEY_SCREENER_URL ??
-        "https://smartmoneyscreener.vercel.app/api/screener/smart-money"
-    );
-    const signalsData = (await signalsRes.json()) as { signals?: Signal[] };
-    log.results.push({ endpoint: "/api/signals", product: "Smart Money Screener", status: "success", costUsdc: 0.05, responsePeek: "", durationMs: 0 });
-    log.totalCostUsdc += 0.05;
-    log.totalTxCount += 1;
+  // ── Reuse Mode B signals (no re-fetch) ───────────────────────────────────
+  const divResult = findModeBResult(modeBLog, "divergence-analyzer");
+  const hlResult = findModeBResult(modeBLog, "hyperliquid-intelligence");
+  const divergence = extractDivergenceSignal(divResult?.fullData);
+  const hyperliquid = extractHyperliquidSignal(hlResult?.fullData);
 
-    const strongBuys = (signalsData.signals ?? []).filter(
-      (s) => s.signal === "BUY" && s.smartWallets >= 5
-    );
+  if (!modeBLog) {
+    log.errors.push("Mode B results not provided — divergence/hyperliquid unavailable");
+    console.warn("[MODE A] No Mode B log passed; signals unavailable");
+  }
+  console.log(
+    `[MODE A] Divergence available=${divergence.available}` +
+      (divergence.available
+        ? ` token=${divergence.token ?? "?"} netFlowUsd=${divergence.netFlowUsd}`
+        : "")
+  );
+  console.log(
+    `[MODE A] Hyperliquid available=${hyperliquid.available}` +
+      (hyperliquid.available ? ` bias=${hyperliquid.bias} (${hyperliquid.biasField})` : "")
+  );
 
-    if (strongBuys.length === 0) {
-      console.log("[MODE A] No strong buy signals. Exiting early.");
-      log.durationMs = Date.now() - startMs;
-      logRun(log);
-      return;
-    }
-
-    console.log(`[MODE A] ${strongBuys.length} STRONG BUY signal(s) found`);
-    const top = strongBuys[0];
-
-    // STEP 2: Whale Intent Decoder — $0.30
-    const decodeRes = await fetchWithPayment("https://x402wid.vercel.app/api/decode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: top.token, chain: top.chain, amount: top.netFlowUsd }),
-    });
-    const decoded = (await decodeRes.json()) as { intent: string; confidence: number };
-    log.results.push({ endpoint: "/api/decode", product: "Whale Intent Decoder", status: "success", costUsdc: 0.30, responsePeek: JSON.stringify(decoded).slice(0, 120), durationMs: 0 });
-    log.totalCostUsdc += 0.30;
-    log.totalTxCount += 1;
-
-    // STEP 3: Divergence Analyzer — $0.15
-    const divRes = await fetchWithPayment("https://x402nansenpolymarket.vercel.app/api/divergence/scan");
-    const divergence = (await divRes.json()) as Record<string, unknown>;
-    log.results.push({ endpoint: "/api/divergence/scan", product: "Divergence Analyzer", status: "success", costUsdc: 0.15, responsePeek: JSON.stringify(divergence).slice(0, 120), durationMs: 0 });
-    log.totalCostUsdc += 0.15;
-    log.totalTxCount += 1;
-
-    // STEP 4: Alpha Memo Protocol — $1.00
-    const memoRes = await fetchWithPayment("https://x402amp.vercel.app/api/memo/daily");
-    const memo = (await memoRes.json()) as Record<string, unknown>;
-    log.results.push({ endpoint: "/api/memo/daily", product: "Alpha Memo Protocol", status: "success", costUsdc: 1.00, responsePeek: JSON.stringify(memo).slice(0, 120), durationMs: 0 });
-    log.totalCostUsdc += 1.00;
-    log.totalTxCount += 1;
-
-    // STEP 5: Execute if conditions met — $0.10
-    const intentOk = ["ACCUMULATION", "POSITION_BUILDING"].includes(decoded.intent);
-    if (intentOk && decoded.confidence >= 0.7) {
-      console.log("[MODE A] Conditions met. Executing...");
-      const execRes = await fetchWithPayment("https://x402smct.vercel.app/api/execute", {
+  // ── Whale Intent Decoder — direction (the only paid call in Mode A) ───────
+  let whaleIntent: WhaleIntentSignal = { available: false };
+  let widCost = 0;
+  if (divergence.available && divergence.token) {
+    try {
+      const widUrl =
+        process.env.WHALE_INTENT_DECODER_URL ?? "https://x402wid.vercel.app/api/decode";
+      const decodeRes = await fetchWithPayment(widUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: top.token, chain: top.chain, amountUsd: 10 }),
+        body: JSON.stringify({
+          token: divergence.token,
+          chain: divergence.chain ?? "ethereum",
+          amount: divergence.netFlowUsd ?? 0,
+        }),
       });
-      const execResult = (await execRes.json()) as Record<string, unknown>;
-      log.results.push({ endpoint: "/api/execute", product: "Copy Terminal", status: "success", costUsdc: 0.10, responsePeek: JSON.stringify(execResult).slice(0, 120), durationMs: 0 });
-      log.totalCostUsdc += 0.10;
+      if (!decodeRes.ok) {
+        const text = await decodeRes.text().catch(() => "(no body)");
+        throw new Error(`HTTP ${decodeRes.status}: ${text.slice(0, 200)}`);
+      }
+      const decoded = (await decodeRes.json()) as {
+        intent?: string;
+        confidence?: number;
+      };
+      widCost = WID_COST_USDC;
+      whaleIntent = {
+        available: true,
+        intent: decoded.intent,
+        confidence: decoded.confidence,
+      };
+      log.results.push({
+        endpoint: "/api/decode",
+        product: "Whale Intent Decoder",
+        status: "success",
+        costUsdc: WID_COST_USDC,
+        responsePeek: JSON.stringify(decoded).slice(0, 120),
+        durationMs: 0,
+      });
+      log.totalCostUsdc += WID_COST_USDC;
       log.totalTxCount += 1;
-      console.log("[MODE A] Execution result:", JSON.stringify(execResult));
-    } else {
-      console.log(`[MODE A] Conditions not met (intent=${decoded.intent}, confidence=${decoded.confidence})`);
+      console.log(
+        `[MODE A] Whale Intent — intent=${decoded.intent} confidence=${decoded.confidence}`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.errors.push(`Whale Intent Decoder: ${msg}`);
+      console.error(`[MODE A] Whale Intent Decoder failed: ${msg}`);
     }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    log.errors.push(error);
-    console.error("[MODE A] Error:", error);
+  } else {
+    console.log("[MODE A] No divergence token — skipping Whale Intent Decoder");
   }
+
+  // ── Score + decide (always emits exactly one call, never exits early) ─────
+  const decision = scoreDecision({ divergence, hyperliquid, whaleIntent });
+
+  const missing: string[] = [];
+  if (!divergence.available) missing.push("divergence");
+  if (!hyperliquid.available) missing.push("hyperliquid");
+  if (!whaleIntent.available) missing.push("whaleIntent");
+  const rationale =
+    `score=${decision.score} → ${decision.action} ${decision.direction}` +
+    ` (origin ${decision.breakdown.originComponent}, conviction ${decision.breakdown.convictionComponent},` +
+    ` direction ${decision.breakdown.directionComponent})` +
+    (missing.length > 0 ? ` | unavailable: ${missing.join(", ")}` : "");
+
+  const record: DecisionRecord = {
+    date: todayDate(),
+    timestamp: new Date().toISOString(),
+    agentId,
+    agentRegistry: AGENT_REGISTRY_ID,
+    signals: {
+      divergence: {
+        available: divergence.available,
+        token: divergence.token,
+        chain: divergence.chain,
+        netFlowUsd: divergence.netFlowUsd,
+        source: divergence.available ? "mode-b-reuse" : "unavailable",
+        peek: divResult?.responsePeek,
+      },
+      hyperliquid: {
+        available: hyperliquid.available,
+        bias: hyperliquid.bias,
+        biasField: hyperliquid.biasField,
+        source: hyperliquid.available ? "mode-b-reuse" : "unavailable",
+        peek: hlResult?.responsePeek,
+      },
+      whaleIntent: {
+        available: whaleIntent.available,
+        intent: whaleIntent.intent,
+        confidence: whaleIntent.confidence,
+        source: whaleIntent.available ? "wid" : "unavailable",
+        costUsdc: widCost,
+      },
+    },
+    score: decision.score,
+    call: {
+      action: decision.action,
+      direction: decision.direction,
+      sizeUsdProposal: decision.sizeUsdProposal,
+    },
+    rationale,
+    scoreBreakdown: decision.breakdown as unknown as Record<string, unknown>,
+    costUsdc: log.totalCostUsdc,
+    executed: false,
+  };
+
+  try {
+    await appendDecision(record);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.errors.push(`Decision store: ${msg}`);
+    console.error(`[MODE A] Failed to persist decision: ${msg}`);
+  }
+
+  console.log(
+    `[MODE A] Daily call — ${decision.action} ${decision.direction} ` +
+      `size=$${decision.sizeUsdProposal} (agentId=${agentId}) [executed=false]`
+  );
 
   log.durationMs = Date.now() - startMs;
   logRun(log);
