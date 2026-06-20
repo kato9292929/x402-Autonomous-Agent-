@@ -109,12 +109,12 @@ test("GET /api/latest-external-data returns 200 with empty payload when no data 
 
 test("GET /api/latest-external-data returns saved JIN data", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aa-srv2-"));
-  const date = "2026-06-16";
-  const fetchedAt = "2026-06-16T21:00:00.000Z";
+  const date = "2026-06-08";
+  const fetchedAt = "2026-06-08T21:00:00.000Z";
 
   fs.writeFileSync(
     path.join(tmpDir, `jin-latest-${date}.json`),
-    JSON.stringify({ fetched_at: fetchedAt, data: { date, excl: 120.5, incl: 118.2 } }),
+    JSON.stringify({ fetched_at: fetchedAt, data: { excl: 120.5, incl: 118.2 } }),
     "utf-8"
   );
   fs.writeFileSync(
@@ -129,7 +129,7 @@ test("GET /api/latest-external-data returns saved JIN data", async () => {
     assert.equal(status, 200);
     const json = JSON.parse(body) as { fetched_at: string; jin_latest: Record<string, unknown>; jin_movers: Record<string, unknown> };
     assert.equal(json.fetched_at, fetchedAt);
-    assert.equal(json.jin_latest["date"], date);
+    assert.equal(json.jin_latest["excl"], 120.5, "jin_latest.excl should be 120.5");
     assert.ok(Array.isArray(json.jin_movers["movers"]), "jin_movers.movers should be array");
   } finally {
     await closeServer(server);
