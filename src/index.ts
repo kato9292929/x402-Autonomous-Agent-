@@ -3,7 +3,7 @@ import cron from "node-cron";
 import { initX402Fetch } from "./x402";
 import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
-import { runModeC } from "./modes/modeC";
+import { runModeC, queueModeC } from "./modes/modeC";
 import { runAnalystDailyNote } from "./jobs/analyst-daily-note";
 import { startHttpServer } from "./server";
 
@@ -11,16 +11,16 @@ async function dailyRun(): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`[AGENT] Daily run — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}`);
-  await runModeB();
-  await runModeA();
+  const modeBLog = await runModeB();
+  await runModeA(modeBLog);
   await runAnalystDailyNote();
 }
 
-async function weeklyRun(): Promise<void> {
+function weeklyRun(): void {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`[AGENT] Weekly run — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}`);
-  await runModeC();
+  queueModeC();
 }
 
 async function main(): Promise<void> {
@@ -36,10 +36,10 @@ async function main(): Promise<void> {
     }
   });
 
-  // Mode C: every Monday at 06:00 JST (21:00 UTC)
-  cron.schedule("0 21 * * 1", async () => {
+  // Mode C: every Monday at 06:00 JST (21:00 UTC) — queues for human approval
+  cron.schedule("0 21 * * 1", () => {
     try {
-      await weeklyRun();
+      weeklyRun();
     } catch (err) {
       console.error("[AGENT] Weekly run failed:", err);
     }
@@ -55,8 +55,8 @@ async function main(): Promise<void> {
   }
 
   if (process.argv.includes("--run-weekly")) {
-    console.log("\n[AGENT] Manual weekly run triggered");
-    await weeklyRun();
+    console.log("\n[AGENT] Manual weekly run triggered (queuing for approval)");
+    weeklyRun();
   }
 
   if (process.argv.includes("--run-analyst")) {

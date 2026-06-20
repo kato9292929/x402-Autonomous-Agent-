@@ -3,8 +3,25 @@ import { callEndpoint, getConsecutiveFailures } from "../caller";
 import { logRun } from "../logger";
 import { sendWebhookSummary } from "../notify";
 import type { RunLog } from "../types";
+import { enqueueApproval } from "../world-id/queue";
 
 const FAILURE_ALERT_THRESHOLD = 3;
+
+/**
+ * Queue Mode C for human approval instead of running it directly.
+ * The Monday cron calls this; actual execution is triggered via /approve after World ID verification.
+ */
+export function queueModeC(): string {
+  const item = enqueueApproval();
+  const baseUrl =
+    process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : "http://localhost:3000";
+  const approveUrl = `${baseUrl}/approve?id=${item.id}`;
+  console.log(`[MODE C] Weekly run queued for approval — id=${item.id}`);
+  console.log(`[MODE C] Approval URL: ${approveUrl}`);
+  return item.id;
+}
 
 export async function runModeC(): Promise<void> {
   const startMs = Date.now();
