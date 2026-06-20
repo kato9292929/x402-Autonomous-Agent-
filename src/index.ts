@@ -11,8 +11,8 @@ async function dailyRun(): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`[AGENT] Daily run — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}`);
-  await runModeB();
-  await runModeA();
+  const modeBLog = await runModeB();
+  await runModeA(modeBLog);
   await runAnalystDailyNote();
 }
 

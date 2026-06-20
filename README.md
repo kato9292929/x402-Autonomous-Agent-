@@ -12,18 +12,25 @@ Runs daily at 06:00 JST via node-cron on Railway.
 
 ## How It Works / 動作フロー
 
-6ステップのパイプラインが毎朝自動実行されます。シグナルがなければ早期終了（低コスト）。
+毎朝、Mode B（日次ブリーフィング）→ Mode A（日次判断ループ）の順に自動実行されます。
 
-| Step | API | Cost |
-|------|-----|------|
-| 1. Smart Money Screener | STRONG BUY シグナルをスキャン | $0.05 |
-| 2. Whale Intent Decoder | ウォレット意図を検証（ACCUMULATION / POSITION_BUILDING） | $0.30 |
-| 3. Divergence Analyzer | オンチェーン／予測市場の乖離を確認 | $0.15 |
-| 4. Alpha Memo Protocol | 毎日のAPACレポートを取得 | $1.00 |
-| 5. Japan Market Bot | マクロ環境チェック | auto |
-| 6. Copy Terminal | 全条件を満たした場合のみ執行 | $0.10 |
+### Mode A — 日次判断ループ
 
-> All payments are handled automatically via the x402 protocol. If no signals are found, the agent exits after Step 1 (~$0.05 total).
+Mode A は早期終了せず、毎ラン必ず一つの日次 call（買い / 見送り ＋ 方向 ＋ サイズ案）を出します。
+判断入力は Mode B が既に取得済みの実データを再利用し（二重課金しない）、方向解釈にのみ Whale Intent Decoder を新規に支払います。
+
+| 役割 | シグナル源 | 取得 |
+|------|-----------|------|
+| 起点（strength） | Divergence Analyzer（`nansenNetFlowUsd`） | Mode B の結果を再利用 |
+| 確度（conviction） | Hyperliquid Intelligence（建玉の偏り） | Mode B の結果を再利用 |
+| 方向（direction） | Whale Intent Decoder（intent / confidence） | Mode A が新規に支払い（$0.30） |
+
+3つのシグナルを `score ∈ [-1, 1]` にスコア化し、`|score| ≥ 閾値` なら BUY、未満なら SKIP（見送り）。
+方向（long / short）とサイズ案、判断根拠（使った各シグナル値）を、ERC-8004 agentId に紐付けて追記専用ストア（Upstash Redis または ローカル JSONL `data/decisions/mode-a-decisions.jsonl`）に記録します。
+
+> **実発注は結線していません。** smct `/api/execute` は呼ばれず、記録は「エージェントがこう判断した」までに限定されます（`executed: false`）。約定・P&L は含みません。Smart Money Screener は候補ゼロ（Nansen が Solana 未対応）のため判断入力から外しています。
+
+> All payments are handled automatically via the x402 protocol.
 
 ---
 
