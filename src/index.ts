@@ -16,11 +16,11 @@ async function dailyRun(): Promise<void> {
   await runAnalystDailyNote();
 }
 
-function weeklyRun(): void {
+async function weeklyRun(): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`[AGENT] Weekly run — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}`);
-  queueModeC();
+  await queueModeC();
 }
 
 async function main(): Promise<void> {
@@ -37,9 +37,9 @@ async function main(): Promise<void> {
   });
 
   // Mode C: every Monday at 06:00 JST (21:00 UTC) — queues for human approval
-  cron.schedule("0 21 * * 1", () => {
+  cron.schedule("0 21 * * 1", async () => {
     try {
-      weeklyRun();
+      await weeklyRun();
     } catch (err) {
       console.error("[AGENT] Weekly run failed:", err);
     }
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
 
   if (process.argv.includes("--run-weekly")) {
     console.log("\n[AGENT] Manual weekly run triggered (queuing for approval)");
-    weeklyRun();
+    await weeklyRun();
   }
 
   if (process.argv.includes("--run-analyst")) {
