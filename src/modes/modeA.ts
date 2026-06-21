@@ -63,7 +63,8 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
   const divResult = findModeBResult(modeBLog, "divergence-analyzer");
   const hlResult = findModeBResult(modeBLog, "hyperliquid-intelligence");
   const divergence = extractDivergenceSignal(divResult?.fullData);
-  const hyperliquid = extractHyperliquidSignal(hlResult?.fullData);
+  // Match conviction to the decision asset (the divergence origin, default ETH).
+  const hyperliquid = extractHyperliquidSignal(hlResult?.fullData, divergence.token);
 
   if (!modeBLog) {
     log.errors.push("Mode B results not provided — divergence/hyperliquid unavailable");
@@ -77,7 +78,10 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
   );
   console.log(
     `[MODE A] Hyperliquid available=${hyperliquid.available}` +
-      (hyperliquid.available ? ` bias=${hyperliquid.bias} (${hyperliquid.biasField})` : "")
+      (hyperliquid.available
+        ? ` ${hyperliquid.token} conviction=${hyperliquid.bias}` +
+          ` (divergenceScore=${hyperliquid.divergenceScore}, smartMoneyBias=${hyperliquid.smartMoneyBias})`
+        : "")
   );
 
   // ── Whale Intent Decoder — direction (the only paid call in Mode A) ───────
@@ -163,6 +167,9 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
         available: hyperliquid.available,
         bias: hyperliquid.bias,
         biasField: hyperliquid.biasField,
+        token: hyperliquid.token,
+        divergenceScore: hyperliquid.divergenceScore,
+        smartMoneyBias: hyperliquid.smartMoneyBias,
         source: hyperliquid.available ? "mode-b-reuse" : "unavailable",
         peek: hlResult?.responsePeek,
       },

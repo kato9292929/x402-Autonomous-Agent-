@@ -19,10 +19,19 @@ export interface DivergenceSignal {
 
 export interface HyperliquidSignal {
   available: boolean;
-  /** Positioning skew. Positive = net-long crowd, negative = net-short. */
+  /**
+   * Conviction in [-1, 1] = divergenceScore × sign(smartMoneyBias).
+   * Positive = smart money LONG, negative = SHORT.
+   */
   bias?: number;
-  /** Which response field the bias was read from (for audit). */
+  /** How the bias was derived (for audit). */
   biasField?: string;
+  /** Token the conviction was read from (must match the decision asset). */
+  token?: string;
+  /** Raw confirmed field: divergence strength, 0..1. */
+  divergenceScore?: number;
+  /** Raw confirmed field: "LONG" | "SHORT". */
+  smartMoneyBias?: string;
 }
 
 // Field-name candidates, ordered by how closely they match the documented name.
@@ -35,16 +44,6 @@ const NETFLOW_KEYS = [
 ];
 const TOKEN_KEYS = ["token", "symbol", "asset", "ticker"];
 const CHAIN_KEYS = ["chain", "network", "blockchain"];
-const BIAS_KEYS = [
-  "oiBias",
-  "openInterestBias",
-  "positioningBias",
-  "netPositioning",
-  "longShortSkew",
-  "skew",
-  "bias",
-  "longShortRatio",
-];
 
 function asNumber(val: unknown): number | undefined {
   if (typeof val === "number" && Number.isFinite(val)) return val;
@@ -122,21 +121,59 @@ export function extractDivergenceSignal(
   return best ?? { available: false };
 }
 
+function biasSign(smartMoneyBias: string | undefined): number {
+  if (!smartMoneyBias) return 0;
+  const up = smartMoneyBias.toUpperCase();
+  if (up === "LONG") return 1;
+  if (up === "SHORT") return -1;
+  return 0;
+}
+
 /**
- * Find a positioning-skew value in the Hyperliquid response. Returns the first
- * recognised field; records which field it came from for auditability.
+ * Read the conviction signal from the Hyperliquid response.
+ *
+ * The response shape (confirmed from Mode B logs) is:
+ *   { topDivergences: [ { token, divergenceScore (0..1), smartMoneyBias: "LONG"|"SHORT", ... } ] }
+ *
+ * Conviction is derived from the two confirmed fields only — magnitude from
+ * divergenceScore, sign from smartMoneyBias — and is matched to the decision
+ * asset (`targetToken`, the divergence origin, default ETH). If that token is
+ * absent or either confirmed field is unusable, the signal is unavailable and
+ * contributes nothing (we never substitute another token or invent a value).
  */
 export function extractHyperliquidSignal(
-  data: Record<string, unknown> | undefined | null
+  data: Record<string, unknown> | undefined | null,
+  targetToken = "ETH"
 ): HyperliquidSignal {
   if (!data) return { available: false };
+  const target = targetToken.toUpperCase();
 
   for (const obj of walkObjects(data)) {
-    const hit = firstKey(obj, BIAS_KEYS);
-    if (!hit) continue;
-    const bias = asNumber(hit.value);
-    if (bias === undefined) continue;
-    return { available: true, bias, biasField: hit.key };
+    const arr = obj["topDivergences"];
+    if (!Array.isArray(arr)) continue;
+
+    for (const item of arr) {
+      if (item === null || typeof item !== "object") continue;
+      const el = item as Record<string, unknown>;
+      const token = asString(firstKey(el, TOKEN_KEYS)?.value);
+      if (!token || token.toUpperCase() !== target) continue;
+
+      const divergenceScore = asNumber(el["divergenceScore"]);
+      const smartMoneyBias = asString(el["smartMoneyBias"]);
+      const sign = biasSign(smartMoneyBias);
+      // Need both confirmed fields; don't fabricate a value or a direction.
+      if (divergenceScore === undefined || sign === 0) {
+        return { available: false };
+      }
+      return {
+        available: true,
+        bias: divergenceScore * sign,
+        biasField: "divergenceScore×sign(smartMoneyBias)",
+        token,
+        divergenceScore,
+        smartMoneyBias,
+      };
+    }
   }
 
   return { available: false };
