@@ -6,7 +6,7 @@ import { IDKit, proofOfHuman, type IDKitRequest } from "@worldcoin/idkit-core";
 import { signRequest } from "@worldcoin/idkit-core/signing";
 import { IDENTITY_REGISTRY, AGENT_REGISTRY_ID } from "./erc8004/contract";
 import { findPendingItem, markApproved, listItems } from "./world-id/queue";
-import { isNullifierUsed, recordNullifier } from "./world-id/nullifier-store";
+import { claimNullifier } from "./world-id/nullifier-store";
 import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessions";
 import { runModeC } from "./modes/modeC";
 import type { WorldIdVerifyResponse } from "./world-id/types";
@@ -218,7 +218,7 @@ async function handleApproveGet(
     return;
   }
 
-  const item = findPendingItem(queueId);
+  const item = await findPendingItem(queueId);
   if (!item) {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Queue item not found or already approved");
@@ -299,7 +299,7 @@ async function handleVerify(
     return;
   }
 
-  const item = findPendingItem(queueId);
+  const item = await findPendingItem(queueId);
   if (!item) {
     sendJson(res, 409, { error: "Queue item not found or already approved" });
     return;
@@ -343,13 +343,14 @@ async function handleVerify(
     return;
   }
 
-  if (isNullifierUsed(nullifier, expectedAction)) {
+  // Atomic claim (SET NX): rejects a replayed / double (nullifier, action).
+  const claimed = await claimNullifier(nullifier, expectedAction);
+  if (!claimed) {
     sendJson(res, 409, { error: "Nullifier already used for this action" });
     return;
   }
 
-  recordNullifier(nullifier, expectedAction);
-  markApproved(queueId);
+  await markApproved(queueId);
 
   console.log(`[WORLD-ID] Verified — queueId=${queueId}, nullifier=${nullifier.slice(0, 16)}…`);
 
@@ -471,7 +472,12 @@ export function startHttpServer(): void {
     }
 
     if (urlPath === "/api/world-id/queue" && req.method === "GET") {
-      sendJson(res, 200, { items: listItems() });
+      listItems()
+        .then((items) => sendJson(res, 200, { items }))
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/world-id/queue error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
       return;
     }
 
