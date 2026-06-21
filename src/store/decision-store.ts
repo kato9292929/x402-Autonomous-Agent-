@@ -25,6 +25,9 @@ export interface DecisionSignals {
     available: boolean;
     bias?: number;
     biasField?: string;
+    token?: string;
+    divergenceScore?: number;
+    smartMoneyBias?: string;
     source: "mode-b-reuse" | "unavailable";
     peek?: string;
   };
