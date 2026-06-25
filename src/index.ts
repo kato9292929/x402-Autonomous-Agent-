@@ -5,6 +5,7 @@ import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC, queueModeC } from "./modes/modeC";
 import { runAnalystDailyNote } from "./jobs/analyst-daily-note";
+import { runOsdConsumption } from "./jobs/osd-consumption";
 import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
@@ -14,6 +15,7 @@ async function dailyRun(): Promise<void> {
   const modeBLog = await runModeB();
   await runModeA(modeBLog);
   await runAnalystDailyNote();
+  await runOsdConsumption();
 }
 
 async function weeklyRun(): Promise<void> {
@@ -62,6 +64,11 @@ async function main(): Promise<void> {
   if (process.argv.includes("--run-analyst")) {
     console.log("\n[AGENT] Manual analyst-daily-note run triggered");
     await runAnalystDailyNote();
+  }
+
+  if (process.argv.includes("--run-osd")) {
+    console.log("\n[AGENT] Manual osd-consumption run triggered");
+    await runOsdConsumption();
   }
 }
 

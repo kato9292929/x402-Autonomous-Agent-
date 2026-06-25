@@ -1,0 +1,4 @@
+{
+  "_comment": "Phase A catalyst seeds AA submits to osd (POST /api/alpha/catalyst/submit). Each must be machine-verifiable: a numeric/binary condition in `description` and a real future `target_date` (YYYY-MM-DD). `key` is a stable id used to avoid resubmitting. AA submits up to OSD_SUBMIT_MAX_PER_RUN unsubmitted seeds per run; vague seeds (no number/date) are skipped. Add real catalysts below.",
+  "catalysts": []
+}
