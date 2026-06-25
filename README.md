@@ -199,6 +199,34 @@ npm start           # Start cron scheduler
 
 ---
 
+## osd Consumption Job
+
+毎日の daily run 末尾で、osd（`https://osd-coral.vercel.app`）の稼働中 x402 エンドポイントを実消費します（`runOsdConsumption`）。手動実行は `node dist/index.js --run-osd`。
+
+**Step 1（最優先）— Phase A 往復**
+- `config/catalysts.json` の未送信 seed を1件 `POST /api/alpha/catalyst/submit`（無料）。`catalyst_id` を永続ストア（Upstash、無ければローカル JSON）に保存し `pending` に。
+- `estimated_eval_date` を過ぎた pending catalyst を `GET /api/alpha/catalyst/{id}/score` でポーリングし、verdict（hit/partial/miss/na）確定でストア更新＋ログ。
+
+> **Phase A を動かすには `config/catalysts.json` に実在の catalyst を入れてください**（初期は空）。各 seed は機械判定可能であること＝`description` に数値/二値条件、`target_date` に**実在の予定日**（YYYY-MM-DD）。数値・期日の無い曖昧な seed は submit されません。
+> ```json
+> { "catalysts": [
+>   { "key": "nvda-fq3-2026", "ticker": "NVDA",
+>     "description": "FQ3 決算で AI 売上が前年比 +50% 超",
+>     "target_date": "2026-11-19" }
+> ] }
+> ```
+
+**Step 2 — 有料データ消費（x402）**
+- 毎日：`GET /api/stocks/{ticker}`（$0.01）＋ Solana の `GET /api/liquidity`・`GET /api/holders`（各 $0.01）。1 run の有料データ上限はデフォルト $0.20（`OSD_DATA_SPEND_CAP_USD`）。
+- 週1（デフォルト月曜 UTC）：`POST /api/predict` を `depth=quick`（$0.50）で1回。standard/deep は日次では呼びません。
+
+**Step 3 — ログ**
+- 各コールを `{ endpoint, price_usd, network, tx_or_settlement_ref, ts }` で消費ログに追記（Upstash list `osd_consumption_log` ＋ ローカル `data/osd/consumption-log.jsonl`）。
+
+調整用 env は `.env.example` の「osd consumption ジョブ」を参照。
+
+---
+
 ## Cost Per Run
 
 | Condition | Estimated Cost |
