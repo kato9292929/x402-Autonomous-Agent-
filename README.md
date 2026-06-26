@@ -187,15 +187,24 @@ npm start           # Start cron scheduler
 
 ---
 
-## Analyst Daily Note Job
+## Analyst Job（日本 AI-DC 5銘柄の dated catalyst 生成）
 
-毎朝 06:00 JST に Onchain Stock Data の Analyst API を叩き、日次ノート記事を自動生成します。
+analyst ジョブは米国株のプロース解説から、日本の AI データセンター・サプライチェーン5銘柄の dated catalyst 生成に向け直しました（毎日 06:00 JST、`--run-analyst` で手動実行）。出力は AA（agentId 55560）が署名する market="JP" の dated catalyst で、verdict まで追跡します。
 
-- **実行時刻**: 毎朝 06:00 JST（node-cron）
-- **対象銘柄**: `config/analyst-tickers.json` で管理
-- **同期必須**: `config/analyst-tickers.json` は Onchain Stock Data リポジトリの `data/stocks.json` と必ず同期させること。同期していない銘柄は `ticker_not_found` エラーとなります。
-- **銘柄追加手順**: 新しい銘柄を追加するときは、**先に Onchain Stock Data 側の `data/stocks.json` に追加** してから、本リポジトリの `config/analyst-tickers.json` に追加してください。
-- **Onchain Stock Data リポジトリ**: https://github.com/kato9292929/onchain-stock-data
+対象5銘柄（`config/jp-catalysts.json` で管理。実在の証券コード）:
+- イビデン(4062) 半導体パッケージ基板/ABF実装、味の素(2802) ABF絶縁材料、日東紡(3110) ガラスクロス、レーザーテック(6920) EUVマスク検査、ディスコ(6146) ダイシング/グラインディング
+
+各 catalyst は `description`（数値・二値で機械判定可能）・`target_date`（予想日含む）・`thesis`・`conviction`（AAの初期prior 0..1）・`evidence`・`market="JP"`・`agent_id=55560` を持ち、ストア（Upstash / ローカル JSON）に `pending` で保存されます。
+
+データ源の限定（重要）:
+- JP では on-chain 系（stocks/liquidity/holders/registry/ipo）を叩きません（トークン化米国株しか持たないため）。
+- evidence は `POST /api/wrappers/perplexity-research`（$0.05、銘柄1回/run、`OSD_JP_EVIDENCE_CAP_USD` で上限）からのみ取得します。
+
+submit のゲート（前提確認）:
+- osd 側の JP 対応 judge（前提1）と submit の market 受け入れ（前提3）が確認できるまで submit しません。`OSD_JP_SUBMIT_ENABLED=true` を立てたときだけ `POST /api/alpha/catalyst/submit` に market="JP" 付きで送り、`catalyst_id` を保存します。未設定時はローカル記録＋ submit は TODO。
+- target_date / estimated_eval_date 経過後の run で score をポーリングし、verdict（hit/partial/miss/na）を確定保存します。
+
+注: 旧 US analyst（`/api/analyst` + `config/analyst-tickers.json` + note 生成）の削除は別判断（`config/analyst-tickers.json` は osd consumption の US データ叩きで引き続き使用）。
 
 ---
 
