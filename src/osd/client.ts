@@ -34,15 +34,46 @@ export interface SubmitCatalystResponse {
   score_lookup_url?: string;
 }
 
-export async function submitCatalyst(body: {
+// osd の catalyst_description 長さ制約 (契約)
+const CATALYST_DESCRIPTION_MIN = 10;
+const CATALYST_DESCRIPTION_MAX = 500;
+
+/**
+ * osd の POST /api/alpha/catalyst/submit に契約どおりのフィールド名で送る。
+ * 重要: 達成条件本文は `catalyst_description`(必須) に入れる。`description` で
+ * 送ると osd が「catalyst_description is required」で 400 を返す。
+ */
+export async function submitCatalyst(input: {
   ticker: string;
-  description: string;
+  description: string; // 達成条件本文 → catalyst_description にマップ
   target_date: string;
   market?: string;
+  source?: string;
   conviction?: number;
-  agent_id?: number;
+  agent_id?: number | string;
 }): Promise<SubmitCatalystResponse> {
   const url = `${osdBase()}/api/alpha/catalyst/submit`;
+
+  const catalystDescription = input.description ?? "";
+  if (
+    catalystDescription.length < CATALYST_DESCRIPTION_MIN ||
+    catalystDescription.length > CATALYST_DESCRIPTION_MAX
+  ) {
+    throw new Error(
+      `submit aborted: catalyst_description must be ${CATALYST_DESCRIPTION_MIN}..${CATALYST_DESCRIPTION_MAX} chars (got ${catalystDescription.length})`
+    );
+  }
+
+  const body: Record<string, unknown> = {
+    ticker: input.ticker,
+    catalyst_description: catalystDescription,
+    target_date: input.target_date,
+  };
+  if (input.market !== undefined) body.market = input.market;
+  if (input.source !== undefined) body.source = input.source;
+  if (input.conviction !== undefined) body.conviction = input.conviction;
+  if (input.agent_id !== undefined) body.agent_id = String(input.agent_id);
+
   return withTimeout(async (signal) => {
     const res = await fetch(url, {
       method: "POST",
@@ -52,7 +83,16 @@ export async function submitCatalyst(body: {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "(no body)");
-      throw new Error(`submit HTTP ${res.status}: ${text.slice(0, 200)}`);
+      let detail = text.slice(0, 300);
+      try {
+        const j = JSON.parse(text) as { error?: string; field?: string; message?: string };
+        if (j.field || j.message) {
+          detail = `${j.error ?? "error"} field=${j.field ?? "?"} message=${j.message ?? "?"}`;
+        }
+      } catch {
+        // JSON でない応答はそのまま
+      }
+      throw new Error(`submit HTTP ${res.status}: ${detail}`);
     }
     return (await res.json()) as SubmitCatalystResponse;
   });
