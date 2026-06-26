@@ -141,6 +141,7 @@ async function generateAndRecord(submitEnabled: boolean): Promise<void> {
           description: seed.description,
           target_date: seed.target_date,
           market: "JP",
+          source: "aa_jp_coverage",
           conviction: seed.conviction,
           agent_id: AGENT_ID,
         });
