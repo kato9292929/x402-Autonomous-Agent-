@@ -38,6 +38,9 @@ export async function submitCatalyst(body: {
   ticker: string;
   description: string;
   target_date: string;
+  market?: string;
+  conviction?: number;
+  agent_id?: number;
 }): Promise<SubmitCatalystResponse> {
   const url = `${osdBase()}/api/alpha/catalyst/submit`;
   return withTimeout(async (signal) => {
@@ -125,4 +128,52 @@ export async function paidCall(
   }
 
   return { status: res.status, settlementRef, network };
+}
+
+export interface ResearchResult {
+  status: number;
+  settlementRef: string | null;
+  network: string;
+  body: unknown;
+}
+
+/**
+ * JP evidence source: paid news/IR research wrapper. Returns the response body
+ * (the evidence) plus the settlement ref. This is the only paid per-call source
+ * used for JP — on-chain endpoints (stocks/liquidity/holders/...) hold tokenised
+ * US equities only and are never called for JP tickers.
+ */
+export async function researchEvidence(
+  ticker: string,
+  lookbackHours = 168
+): Promise<ResearchResult> {
+  const url = `${osdBase()}/api/wrappers/perplexity-research`;
+  const res = await fetchWithPayment(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticker, lookback_hours: lookbackHours }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "(no body)");
+    throw new Error(`perplexity-research HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const body = await res.json().catch(() => undefined);
+
+  let settlementRef: string | null = null;
+  let network = "base";
+  const header =
+    res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
+  if (header) {
+    try {
+      const decoded = decodePaymentResponseHeader(header) as {
+        transaction?: string;
+        network?: string;
+      };
+      settlementRef = decoded.transaction ?? null;
+      if (decoded.network) network = decoded.network;
+    } catch {
+      // unparseable header — leave ref null
+    }
+  }
+  return { status: res.status, settlementRef, network, body };
 }
