@@ -30,6 +30,8 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     cost: 0.20,
     chain: "base",
     mode: "B",
+    // 実レスポンスから apyResolved / liveSources / smartMoney を観測ログに出すため保持
+    captureFullData: true,
   },
   {
     id: "portfolio-intelligence",
