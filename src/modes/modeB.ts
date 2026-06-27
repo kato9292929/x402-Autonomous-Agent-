@@ -4,6 +4,7 @@ import { ENDPOINTS_MODE_B } from "../config";
 import { callEndpoint, getConsecutiveFailures } from "../caller";
 import { logRun } from "../logger";
 import { sendWebhookSummary } from "../notify";
+import { summarizeYield } from "./yield-observe";
 import type { EndpointResult, RunLog } from "../types";
 
 const FAILURE_ALERT_THRESHOLD = 3;
@@ -97,6 +98,11 @@ export async function runModeB(): Promise<RunLog> {
   for (const ep of ENDPOINTS_MODE_B) {
     const result = await callEndpoint(ep);
     log.results.push(result);
+
+    // Yield のレスポンス実値を観測ログに出す(判断には使わない)
+    if (ep.id === "yield-intelligence") {
+      console.log(`[MODE B] ${summarizeYield(result.fullData)}`);
+    }
 
     if (result.status === "success") {
       log.totalCostUsdc += result.costUsdc;
