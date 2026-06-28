@@ -162,8 +162,7 @@ async function generateAndRecord(submitEnabled: boolean): Promise<void> {
       }
     } else if (!submitEnabled) {
       console.log(
-        `[JP-CAT] TODO submit "${seed.key}" — osd JP support unconfirmed ` +
-          `(set OSD_JP_SUBMIT_ENABLED=true once 前提1/前提3 verified). Recorded locally.`
+        `[JP-CAT] JP submit 廃止(osd 内完結に移行) — "${seed.key}" はローカル記録のみ`
       );
     }
 
@@ -210,8 +209,15 @@ async function pollVerdicts(): Promise<void> {
 
 export async function runAnalystDailyNote(): Promise<void> {
   const start = Date.now();
-  const submitEnabled = process.env.OSD_JP_SUBMIT_ENABLED === "true";
-  console.log(`[JP-CAT] JP dated-catalyst job started — submit ${submitEnabled ? "ENABLED" : "OFF (local-record + TODO)"}`);
+  // 日本株は osd 内完結方式(Claude選定→週次ファイル→CI commit→Vercel配信→期日採点)へ
+  // 移行済み。AA からの JP submit は不要になり、二重書き込みを防ぐため恒久無効化する。
+  // OSD_JP_SUBMIT_ENABLED が立っていても submit は走らない(env を参照しない)。
+  // 生成・evidence・ローカル記録・verdict 追跡は track record として残す。
+  const JP_SUBMIT_RETIRED = true;
+  const submitEnabled = !JP_SUBMIT_RETIRED && process.env.OSD_JP_SUBMIT_ENABLED === "true";
+  console.log(
+    `[JP-CAT] JP dated-catalyst job started — submit ${submitEnabled ? "ENABLED" : "DISABLED(日本株は osd 内完結に移行・ローカル記録のみ)"}`
+  );
 
   try {
     await generateAndRecord(submitEnabled);
