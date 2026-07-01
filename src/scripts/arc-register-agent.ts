@@ -15,18 +15,12 @@
 import "dotenv/config";
 import { registerArcAgent } from "../erc8004/arc-executor";
 import { saveArcRegistration } from "../erc8004/arc-record";
-import { ARC_IDENTITY_REGISTRY, ARC_EXPLORER, arcTxUrl } from "../erc8004/arc-contract";
-
-function resolveMetadataURI(): string {
-  if (process.env.ARC_METADATA_URI) return process.env.ARC_METADATA_URI;
-  const base = process.env.RAILWAY_PUBLIC_DOMAIN
-    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-    : "https://x402-autonomous-agent-production.up.railway.app";
-  // AA は /.well-known/agent-card.json を配信済み(ERC-8004 registration-v1 形式)。
-  // TODO: Arc の register が期待する形式(HTTP URL か ipfs://)を use-arc Skill / docs で確認。
-  //       必要ならチュートリアルの例 URI で疎通確認してから本 URI に差し替える。
-  return `${base}/.well-known/agent-card.json`;
-}
+import {
+  ARC_IDENTITY_REGISTRY,
+  ARC_EXPLORER,
+  arcTxUrl,
+  resolveMetadataURI,
+} from "../erc8004/arc-contract";
 
 async function main(): Promise<void> {
   const metadataURI = resolveMetadataURI();

@@ -31,10 +31,22 @@ export const ZERO_TOPIC =
 
 /**
  * register(string metadataURI) の Solidity 関数シグネチャ(型のみ)。Circle DCW の
- * abiFunctionSignature に渡す。指示書の「register(string metadataURI)」に対応。
- * TODO: 実行前に use-arc Skill / IdentityRegistry ABI で最終確認する。
+ * abiFunctionSignature に渡す。確定値(Arc 公式 docs): register(string metadataURI)。
  */
 export const ARC_REGISTER_ABI_SIGNATURE = "register(string)";
+
+/**
+ * 当面の metadataURI 既定値(register-your-first-ai-agent チュートリアルの例 IPFS URI)。
+ * まずこれで疎通確認し、後で AA の agent card(ipfs://)に差し替える。
+ * ARC_METADATA_URI 環境変数で上書き可能。
+ */
+export const ARC_TUTORIAL_METADATA_URI =
+  "ipfs://bafkreibdi6623n3xpf7ymk62ckb4bo75o3qemwkpfvp5i25j66itxvsoei";
+
+/** metadataURI を解決する。ARC_METADATA_URI があればそれ、無ければ例 IPFS URI。 */
+export function resolveMetadataURI(): string {
+  return process.env.ARC_METADATA_URI ?? ARC_TUTORIAL_METADATA_URI;
+}
 
 export function arcTxUrl(txHash: string): string {
   return `${ARC_EXPLORER}/tx/${txHash}`;

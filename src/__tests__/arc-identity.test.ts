@@ -8,7 +8,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extractAgentIdFromLogs } from "../erc8004/arc-executor";
 import { saveArcRegistration, loadArcRegistration } from "../erc8004/arc-record";
-import { TRANSFER_TOPIC, ZERO_TOPIC, ARC_IDENTITY_REGISTRY } from "../erc8004/arc-contract";
+import {
+  TRANSFER_TOPIC,
+  ZERO_TOPIC,
+  ARC_IDENTITY_REGISTRY,
+  ARC_CIRCLE_BLOCKCHAIN,
+  ARC_REGISTER_ABI_SIGNATURE,
+  ARC_TUTORIAL_METADATA_URI,
+  resolveMetadataURI,
+} from "../erc8004/arc-contract";
+
+test("確定値: 契約アドレス / register ABI / blockchain 識別子", () => {
+  assert.equal(ARC_IDENTITY_REGISTRY, "0x8004A818BFB912233c491871b3d84c89A494BD9e");
+  assert.equal(ARC_REGISTER_ABI_SIGNATURE, "register(string)");
+  assert.equal(ARC_CIRCLE_BLOCKCHAIN, "ARC-TESTNET");
+});
+
+test("metadataURI: 既定は ipfs:// の例 URI、ARC_METADATA_URI で上書き", () => {
+  const orig = process.env.ARC_METADATA_URI;
+  delete process.env.ARC_METADATA_URI;
+  try {
+    assert.equal(resolveMetadataURI(), ARC_TUTORIAL_METADATA_URI);
+    assert.match(resolveMetadataURI(), /^ipfs:\/\//);
+    process.env.ARC_METADATA_URI = "ipfs://custom";
+    assert.equal(resolveMetadataURI(), "ipfs://custom");
+  } finally {
+    if (orig === undefined) delete process.env.ARC_METADATA_URI;
+    else process.env.ARC_METADATA_URI = orig;
+  }
+});
 
 const tokenIdTopic = (n: number): string => "0x" + n.toString(16).padStart(64, "0");
 const addrTopic = "0x000000000000000000000000ae7c000000000000000000000000000000000001";
