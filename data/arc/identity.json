@@ -1,0 +1,10 @@
+{
+  "chain": "ARC-TESTNET",
+  "arc_agent_id": "128",
+  "tx_hash": "0xabc",
+  "identity_registry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+  "metadata_uri": "https://example/agent-card.json",
+  "explorer_tx_url": "https://testnet.arcscan.app/tx/0xabc",
+  "base_agent_id": "55560",
+  "registered_at": "2026-07-01T03:00:25.680Z"
+}

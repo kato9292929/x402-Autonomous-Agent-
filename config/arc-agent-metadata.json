@@ -1,0 +1,11 @@
+{
+  "_comment": "Arc Testnet の ERC-8004 register(metadataURI) に渡す metadata の素材。既定では AA が配信する /.well-known/agent-card.json を metadataURI に使う(arc-register-agent.ts)。IPFS にアップロードして固定 URI を使う場合はこの内容を上げ、ARC_METADATA_URI に ipfs:// を設定して差し替える。値は server.ts の agent-card と整合させること。",
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "x402 Autonomous Agent",
+  "description": "Autonomous agent that consumes paid data endpoints daily via the x402 payment protocol on Base (EVM) and Solana. Registering its ERC-8004 identity on Arc Testnet.",
+  "version": "1.0.0",
+  "capabilities": ["x402-payments", "erc-8004-identity", "daily-signal-analysis"],
+  "x402Support": true,
+  "active": true,
+  "supportedTrust": ["crypto-economic"]
+}

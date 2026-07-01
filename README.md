@@ -246,6 +246,42 @@ submit のゲート（前提確認）:
 
 ---
 
+## Arc Testnet ERC-8004 identity 登録（独立スクリプト）
+
+AA のオンチェーン身元（ERC-8004）を Arc Testnet にも登録します。Base の agentId 55560 とは別物として、Arc 上の agentId を取得・記録します。AA 本体（Mode A/B/C、Base/Solana 決済、cron）には接続していない独立処理です。
+
+前提: use-arc Skill / Arc docs を一次情報として確認してから実行します（chain・コントラクト・関数を憶測で確定しない）。実行には Circle 認証（`CIRCLE_API_KEY` / `CIRCLE_ENTITY_SECRET`）と Arc/Circle への到達が必要で、egress 制限のある環境では動きません。
+
+一次情報の値（指示書の Arc docs 由来。`src/erc8004/arc-contract.ts`）:
+- RPC: https://rpc.testnet.arc.network/ 、Explorer: https://testnet.arcscan.app 、Faucet: https://faucet.circle.com
+- Circle blockchain 識別子: ARC-TESTNET 、gas は USDC（約 0.006 USDC-TESTNET/tx、Gas Station でスポンサー可）
+- IdentityRegistry: 0x8004A818BFB912233c491871b3d84c89A494BD9e（register(string metadataURI) を呼ぶと identity NFT が mint される。agentId = Transfer イベントの tokenId）
+
+手順（dist で実行）:
+```
+# 1. owner / validator ウォレットを ARC-TESTNET(SCA) で作成
+node dist/scripts/arc-create-wallets.js
+# 出力の CIRCLE_ARC_OWNER_WALLET_ID / ARC_OWNER_ADDRESS 等を env に設定
+
+# 2. 両アドレスに faucet(https://faucet.circle.com) で testnet USDC を入れてガスを用意
+
+# 3. register を実行して Arc agentId を取得・記録
+node dist/scripts/arc-register-agent.js
+```
+
+記録: `arc_identity:registration`（Upstash）と `data/arc/identity.json` に `arc_agent_id` / `tx_hash` / `owner` を残します（Base の 55560 とは別フィールド）。秘密（entity secret / API key / 秘密鍵）は記録・ログに出しません。
+
+完了の判定: register の tx と agentId を https://testnet.arcscan.app で目視確認するまで「登録完了」としません（自動判定はしません）。
+
+要確認（実行前に use-arc Skill / docs で確定）:
+- Circle DCW の contractExecution で ARC-TESTNET を対象にする指定方法（owner ウォレットが ARC-TESTNET なら walletId 由来で Arc に送られる想定。blockchain 明示が要るか確認）
+- register の正確な ABI シグネチャ（`register(string)` を採用）
+- metadataURI の期待形式（HTTP URL か ipfs://。既定は AA の agent-card URL）
+
+次段（対象外）: ReputationRegistry / ValidationRegistry による reputation・validation 記録。
+
+---
+
 ## License
 
 MIT
