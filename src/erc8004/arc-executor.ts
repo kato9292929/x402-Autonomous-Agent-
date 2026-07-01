@@ -10,15 +10,15 @@
  * 実行には Circle 認証(CIRCLE_API_KEY / CIRCLE_ENTITY_SECRET)と ARC-TESTNET の owner
  * ウォレット(CIRCLE_ARC_OWNER_WALLET_ID、ガス用 testnet USDC 済み)が必要。
  *
- * TODO(実行前に use-arc Skill / Circle Console で確認):
- *  - Circle DCW の contractExecution で ARC-TESTNET を対象にする指定方法。既存 Base 版は
- *    walletId から chain を推定させている(blockchain 明示なし)。owner ウォレットを
- *    ARC-TESTNET で作れば同様に Arc へ送られる想定だが、blockchain 明示が要るかを確認する。
- *  - register の正確な ABI シグネチャ(arc-contract.ts の ARC_REGISTER_ABI_SIGNATURE)。
+ * 確定値(Arc 公式 docs / register-your-first-ai-agent 由来):
+ *  - contractExecution では blockchain "ARC-TESTNET" を明示で渡す(walletId 由来の chain
+ *    推定に頼らない)。
+ *  - register の ABI は register(string metadataURI) → abiFunctionSignature "register(string)"。
  */
 import * as crypto from "node:crypto";
 import { CIRCLE_API, buildEntitySecretCiphertext, getRequiredApiKey } from "../circle/client";
 import {
+  ARC_CIRCLE_BLOCKCHAIN,
   ARC_IDENTITY_REGISTRY,
   ARC_REGISTER_ABI_SIGNATURE,
   ARC_TESTNET_RPC,
@@ -83,6 +83,7 @@ async function submitArcExecution(
   const body = {
     idempotencyKey: crypto.randomUUID(),
     walletId: getOwnerWalletId(),
+    blockchain: ARC_CIRCLE_BLOCKCHAIN, // "ARC-TESTNET" を明示(chain 推定に頼らない)
     contractAddress: ARC_IDENTITY_REGISTRY,
     abiFunctionSignature,
     abiParameters,
