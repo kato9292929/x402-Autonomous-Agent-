@@ -3,8 +3,8 @@
  *
  * 実行(dist で実証):
  *   node dist/scripts/arc-register-agent.js
- * 必要 env:
- *   CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, CIRCLE_ARC_OWNER_WALLET_ID(ガス用 USDC 済み)
+ * 必要 env (Arc は Circle TEST キー。AA 本体の LIVE 認証とは別):
+ *   CIRCLE_API_KEY_TEST, CIRCLE_ENTITY_SECRET_TEST, CIRCLE_ARC_OWNER_WALLET_ID(ガス用 USDC 済み)
  * 任意 env:
  *   ARC_METADATA_URI  — 未指定なら AA の agent-card URL を使う
  *   ARC_OWNER_ADDRESS — 記録用(表示のみ)

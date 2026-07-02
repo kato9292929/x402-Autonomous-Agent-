@@ -7,29 +7,30 @@
  *
  * 実行(dist で実証):
  *   node dist/scripts/arc-create-wallets.js
- * 必要 env:
- *   CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, CIRCLE_WALLET_SET_ID
+ * 必要 env (Arc は Circle TEST キー。AA 本体の LIVE 認証とは別):
+ *   CIRCLE_API_KEY_TEST, CIRCLE_ENTITY_SECRET_TEST, CIRCLE_WALLET_SET_ID
+ *   ※ LIVE キーだと testnet で HTTP 400 / code 156006 になるため TEST キーが必須。
  *
  * 出力の4値を Railway Variables 等に設定する。
- *
- * TODO(実行前に use-arc Skill / Circle Console で確認):
- *   - Console で ARC-TESTNET が有効化されているか
- *   - blockchains 値 "ARC-TESTNET" と accountType "SCA" が正しいか
  */
 import "dotenv/config";
 import * as crypto from "node:crypto";
-import { CIRCLE_API, buildEntitySecretCiphertext, getRequiredApiKey } from "../circle/client";
+import { CIRCLE_API } from "../circle/client";
+import {
+  getRequiredArcTestApiKey,
+  buildArcTestEntitySecretCiphertext,
+} from "../circle/arc-test-client";
 import { ARC_CIRCLE_BLOCKCHAIN, ARC_FAUCET } from "../erc8004/arc-contract";
 
 async function main(): Promise<void> {
-  const apiKey = getRequiredApiKey();
+  const apiKey = getRequiredArcTestApiKey();
   const walletSetId = process.env.CIRCLE_WALLET_SET_ID;
   if (!walletSetId) {
     console.error("ERROR: CIRCLE_WALLET_SET_ID is required");
     process.exit(1);
   }
 
-  const entitySecretCiphertext = await buildEntitySecretCiphertext(apiKey);
+  const entitySecretCiphertext = await buildArcTestEntitySecretCiphertext(apiKey);
   console.log(
     `Creating 2 ${ARC_CIRCLE_BLOCKCHAIN} SCA wallets (owner, validator) in wallet set ${walletSetId} ...`
   );

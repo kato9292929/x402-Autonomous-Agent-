@@ -7,8 +7,9 @@
  * receipt は Arc RPC(JSON-RPC eth_getTransactionReceipt)を直接叩いて取得する(viem の
  * chain 定義に依存しないので Arc の chainId 未確定でも動く)。
  *
- * 実行には Circle 認証(CIRCLE_API_KEY / CIRCLE_ENTITY_SECRET)と ARC-TESTNET の owner
- * ウォレット(CIRCLE_ARC_OWNER_WALLET_ID、ガス用 testnet USDC 済み)が必要。
+ * 実行には Arc 用の Circle TEST 認証(CIRCLE_API_KEY_TEST / CIRCLE_ENTITY_SECRET_TEST)と
+ * ARC-TESTNET の owner ウォレット(CIRCLE_ARC_OWNER_WALLET_ID、ガス用 testnet USDC 済み)が
+ * 必要。AA 本体の LIVE 認証(CIRCLE_API_KEY / CIRCLE_ENTITY_SECRET)は使わない・触らない。
  *
  * 確定値(Arc 公式 docs / register-your-first-ai-agent 由来):
  *  - contractExecution では blockchain "ARC-TESTNET" を明示で渡す(walletId 由来の chain
@@ -16,7 +17,11 @@
  *  - register の ABI は register(string metadataURI) → abiFunctionSignature "register(string)"。
  */
 import * as crypto from "node:crypto";
-import { CIRCLE_API, buildEntitySecretCiphertext, getRequiredApiKey } from "../circle/client";
+import { CIRCLE_API } from "../circle/client";
+import {
+  getRequiredArcTestApiKey,
+  buildArcTestEntitySecretCiphertext,
+} from "../circle/arc-test-client";
 import {
   ARC_CIRCLE_BLOCKCHAIN,
   ARC_IDENTITY_REGISTRY,
@@ -77,8 +82,8 @@ async function submitArcExecution(
   abiFunctionSignature: string,
   abiParameters: string[]
 ): Promise<string> {
-  const apiKey = getRequiredApiKey();
-  const entitySecretCiphertext = await buildEntitySecretCiphertext(apiKey);
+  const apiKey = getRequiredArcTestApiKey();
+  const entitySecretCiphertext = await buildArcTestEntitySecretCiphertext(apiKey);
 
   const body = {
     idempotencyKey: crypto.randomUUID(),
@@ -107,7 +112,7 @@ async function submitArcExecution(
 }
 
 async function waitForTxHash(txId: string, maxWaitMs = 180_000, pollMs = 3_000): Promise<string> {
-  const apiKey = getRequiredApiKey();
+  const apiKey = getRequiredArcTestApiKey();
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     const res = await fetch(`${CIRCLE_API}/transactions/${txId}`, {
