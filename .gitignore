@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 *.env.local
+
+# 秘密(recovery file 等)は絶対にコミットしない
+recovery_file*.dat
+*.recovery

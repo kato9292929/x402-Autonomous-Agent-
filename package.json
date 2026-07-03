@@ -8,12 +8,14 @@
     "start": "npm run build && node dist/index.js",
     "dev": "ts-node src/index.ts",
     "run-now": "ts-node src/index.ts --run-now",
+    "arc:setup-entity-secret": "node dist/scripts/arc-setup-entity-secret.js",
     "arc:create-wallets": "node dist/scripts/arc-create-wallets.js",
     "arc:register": "node dist/scripts/arc-register-agent.js",
     "test": "npm run build && node --test dist/__tests__/**/*.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
+    "@circle-fin/developer-controlled-wallets": "^10.8.0",
     "@solana/kit": "^6.9.0",
     "@types/node": "22.10.7",
     "@types/node-cron": "3.0.11",
