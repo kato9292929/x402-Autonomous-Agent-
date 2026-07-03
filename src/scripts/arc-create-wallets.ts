@@ -8,10 +8,14 @@
  * 実行(dist で実証):
  *   node dist/scripts/arc-create-wallets.js
  * 必要 env (Arc は Circle TEST キー。AA 本体の LIVE 認証とは別):
- *   CIRCLE_API_KEY_TEST, CIRCLE_ENTITY_SECRET_TEST, CIRCLE_WALLET_SET_ID
- *   ※ LIVE キーだと testnet で HTTP 400 / code 156006 になるため TEST キーが必須。
+ *   CIRCLE_API_KEY_TEST, CIRCLE_ENTITY_SECRET_TEST
+ * 任意:
+ *   CIRCLE_WALLET_SET_ID_TEST … TEST 環境の wallet set ID。未設定なら TEST 環境で新規作成し
+ *     その ID をログに出す(env に控えると次回以降は再作成しない)。
+ *   ※ LIVE キー/LIVE wallet set は testnet で使えない(156006 / 156005)。LIVE の
+ *     CIRCLE_WALLET_SET_ID は参照しない。
  *
- * 出力の4値を Railway Variables 等に設定する。
+ * 出力の値を Railway Variables 等に設定する。
  */
 import "dotenv/config";
 import * as crypto from "node:crypto";
@@ -22,13 +26,58 @@ import {
 } from "../circle/arc-test-client";
 import { ARC_CIRCLE_BLOCKCHAIN, ARC_FAUCET } from "../erc8004/arc-contract";
 
-async function main(): Promise<void> {
-  const apiKey = getRequiredArcTestApiKey();
-  const walletSetId = process.env.CIRCLE_WALLET_SET_ID;
-  if (!walletSetId) {
-    console.error("ERROR: CIRCLE_WALLET_SET_ID is required");
+/**
+ * TEST 環境の wallet set ID を解決する。CIRCLE_WALLET_SET_ID_TEST があればそれを使い、
+ * 無ければ TEST 認証(TEST キー)で wallet set を新規作成して ID を返す。
+ * LIVE の CIRCLE_WALLET_SET_ID は参照しない(TEST キーからは見えず 156005 になるため)。
+ */
+async function resolveTestWalletSetId(apiKey: string): Promise<string> {
+  const existing = process.env.CIRCLE_WALLET_SET_ID_TEST;
+  if (existing) {
+    console.log(`Using CIRCLE_WALLET_SET_ID_TEST=${existing}`);
+    return existing;
+  }
+
+  console.log("CIRCLE_WALLET_SET_ID_TEST 未設定 → TEST 環境で wallet set を新規作成します...");
+  const entitySecretCiphertext = await buildArcTestEntitySecretCiphertext(apiKey);
+  const res = await fetch(`${CIRCLE_API}/developer/walletSets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      idempotencyKey: crypto.randomUUID(),
+      name: "aa-arc-testnet",
+      entitySecretCiphertext,
+    }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    console.error(`walletSet 作成失敗: HTTP ${res.status}`);
+    console.error(text);
     process.exit(1);
   }
+  let json: { data?: { walletSet?: { id?: string } } };
+  try {
+    json = JSON.parse(text) as typeof json;
+  } catch {
+    console.error("walletSet 作成レスポンスの parse に失敗:");
+    console.error(text);
+    process.exit(1);
+  }
+  const id = json.data?.walletSet?.id;
+  if (!id) {
+    console.error("walletSet id が応答に無い:");
+    console.error(text);
+    process.exit(1);
+  }
+  console.log("\n=== TEST wallet set 作成 ===");
+  console.log(`CIRCLE_WALLET_SET_ID_TEST=${id}`);
+  console.log("この値を env に控えると、次回以降は再作成しません。\n");
+  return id;
+}
+
+async function main(): Promise<void> {
+  const apiKey = getRequiredArcTestApiKey();
+  const walletSetId = await resolveTestWalletSetId(apiKey);
 
   const entitySecretCiphertext = await buildArcTestEntitySecretCiphertext(apiKey);
   console.log(
