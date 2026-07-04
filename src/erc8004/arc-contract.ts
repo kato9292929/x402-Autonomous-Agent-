@@ -51,3 +51,24 @@ export function resolveMetadataURI(): string {
 export function arcTxUrl(txHash: string): string {
   return `${ARC_EXPLORER}/tx/${txHash}`;
 }
+
+/**
+ * ReputationRegistry / ValidationRegistry の関数・event シグネチャ。
+ * 一次確認: erc-8004/erc-8004-contracts の abis/ReputationRegistry.json /
+ * abis/ValidationRegistry.json(型順を ABI から転記。憶測ではない)。
+ */
+// giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1,
+//              string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)
+export const ARC_GIVE_FEEDBACK_SIG =
+  "giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)";
+// NewFeedback(uint256 agentId, address clientAddress, uint64 feedbackIndex, int128 value,
+//   uint8 valueDecimals, string indexedTag1, string tag1, string tag2, string endpoint,
+//   string feedbackURI, bytes32 feedbackHash) — feedbackIndex は非indexed data の先頭
+export const ARC_NEW_FEEDBACK_EVENT =
+  "NewFeedback(uint256,address,uint64,int128,uint8,string,string,string,string,string,bytes32)";
+// validationRequest(address validatorAddress, uint256 agentId, string requestURI, bytes32 requestHash)
+export const ARC_VALIDATION_REQUEST_SIG =
+  "validationRequest(address,uint256,string,bytes32)";
+// validationResponse(bytes32 requestHash, uint8 response, string responseURI, bytes32 responseHash, string tag)
+export const ARC_VALIDATION_RESPONSE_SIG =
+  "validationResponse(bytes32,uint8,string,bytes32,string)";

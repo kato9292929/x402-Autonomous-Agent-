@@ -47,3 +47,59 @@ export async function loadArcRegistration(): Promise<ArcRegistration | undefined
     return undefined;
   }
 }
+
+// ── Reputation / Validation の記録(identity=arc_identity / Base=55560 とは別キー) ──────
+
+export interface ArcReputationRecord {
+  chain: "ARC-TESTNET";
+  arc_agent_id: string;
+  score: number;
+  judged_count: number;
+  breakdown: { hit: number; partial: number; miss: number };
+  tag1?: string;
+  tag2?: string;
+  feedback_uri?: string;
+  feedback_hash?: string;
+  tx_hash: string;
+  feedback_index: string | null;
+  explorer_tx_url: string;
+  recorded_at: string;
+}
+
+export interface ArcValidationRecord {
+  chain: "ARC-TESTNET";
+  arc_agent_id: string;
+  request_hash: string;
+  request_tx_hash: string;
+  response_tx_hash: string;
+  response: number;
+  tag: string;
+  explorer_request_url: string;
+  explorer_response_url: string;
+  recorded_at: string;
+}
+
+const REPUTATION_KEY = "arc_reputation";
+const VALIDATION_KEY = "arc_validation";
+const REPUTATION_FILE = path.join(process.cwd(), "data", "arc", "reputation.json");
+const VALIDATION_FILE = path.join(process.cwd(), "data", "arc", "validation.json");
+
+export async function saveArcReputation(rec: ArcReputationRecord): Promise<void> {
+  if (upstashConfigured()) {
+    await upstashCommand(["RPUSH", `${REPUTATION_KEY}:${rec.arc_agent_id}`, JSON.stringify(rec)]);
+    console.log(`[ARC-REP] saved → Upstash (${REPUTATION_KEY}:${rec.arc_agent_id})`);
+  }
+  fs.mkdirSync(path.dirname(REPUTATION_FILE), { recursive: true });
+  fs.appendFileSync(REPUTATION_FILE, JSON.stringify(rec) + "\n", "utf-8");
+  console.log(`[ARC-REP] saved → ${REPUTATION_FILE}`);
+}
+
+export async function saveArcValidation(rec: ArcValidationRecord): Promise<void> {
+  if (upstashConfigured()) {
+    await upstashCommand(["RPUSH", `${VALIDATION_KEY}:${rec.arc_agent_id}`, JSON.stringify(rec)]);
+    console.log(`[ARC-VAL] saved → Upstash (${VALIDATION_KEY}:${rec.arc_agent_id})`);
+  }
+  fs.mkdirSync(path.dirname(VALIDATION_FILE), { recursive: true });
+  fs.appendFileSync(VALIDATION_FILE, JSON.stringify(rec) + "\n", "utf-8");
+  console.log(`[ARC-VAL] saved → ${VALIDATION_FILE}`);
+}
