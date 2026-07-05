@@ -100,6 +100,15 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     chain: "base",
     mode: "B",
   },
+  {
+    id: "odo-funding-nowcast",
+    name: "ODO Onchain Funding Nowcast",
+    url: getEnvOrDefault("ODO_FUNDING_URL", "https://odo-gamma.vercel.app/funding/nowcast/current"),
+    method: "GET",
+    cost: 0.01,
+    chain: "base",
+    mode: "B",
+  },
   // ── osd Solana endpoints (manual 402 via Circle DCW Solana wallet) ────────
   // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
   // payTo + amount resolved from 402 challenge (never hardcoded)
