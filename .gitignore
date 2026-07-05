@@ -3,6 +3,9 @@ dist/
 .env
 *.env.local
 
+# ランタイム生成物(Mode B external data / osd・arc の記録など)。コミットしない
+data/
+
 # 秘密(recovery file 等)は絶対にコミットしない
 recovery_file*.dat
 *.recovery
