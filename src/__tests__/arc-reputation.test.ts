@@ -9,10 +9,33 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   computeReputationScore,
+  computeDecisionActivityScore,
   extractFeedbackIndex,
   feedbackHashOf,
   newFeedbackTopic0,
 } from "../erc8004/arc-reputation";
+
+test("computeDecisionActivityScore: mean(|score|)*100 を動的計算(入力で変わる)", () => {
+  const a = computeDecisionActivityScore([
+    { score: 0.4, call: { action: "SKIP" } },
+    { score: 0.8, call: { action: "BUY" } },
+    { score: -0.6, call: { action: "SKIP" } },
+  ]);
+  assert.ok(a);
+  assert.equal(a?.n, 3);
+  assert.equal(a?.buyCount, 1);
+  assert.equal(a?.skipCount, 2);
+  // mean(|0.4|,|0.8|,|-0.6|)=0.6 → 60
+  assert.equal(a?.score, 60);
+  // 入力が変われば score も変わる(定数でない)
+  const b = computeDecisionActivityScore([{ score: 0.1, call: { action: "SKIP" } }]);
+  assert.equal(b?.score, 10);
+  assert.notEqual(a?.score, b?.score);
+});
+
+test("computeDecisionActivityScore: decision が無ければ null(記録しない)", () => {
+  assert.equal(computeDecisionActivityScore([]), null);
+});
 import { hashOf } from "../erc8004/arc-validation";
 
 test("computeReputationScore: hit/partial/miss を動的集計", () => {

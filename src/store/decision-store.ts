@@ -102,3 +102,39 @@ export async function appendDecision(record: DecisionRecord): Promise<void> {
   appendLocal(record);
   await appendUpstash(record);
 }
+
+/**
+ * Read all Mode A daily decisions for an agent (trade_agent_daily:{agentId}).
+ * Upstash(LRANGE) が使えればそれ、無ければローカル JSONL を読む。読み取り専用。
+ */
+export async function loadDecisions(agentId: string): Promise<DecisionRecord[]> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    const key = `trade_agent_daily:${agentId}`;
+    const endpoint = `${url.replace(/\/$/, "")}/lrange/${encodeURIComponent(key)}/0/-1`;
+    try {
+      const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const json = (await res.json()) as { result?: string[] };
+        return (json.result ?? [])
+          .map((s) => JSON.parse(s) as DecisionRecord)
+          .filter((r) => r.agentId === agentId);
+      }
+      console.warn(`[MODE A] Upstash LRANGE failed: HTTP ${res.status}`);
+    } catch (err) {
+      console.warn(`[MODE A] Upstash LRANGE error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  // local fallback
+  try {
+    return fs
+      .readFileSync(localFilePath(), "utf-8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as DecisionRecord)
+      .filter((r) => r.agentId === agentId);
+  } catch {
+    return [];
+  }
+}

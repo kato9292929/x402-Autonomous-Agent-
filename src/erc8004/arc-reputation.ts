@@ -56,6 +56,49 @@ export function computeReputationScore(items: JudgedItem[]): ReputationScore | n
   };
 }
 
+export interface DecisionForScore {
+  date?: string;
+  score: number; // Mode A daily conviction, -1..1
+  call?: { action?: string };
+}
+
+export interface DecisionActivityScore {
+  score: number; // 0-100
+  n: number;
+  meanAbsScore: number; // 0..1
+  buyCount: number;
+  skipCount: number;
+}
+
+/**
+ * catalyst の当否がまだ無い期間の代替 score 源: Mode A の日次判断(trade_agent_daily)実績。
+ * score = round(mean(|decision.score|) * 100)。判断の確信度(方向の強さ)の平均で、
+ * 予測の的中率ではない(当否が確定したら computeReputationScore=正確性に移行する)。
+ * decision が無ければ null(記録しない/捏造しない)。
+ */
+export function computeDecisionActivityScore(
+  decisions: DecisionForScore[]
+): DecisionActivityScore | null {
+  if (decisions.length === 0) return null;
+  let sumAbs = 0;
+  let buy = 0;
+  let skip = 0;
+  for (const d of decisions) {
+    const s = typeof d.score === "number" && Number.isFinite(d.score) ? Math.min(1, Math.abs(d.score)) : 0;
+    sumAbs += s;
+    if (d.call?.action === "BUY") buy++;
+    else if (d.call?.action === "SKIP") skip++;
+  }
+  const meanAbs = sumAbs / decisions.length;
+  return {
+    score: Math.round(meanAbs * 100),
+    n: decisions.length,
+    meanAbsScore: Math.round(meanAbs * 1000) / 1000,
+    buyCount: buy,
+    skipCount: skip,
+  };
+}
+
 /** feedback off-chain JSON の keccak256(bytes32, 0x…)。 */
 export function feedbackHashOf(feedbackJson: string): string {
   return keccak256(toBytes(feedbackJson));
