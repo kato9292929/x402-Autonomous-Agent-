@@ -4,7 +4,6 @@ import { initX402Fetch } from "./x402";
 import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC, queueModeC } from "./modes/modeC";
-import { runAnalystDailyNote } from "./jobs/analyst-daily-note";
 import { runOsdConsumption } from "./jobs/osd-consumption";
 import { startHttpServer } from "./server";
 
@@ -14,7 +13,6 @@ async function dailyRun(): Promise<void> {
   console.log(`${"=".repeat(60)}`);
   const modeBLog = await runModeB();
   await runModeA(modeBLog);
-  await runAnalystDailyNote();
   await runOsdConsumption();
 }
 
@@ -29,7 +27,7 @@ async function main(): Promise<void> {
   startHttpServer();
   await initX402Fetch();
 
-  // Mode A + B + analyst-daily-note: every day at 06:00 JST (21:00 UTC)
+  // Mode A + B + osd-consumption: every day at 06:00 JST (21:00 UTC)
   cron.schedule("0 21 * * *", async () => {
     try {
       await dailyRun();
@@ -48,7 +46,7 @@ async function main(): Promise<void> {
   });
 
   console.log("x402 Autonomous Agent started");
-  console.log("  Mode A + B + analyst-note: daily   at 06:00 JST (21:00 UTC)");
+  console.log("  Mode A + B + osd:          daily   at 06:00 JST (21:00 UTC)");
   console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
 
   if (process.argv.includes("--run-now")) {
@@ -59,11 +57,6 @@ async function main(): Promise<void> {
   if (process.argv.includes("--run-weekly")) {
     console.log("\n[AGENT] Manual weekly run triggered (queuing for approval)");
     await weeklyRun();
-  }
-
-  if (process.argv.includes("--run-analyst")) {
-    console.log("\n[AGENT] Manual analyst-daily-note run triggered");
-    await runAnalystDailyNote();
   }
 
   if (process.argv.includes("--run-osd")) {

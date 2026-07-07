@@ -6,3 +6,6 @@ dist/
 # 秘密(recovery file 等)は絶対にコミットしない
 recovery_file*.dat
 *.recovery
+
+# ローカルストア(Upstash 未設定時のフォールバック)。runtime 生成物でありコミットしない
+data/

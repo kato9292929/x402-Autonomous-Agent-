@@ -13,7 +13,6 @@
  */
 import "dotenv/config";
 import { listCatalysts } from "../osd/catalyst-store";
-import { listJpCatalysts } from "../osd/jp-catalyst-store";
 import { loadDecisions } from "../store/decision-store";
 import { loadArcRegistration, saveArcReputation } from "../erc8004/arc-record";
 import {
@@ -33,16 +32,11 @@ async function resolveAgentId(): Promise<string> {
 
 async function collectJudged(): Promise<{ items: JudgedItem[]; detail: Array<Record<string, unknown>> }> {
   const us = await listCatalysts().catch(() => []);
-  const jp = await listJpCatalysts().catch(() => []);
   const detail: Array<Record<string, unknown>> = [];
   const items: JudgedItem[] = [];
   for (const c of us) {
     items.push({ status: c.status });
     if (["hit", "partial", "miss"].includes(c.status)) detail.push({ id: c.catalyst_id, ticker: c.ticker, status: c.status });
-  }
-  for (const c of jp) {
-    items.push({ status: c.status });
-    if (["hit", "partial", "miss"].includes(c.status)) detail.push({ key: c.seed_key, ticker: c.ticker, status: c.status });
   }
   return { items, detail };
 }
