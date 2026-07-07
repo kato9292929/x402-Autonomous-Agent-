@@ -22,14 +22,25 @@ let _fetchWithPayment:
   | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
   | null = null;
 
-function buildEvmScheme(): ExactEvmScheme {
+export interface EvmSchemeInfo {
+  scheme: ExactEvmScheme;
+  address: string;
+  backend: "circle" | "privatekey";
+}
+
+/**
+ * SIGNER_BACKEND(circle / privatekey) に従って EVM 署名スキームを構築し、選ばれた
+ * backend と実 signer.address も返す。本番(initX402Fetch)と test-payment で同一の署名
+ * バックエンド選択を共有し、署名ウォレットの取り違えを防ぐ。
+ */
+export function buildEvmSchemeWithInfo(): EvmSchemeInfo {
   const backend = process.env.SIGNER_BACKEND ?? "privatekey";
 
   if (backend === "circle") {
     console.log("[X402] Using Circle DCW signer for Base (SIGNER_BACKEND=circle)");
     const signer = getCircleEvmSignerFromEnv();
     console.log(`[X402] Circle EVM wallet: ${signer.address}`);
-    return new ExactEvmScheme(signer);
+    return { scheme: new ExactEvmScheme(signer), address: signer.address, backend: "circle" };
   }
 
   const privateKey = process.env.PAYMENT_PRIVATE_KEY;
@@ -41,7 +52,15 @@ function buildEvmScheme(): ExactEvmScheme {
   }
   const account = privateKeyToAccount(privateKey as `0x${string}`);
   console.log(`[X402] Using private key signer for Base: ${account.address}`);
-  return new ExactEvmScheme(toClientEvmSigner(account));
+  return {
+    scheme: new ExactEvmScheme(toClientEvmSigner(account)),
+    address: account.address,
+    backend: "privatekey",
+  };
+}
+
+function buildEvmScheme(): ExactEvmScheme {
+  return buildEvmSchemeWithInfo().scheme;
 }
 
 export async function initX402Fetch(): Promise<void> {
