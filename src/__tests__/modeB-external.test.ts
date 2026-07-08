@@ -78,11 +78,14 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 14 endpoints (9 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI removed)", async () => {
+test("MODE B has 15 endpoints (10 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 15, "MODE B should have exactly 15 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
+
+  // ODO 有償エンドポイント(base)が追加されている
+  assert.ok(ids.includes("odo-funding-nowcast"), "odo-funding-nowcast should be in MODE B");
 
   // PMI must be removed
   assert.ok(!ids.includes("private-market"), "private-market (PMI) should NOT be in MODE B");
