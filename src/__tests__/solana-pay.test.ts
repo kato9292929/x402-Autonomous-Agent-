@@ -15,6 +15,23 @@ import {
   makeSinglePaymentFetch,
   type DecodedPaymentRequired,
 } from "../lib/solana-pay";
+import { withinMicroUsdcCap } from "../x402";
+
+// x402Client の per-call 上限 policy が v1 leg(maxAmountRequired)を全弾していた回帰の防止。
+// これがバグって "filtered out by policies for x402 version: 1" で Solana pay が死んでいた。
+test("withinMicroUsdcCap: v1 leg(maxAmountRequired のみ)を上限内なら通す(回帰防止)", () => {
+  const cap = BigInt(3_000_000); // $3.00
+  // v1 Solana leg: amount を持たず maxAmountRequired のみ。旧実装は BigInt(undefined) で throw→false。
+  assert.equal(withinMicroUsdcCap({ maxAmountRequired: "10000" }, cap), true); // 0.01 USDC
+  assert.equal(withinMicroUsdcCap({ maxAmountRequired: "20000" }, cap), true); // JIN movers 0.02
+  // v2 leg: amount を読む
+  assert.equal(withinMicroUsdcCap({ amount: "10000" }, cap), true);
+  // 上限超過は落とす(セマンティクス維持)
+  assert.equal(withinMicroUsdcCap({ maxAmountRequired: "9000000" }, cap), false);
+  assert.equal(withinMicroUsdcCap({ amount: "9000000" }, cap), false);
+  // どちらの金額フィールドも無ければ落とす
+  assert.equal(withinMicroUsdcCap({}, cap), false);
+});
 
 // 2026-07-09 実測の accepts(両 leg 併記)を模した固定データ
 const V1_LEG = {

@@ -63,6 +63,29 @@ function buildEvmScheme(): ExactEvmScheme {
   return buildEvmSchemeWithInfo().scheme;
 }
 
+/**
+ * per-call の micro-USDC 上限 policy 判定。
+ *
+ * v2 leg は金額を `amount`、v1 leg(Solana が返す形)は `maxAmountRequired` に持つ。旧実装は
+ * `r.amount` だけを読み、v1 leg で BigInt(undefined) が throw → その leg が全弾され、
+ * @x402/core の selectPaymentRequirements 段階3で
+ * "All payment requirements were filtered out by policies for x402 version: 1" になっていた。
+ * 存在する方のフィールドを読むことで v1 leg を生かす。上限セマンティクスは不変
+ * (USDC は Base/Solana とも 6 桁なので同じ micro-USDC 閾値で正しく効く)。
+ */
+export function withinMicroUsdcCap(
+  r: { amount?: string; maxAmountRequired?: string },
+  maxMicroUsdc: bigint
+): boolean {
+  try {
+    const raw = r.amount ?? r.maxAmountRequired;
+    if (raw === undefined || raw === null) return false;
+    return BigInt(raw) <= maxMicroUsdc;
+  } catch {
+    return false;
+  }
+}
+
 export async function initX402Fetch(): Promise<void> {
   const evmScheme = buildEvmScheme();
   const maxUsdc = DEFAULT_MAX_BASE_MICRO_USDC;
@@ -70,15 +93,8 @@ export async function initX402Fetch(): Promise<void> {
   const client = new x402Client()
     .register("eip155:8453", evmScheme)
     .registerV1("base", evmScheme)
-    .registerPolicy(
-      (_version: number, reqs: PaymentRequirements[]) =>
-        reqs.filter((r) => {
-          try {
-            return BigInt(r.amount) <= maxUsdc;
-          } catch {
-            return false;
-          }
-        })
+    .registerPolicy((_version: number, reqs: PaymentRequirements[]) =>
+      reqs.filter((r) => withinMicroUsdcCap(r, maxUsdc))
     );
 
   // Solana: register SVM scheme if SOLANA_PRIVATE_KEY is set
