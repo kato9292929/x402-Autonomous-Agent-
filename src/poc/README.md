@@ -17,14 +17,25 @@
 
 ## A. Circle signTransaction PoC（v2ゲートの本命）
 
-### A-1. 前提
-Circle Developer Console で SVM対応(SOL) の Developer-Controlled Wallet を1つ用意（entity secret登録済み）。env:
+### A-1. 前提と env（変数名は実コードで確定・既存規則に準拠）
+Circle Developer Console で SVM対応(SOL) の Developer-Controlled Wallet を1つ用意（entity secret登録済み）。
+
+**認証情報は既存の LIVE を再利用（新規追加しない）** — EVM DCW `0xAE7C…` が毎日使っている値。
+`src/circle/client.ts` が `CIRCLE_API_KEY`（`getRequiredApiKey`）と `CIRCLE_ENTITY_SECRET`
+（`buildEntitySecretCiphertext`）を読む。**PoC ウォレットは Console Mainnet なので LIVE を使う。
+`CIRCLE_API_KEY_TEST`/`CIRCLE_ENTITY_SECRET_TEST`（Arc Testnet 用）を使わないこと**（混同すると 156005/156006）。
+
+ウォレットの env は既存の Circle 命名規則（EVM は `CIRCLE_EVM_WALLET_ID`/`CIRCLE_EVM_WALLET_ADDRESS`）
+に合わせ、Solana は `CIRCLE_SOLANA_WALLET_ID`（既存・.env.example にあり）＋ その対 `CIRCLE_SOLANA_WALLET_ADDRESS`
+を使う（generic な `SOLANA_WALLET_ADDRESS` は raw keypair 側の慣習と衝突するため避ける）。
+Railway に追加するのはこの2つだけ:
 ```
-CIRCLE_API_KEY=...
-CIRCLE_ENTITY_SECRET=...
-CIRCLE_SOL_WALLET_ID=...        # そのウォレットのwalletId
-CIRCLE_SOL_ADDRESS=...          # そのウォレットのSolana address
+CIRCLE_SOLANA_WALLET_ID=<Circle Solana wallet の walletId>
+CIRCLE_SOLANA_WALLET_ADDRESS=<その Solana address>
+# CIRCLE_API_KEY / CIRCLE_ENTITY_SECRET は既存 LIVE を再利用(追加しない)
 ```
+注: committed の `verify-adapter.ts` は env を読まない（mock＋固定値）。実 env 参照は
+下の A-2/A-3 の編集で導入する。読む変数名を上記に一致させること。
 
 ### A-2. mock を実 Circle に差す
 `src/poc/verify-adapter.ts` の `mockCircle` を実クライアントに置換（これだけ）:
@@ -51,8 +62,8 @@ const v2leg = /* decodeした accepts から network が "solana:" で始まる 
 // 2) アダプタ（base58注入つき）
 const signer = circleSolanaSigner(
   client,
-  process.env.CIRCLE_SOL_WALLET_ID!,
-  process.env.CIRCLE_SOL_ADDRESS!,
+  process.env.CIRCLE_SOLANA_WALLET_ID!,
+  process.env.CIRCLE_SOLANA_WALLET_ADDRESS!,
   (s) => base58.decode(s),          // (ii) encoding が base58 の場合のフック
 );
 
