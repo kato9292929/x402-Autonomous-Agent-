@@ -13,6 +13,20 @@
 > 注: 本ランブックが参照する設計メモ（`aa-v2-redesign.md` / `poc-circle-solana-signing.md` /
 > `jin-x402-rebuild-handoff.md`）はリポ外の handoff 文書。運用者が別途保持している版を正とする。
 
+## ★実測結果（2026-07-11）: ゲートA **成立**（on-chain 確定）
+
+Circle DCW（Solana）署名で X-alpha `/claims/active` を **pay→200**、solscan で着金確認。
+残ゲート (ii)encoding / Q3(feePayer≠wallet) は **YES（実地）**。
+
+- tx（base58）: `3ccb95HKM3a9e2WsSgy6vhvsTJqqunBjnz58qjeEfoSrD3rCzhE7RcBksQ4Q1hwGwohgpA7V6hW1CcVe3fFzfynx`
+- payer: `7PVToVBASYgo7c7BfqdditPgud1xnDrSpCgCBaQyL6tY`（Circle DCW ウォレット。生keypair `6JKVug…` ではない）
+- 着金: `7PV… → 4s8XQC2WzRfgH8Xiep7ybnCW11VKRCMwxQF6jknx3VPf`（payTo）へ **0.01 USDC**、solscan Transfers に TRANSFER 成立
+- facilitator: `{"success":true, network:"solana:5eykt…", payer:"7PV…"}`、HTTP 200、本文（claims）取得
+- 確認済み: Q1(外部tx署名)/Q2(kit⇄Circleアダプタ)/(ii)(base58署名が on-chain で有効)/Q3(feePayer≠wallet が settle)
+- 実行: `node dist/poc/run-circle-pay.js`（署名器=`circleSolanaSigner`）
+
+→ 分岐は **成立側**: 決済層を Circle DCW（Solana）に寄せられる。設計メモ §3.2/§4 に「成立」で書き戻す。
+
 ---
 
 ## A. Circle signTransaction PoC（v2ゲートの本命）
