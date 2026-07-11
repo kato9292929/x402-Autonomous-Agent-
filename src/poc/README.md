@@ -17,6 +17,13 @@
 
 ## A. Circle signTransaction PoC（v2ゲートの本命）
 
+> **編集不要で走らせる**: A-2/A-3 を1本にした実スクリプトを同梱済み。env（A-1）を入れたら:
+> ```
+> TEST_URL=https://x-alpha-zeta.vercel.app/claims/active node dist/poc/run-circle-poc.js
+> ```
+> → `[4] ✓ X-PAYMENT payload 構築 成功` が出れば (ii)/Q3 YES。throw したらエラー全文が判定材料
+> （feePayer系=Q3 NO / encoding系=(ii)）。下の A-2〜A-5 は手で追う場合の内訳。
+
 ### A-1. 前提と env（変数名は実コードで確定・既存規則に準拠）
 Circle Developer Console で SVM対応(SOL) の Developer-Controlled Wallet を1つ用意（entity secret登録済み）。
 
