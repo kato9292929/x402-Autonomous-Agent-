@@ -74,7 +74,7 @@ Agent → builds & signs a USDC payment
       ← 200 OK + data          (PAYMENT-RESPONSE header carries the settlement tx)
 ```
 
-`@x402/fetch` drives the round trip. The client auto-selects the Base or Solana leg from the 402 challenge and pays within a configured per-call USDC cap. The Solana leg uses the [PayAI facilitator](https://facilitator.payai.network) as the transaction fee-payer, so the agent needs no SOL for gas.
+`@x402/fetch` drives the round trip. The client auto-selects the Base or Solana leg from the 402 challenge and pays **within a per-call USDC ceiling enforced in the payment-selection policy** — the agent transacts autonomously but only inside a predefined spending limit (`DEFAULT_MAX_BASE_MICRO_USDC = $3.00`, `src/circle/spending-controls.ts`, applied by `withinMicroUsdcCap` in `src/x402.ts`). The Solana leg uses the [PayAI facilitator](https://facilitator.payai.network) as the transaction fee-payer, so the agent needs no SOL for gas.
 
 ---
 
