@@ -14,7 +14,7 @@ export interface EndpointResult {
 
 export interface RunLog {
   timestamp: string;
-  mode: "A" | "B" | "C";
+  mode: "A" | "B" | "C" | "D";
   results: EndpointResult[];
   totalCostUsdc: number;
   totalTxCount: number;

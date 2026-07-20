@@ -4,6 +4,7 @@ import { initX402Fetch } from "./x402";
 import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC, queueModeC } from "./modes/modeC";
+import { runModeD } from "./modes/modeD";
 import { runOsdConsumption } from "./jobs/osd-consumption";
 import { startHttpServer } from "./server";
 
@@ -13,6 +14,7 @@ async function dailyRun(): Promise<void> {
   console.log(`${"=".repeat(60)}`);
   const modeBLog = await runModeB();
   await runModeA(modeBLog);
+  await runModeD();
   await runOsdConsumption();
 }
 
@@ -46,7 +48,7 @@ async function main(): Promise<void> {
   });
 
   console.log("x402 Autonomous Agent started");
-  console.log("  Mode A + B + osd:          daily   at 06:00 JST (21:00 UTC)");
+  console.log("  Mode A + B + D + osd:      daily   at 06:00 JST (21:00 UTC)");
   console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
 
   if (process.argv.includes("--run-now")) {
@@ -62,6 +64,11 @@ async function main(): Promise<void> {
   if (process.argv.includes("--run-osd")) {
     console.log("\n[AGENT] Manual osd-consumption run triggered");
     await runOsdConsumption();
+  }
+
+  if (process.argv.includes("--run-mode-d")) {
+    console.log("\n[AGENT] Manual Mode D (osd alpha consumption) run triggered");
+    await runModeD();
   }
 }
 

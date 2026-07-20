@@ -8,7 +8,7 @@ export interface EndpointConfig {
   method: "GET" | "POST";
   cost: number;
   chain: "base" | "solana" | "polygon" | "bnb";
-  mode: "B" | "C";
+  mode: "B" | "C" | "D";
   captureFullData?: boolean;
 }
 
@@ -206,5 +206,72 @@ export const ENDPOINTS_MODE_C: EndpointConfig[] = [
     cost: 0.50,
     chain: "base",
     mode: "C",
+  },
+];
+
+/**
+ * Mode D — daily consumption of osd's published alpha + track-record endpoints
+ * (Onchain Stock Data / AlternaData for agents). Read-only GETs, settled per call
+ * in Solana USDC over x402. captureFullData persists each daily snapshot as
+ * append-only provenance (the immutable track record).
+ *
+ * cost is a budget label; the real amount is taken from the 402 challenge and
+ * capped by the payment policy (withinMicroUsdcCap). chain is a log label —
+ * fetchWithPayment auto-selects the settlement leg from the 402.
+ */
+const OSD_ALPHA_BASE = process.env.OSD_API_BASE ?? "https://osd-coral.vercel.app";
+const alphaUrl = (envName: string, path: string): string =>
+  process.env[envName] || `${OSD_ALPHA_BASE}${path}`;
+
+export const ENDPOINTS_MODE_D: EndpointConfig[] = [
+  {
+    id: "alpha-us-portfolio",
+    name: "OSD Alpha — US Portfolio (current 10)",
+    url: alphaUrl("ALPHA_US_PORTFOLIO_URL", "/api/alpha/portfolio/current"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-us-scorecard",
+    name: "OSD Alpha — US Scorecard (hit-rate vs SPY/QQQ)",
+    url: alphaUrl("ALPHA_US_SCORECARD_URL", "/api/alpha/portfolio/scorecard"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-jp-portfolio",
+    name: "OSD Alpha — JP Portfolio (current 10)",
+    url: alphaUrl("ALPHA_JP_PORTFOLIO_URL", "/api/alpha/jp/portfolio/current"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-jp-scorecard",
+    name: "OSD Alpha — JP Scorecard (hit-rate vs benchmark)",
+    url: alphaUrl("ALPHA_JP_SCORECARD_URL", "/api/alpha/jp/scorecard"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-jp-catalysts",
+    name: "OSD Alpha — JP Catalysts (list)",
+    url: alphaUrl("ALPHA_JP_CATALYSTS_URL", "/api/alpha/jp/catalysts"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
   },
 ];
