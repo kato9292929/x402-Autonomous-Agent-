@@ -9,6 +9,9 @@ import { findPendingItem, markApproved, listItems } from "./world-id/queue";
 import { claimNullifier } from "./world-id/nullifier-store";
 import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessions";
 import { runModeC } from "./modes/modeC";
+import { loadRuns } from "./store/run-store";
+import { loadDecisions } from "./store/decision-store";
+import { buildDashboardPage } from "./dashboard";
 import type { WorldIdVerifyResponse } from "./world-id/types";
 import type { IDKitResult } from "@worldcoin/idkit-core";
 // Re-export IDKitRequest in idkit-sessions.ts uses this type too
@@ -435,6 +438,43 @@ export function startHttpServer(): void {
       return;
     }
 
+    // Daily-records dashboard (served by the agent itself) + its data endpoints
+    if ((urlPath === "/" || urlPath === "/dashboard") && req.method === "GET") {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.writeHead(200);
+      res.end(buildDashboardPage());
+      return;
+    }
+
+    if (urlPath === "/api/runs" && req.method === "GET") {
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
+      const limit = Math.min(200, Math.max(1, parseInt(q ?? "60", 10) || 60));
+      loadRuns(limit)
+        .then((runs) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { runs });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/runs error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    if (urlPath === "/api/decisions" && req.method === "GET") {
+      const agentId = process.env.ERC8004_AGENT_ID ?? "55560";
+      loadDecisions(agentId)
+        .then((all) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { decisions: all.slice(-60).reverse() });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/decisions error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
     // World ID routes
     if (urlPath === "/approve" && req.method === "GET") {
       handleApproveGet(req, res).catch((err: unknown) => {
@@ -487,6 +527,9 @@ export function startHttpServer(): void {
 
   server.listen(port, () => {
     console.log(`[SERVER] HTTP server listening on port ${port}`);
+    console.log(`[SERVER] GET  /                            — Daily-records dashboard`);
+    console.log(`[SERVER] GET  /api/runs?limit=N            — Recent run summaries (JSON)`);
+    console.log(`[SERVER] GET  /api/decisions               — Recent Mode A decisions (JSON)`);
     console.log(`[SERVER] GET  /api/latest-external-data`);
     console.log(`[SERVER] GET  /.well-known/agent-card.json`);
     console.log(`[SERVER] GET  /approve?id={queueId}        — World ID approval page`);

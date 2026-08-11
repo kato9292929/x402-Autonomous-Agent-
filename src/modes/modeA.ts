@@ -18,6 +18,7 @@ import { ENDPOINTS_MODE_B } from "../config";
 import { AGENT_REGISTRY_ID } from "../erc8004/contract";
 import type { RunLog, EndpointResult } from "../types";
 import { logRun } from "../logger";
+import { saveRun } from "../store/run-store";
 import {
   extractDivergenceSignal,
   extractHyperliquidSignal,
@@ -208,5 +209,6 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
 
   log.durationMs = Date.now() - startMs;
   logRun(log);
+  await saveRun(log);
   console.log(`[MODE A] Complete. $${log.totalCostUsdc.toFixed(2)} USDC spent`);
 }

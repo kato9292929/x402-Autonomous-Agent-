@@ -3,6 +3,7 @@ import * as path from "path";
 import { ENDPOINTS_MODE_D } from "../config";
 import { callEndpoint, getConsecutiveFailures } from "../caller";
 import { logRun } from "../logger";
+import { saveRun } from "../store/run-store";
 import { sendWebhookSummary } from "../notify";
 import type { EndpointResult, RunLog } from "../types";
 
@@ -109,6 +110,7 @@ export async function runModeD(): Promise<void> {
 
   log.durationMs = Date.now() - startMs;
   logRun(log);
+  await saveRun(log);
   await sendWebhookSummary(log);
 
   const ok = log.results.filter((r) => r.status === "success").length;
