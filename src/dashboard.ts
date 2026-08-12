@@ -131,15 +131,16 @@ setInterval(load, 60000);
   a { color:inherit; }
 
   /* fixed background field (z-0) — pastel/gold glow, blurred */
-  .bg-fx { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
-  .bg-fx::before { content:""; position:absolute; inset:-25%;
-    background:
-      radial-gradient(50% 42% at 82% 2%, rgba(232,195,56,.24), transparent 60%),
-      radial-gradient(46% 38% at 6% 16%, rgba(61,129,227,.18), transparent 60%),
-      radial-gradient(62% 56% at 55% 116%, rgba(232,195,56,.14), transparent 62%);
-    filter:blur(42px); }
+  .bg-fx { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; background:rgb(var(--bg)); }
+  .bg-fx::before { content:""; position:absolute; inset:-40%;
+    background:linear-gradient(100deg,
+      rgba(255,140,180,.16), rgba(255,180,120,.14), rgba(240,220,120,.14),
+      rgba(120,210,220,.14), rgba(170,140,230,.16));
+    background-size:200% 200%; filter:blur(70px); mix-blend-mode:screen;
+    animation:aurora 9s ease-in-out infinite; }
+  @keyframes aurora { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
   .bg-fx::after { content:""; position:absolute; inset:0;
-    background:radial-gradient(135% 95% at 50% -14%, transparent 46%, rgba(0,0,0,.5)); }
+    background:radial-gradient(130% 95% at 50% -10%, transparent 40%, rgba(0,0,0,.6)); }
 
   .wrap { position:relative; z-index:10; max-width:1000px; margin:0 auto; padding:60px 20px 96px; }
 
@@ -229,7 +230,6 @@ setInterval(load, 60000);
   <div class="bg-fx"></div>
   <div class="wrap">
     <div class="eyebrow rise">x402 · Autonomous Agent</div>
-    <h1 class="rise d1">Daily records</h1>
     <p class="sub rise d1">On-chain record of what the <b>x402 autonomous agent</b> (ERC-8004 agentId <b>${agentId}</b>) paid for and decided, each day. Every paid call settles in USDC — click a tx to verify it on-chain.</p>
     <div class="stats rise d2">
       <div class="stat glass"><div class="n" id="stat-runs">–</div><div class="l">Runs shown</div></div>
