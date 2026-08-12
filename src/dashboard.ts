@@ -32,7 +32,13 @@ async function getJson(url) {
 
 function renderDecisions(decisions) {
   if (!decisions.length) return '<p class="empty glass">No Mode A decisions recorded yet.</p>';
-  return decisions.map((d) => {
+  // BUY first, then SKIP — never lead with SKIP. Stable sort keeps newest-first within each group.
+  const ordered = decisions.slice().sort((a, b) => {
+    const ab = (a.call && a.call.action) === "BUY" ? 0 : 1;
+    const bb = (b.call && b.call.action) === "BUY" ? 0 : 1;
+    return ab - bb;
+  });
+  return ordered.map((d) => {
     const c = d.call || {};
     const act = c.action || "—";
     const badge = act === "BUY" ? "buy" : "skip";
@@ -128,12 +134,12 @@ setInterval(load, 60000);
   .bg-fx { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
   .bg-fx::before { content:""; position:absolute; inset:-25%;
     background:
-      radial-gradient(55% 45% at 80% 6%, rgba(232,195,56,.12), transparent 60%),
-      radial-gradient(48% 40% at 10% 20%, rgba(61,129,227,.10), transparent 60%),
-      radial-gradient(60% 55% at 55% 118%, rgba(232,195,56,.07), transparent 60%);
-    filter:blur(34px); }
+      radial-gradient(50% 42% at 82% 2%, rgba(232,195,56,.24), transparent 60%),
+      radial-gradient(46% 38% at 6% 16%, rgba(61,129,227,.18), transparent 60%),
+      radial-gradient(62% 56% at 55% 116%, rgba(232,195,56,.14), transparent 62%);
+    filter:blur(42px); }
   .bg-fx::after { content:""; position:absolute; inset:0;
-    background:radial-gradient(130% 90% at 50% -12%, transparent 42%, rgba(0,0,0,.55)); }
+    background:radial-gradient(135% 95% at 50% -14%, transparent 46%, rgba(0,0,0,.5)); }
 
   .wrap { position:relative; z-index:10; max-width:1000px; margin:0 auto; padding:60px 20px 96px; }
 
@@ -154,7 +160,10 @@ setInterval(load, 60000);
     background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
     -webkit-text-fill-color:transparent; animation:shiny 6s linear infinite; }
   @keyframes shiny { to { background-position:200% center; } }
-  h1 { font-family:"Outfit",sans-serif; font-weight:600; font-size:50px; line-height:1.0; letter-spacing:-.02em; margin:0 0 14px; }
+  h1 { font-family:"Outfit",sans-serif; font-weight:700; font-size:56px; line-height:1.0; letter-spacing:-.02em; margin:0 0 14px;
+    background-image:linear-gradient(to right,#6B5310,#A67C10 12.5%,#FDF6D0 32.5%,#E8C338 50%,#A67C10 67.5%,#6B5310 87.5%,#6B5310);
+    background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+    -webkit-text-fill-color:transparent; animation:shiny 8s linear infinite; }
   .sub { color:var(--muted); font-size:15px; line-height:1.65; margin:0 0 36px; max-width:640px; }
   .sub b { color:var(--ink); font-weight:500; }
 
@@ -227,10 +236,10 @@ setInterval(load, 60000);
       <div class="stat glass"><div class="n" id="stat-spend">–</div><div class="l">USDC spent</div></div>
       <div class="stat glass"><div class="n" id="stat-tx">–</div><div class="l">On-chain settlements</div></div>
     </div>
-    <div class="sec-head rise d3"><h2>Decisions</h2><span class="chip">Mode A</span></div>
-    <div id="decisions"><p class="empty glass">Loading…</p></div>
-    <div class="sec-head"><h2>Runs</h2><span class="chip">B · A · D</span></div>
+    <div class="sec-head rise d3"><h2>Runs</h2><span class="chip">B · A · D</span></div>
     <div id="runs"><p class="empty glass">Loading…</p></div>
+    <div class="sec-head"><h2>Decisions</h2><span class="chip">Mode A</span></div>
+    <div id="decisions"><p class="empty glass">Loading…</p></div>
     <p class="foot rise d4">Served by the agent on Railway · data from Upstash · <a href="https://x402jp.com" target="_blank" rel="noopener">x402jp.com</a><span id="updated"></span></p>
   </div>
   <script>${clientJs}</script>
