@@ -108,57 +108,67 @@ setInterval(load, 60000);
 <title>x402 Agent — Daily Records</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300..600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@300..600&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet" />
 <style>
-  :root { --bg:#F3F4ED; --ink:#1a1a1a; --muted:#6b6f63; --line:rgba(26,26,26,.10); --card:#fbfcf7; --blue:#0871E7; }
+  :root {
+    --bg:#0c0c0c; --panel:#141414; --line:rgba(255,255,255,.09);
+    --ink:#ffffff; --muted:#8c8c84; --soft:#cfcfc8;
+    --gold:#E8C338; --goldsoft:rgba(232,195,56,.7);
+    --ok:#5fd08a; --deg:#E8C338; --err:#f2777a;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Inter",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
-  .wrap { max-width:1000px; margin:0 auto; padding:56px 20px 80px; }
-  h1 { font-family:"Instrument Serif",serif; font-weight:400; font-size:52px; line-height:.95; letter-spacing:-.01em; margin:0 0 8px; }
-  .sub { color:var(--muted); font-size:15px; margin:0 0 28px; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Inter","Noto Sans JP",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(61,129,227,.3); }
+  .wrap { max-width:1000px; margin:0 auto; padding:56px 20px 90px; }
+  .eyebrow { font-family:"Outfit",sans-serif; font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); margin:0 0 14px; }
+  h1 { font-family:"Outfit",sans-serif; font-weight:600; font-size:48px; line-height:1.02; letter-spacing:-.02em; margin:0 0 12px; }
+  .sub { color:var(--muted); font-size:15px; line-height:1.6; margin:0 0 32px; max-width:680px; }
   .sub b { color:var(--ink); font-weight:500; }
-  .stats { display:flex; gap:14px; flex-wrap:wrap; margin:0 0 34px; }
-  .stat { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 20px; min-width:130px; }
-  .stat .n { font-family:"Instrument Serif",serif; font-size:30px; line-height:1; }
-  .stat .l { color:var(--muted); font-size:12px; margin-top:6px; letter-spacing:.02em; }
-  h2 { font-family:"Instrument Serif",serif; font-weight:400; font-size:26px; margin:34px 0 14px; }
-  .empty { color:var(--muted); font-size:14px; background:var(--card); border:1px dashed var(--line); border-radius:14px; padding:20px; }
+  .stats { display:flex; gap:14px; flex-wrap:wrap; margin:0 0 40px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px 22px; min-width:140px; }
+  .stat .n { font-family:"Outfit",sans-serif; font-weight:600; font-size:30px; line-height:1; color:var(--gold); }
+  .stat .l { color:var(--muted); font-size:11px; margin-top:8px; letter-spacing:.06em; text-transform:uppercase; }
+  h2 { font-family:"Outfit",sans-serif; font-weight:600; font-size:22px; letter-spacing:-.01em; margin:40px 0 14px; }
+  .empty { color:var(--muted); font-size:14px; background:var(--panel); border:1px dashed var(--line); border-radius:14px; padding:20px; }
   /* decisions */
-  .dcard { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:10px; }
+  .dcard { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:15px 17px; margin-bottom:10px; transition:border-color .15s ease, transform .15s ease; }
+  .dcard:hover { border-color:var(--goldsoft); transform:translateY(-1px); }
   .drow { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .dbadge { font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; }
-  .dbadge.buy { background:#e7f3ea; color:#1f7a3f; } .dbadge.skip { background:#efece4; color:#8a8575; }
-  .ddir { font-size:13px; color:var(--muted); } .dscore { font-size:13px; color:var(--muted); }
+  .dbadge { font-size:12px; font-weight:600; padding:3px 11px; border-radius:999px; }
+  .dbadge.buy { background:rgba(95,208,138,.14); color:var(--ok); } .dbadge.skip { background:rgba(255,255,255,.07); color:var(--muted); }
+  .ddir { font-size:13px; color:var(--muted); } .dscore { font-size:13px; color:var(--gold); }
   .dwhen { margin-left:auto; font-size:12px; color:var(--muted); }
-  .drat { font-size:13.5px; margin-top:8px; color:var(--ink); line-height:1.5; }
-  .dmeta { font-size:12px; color:var(--muted); margin-top:6px; }
+  .drat { font-size:13.5px; margin-top:9px; color:var(--soft); line-height:1.55; }
+  .dmeta { font-size:12px; color:var(--muted); margin-top:7px; }
   /* runs */
-  .run { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:6px 6px 8px; margin-bottom:14px; overflow:hidden; }
-  .rhead { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 14px 10px; }
-  .mbadge { font-size:12px; font-weight:600; padding:3px 9px; border-radius:8px; background:#eceadf; color:#4a4d42; }
-  .mB{background:#e6eef7;color:#215a9e}.mA{background:#efe7f3;color:#6a3f8a}.mD{background:#e7f3ea;color:#1f7a3f}.mC{background:#f3ece0;color:#9a6a1e}
+  .run { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:6px 6px 8px; margin-bottom:14px; overflow:hidden; transition:border-color .15s ease; }
+  .run:hover { border-color:var(--goldsoft); }
+  .rhead { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:13px 15px 11px; }
+  .mbadge { font-size:11.5px; font-weight:600; padding:3px 10px; border-radius:8px; background:rgba(255,255,255,.06); color:var(--soft); letter-spacing:.02em; }
+  .mB{background:rgba(61,129,227,.16);color:#7fb0ff}.mA{background:rgba(180,130,220,.16);color:#c79be6}.mD{background:rgba(95,208,138,.15);color:var(--ok)}.mC{background:rgba(232,195,56,.16);color:var(--gold)}
   .mname { font-size:13px; color:var(--muted); }
   .rwhen { font-size:12px; color:var(--muted); }
   .rtot { margin-left:auto; font-size:12.5px; color:var(--muted); }
-  .rtot .ok{color:#1f7a3f}.rtot .deg{color:#9a6a1e}.rtot .err{color:#b23b3b}
-  .rspend { font-size:13px; font-variant-numeric:tabular-nums; }
+  .rtot .ok{color:var(--ok)}.rtot .deg{color:var(--deg)}.rtot .err{color:var(--err)}
+  .rspend { font-size:13px; font-variant-numeric:tabular-nums; color:var(--gold); }
   table.rtbl { width:100%; border-collapse:collapse; }
-  .rtbl td { padding:7px 10px; font-size:13px; border-top:1px solid var(--line); vertical-align:top; }
+  .rtbl td { padding:8px 11px; font-size:13px; border-top:1px solid var(--line); vertical-align:top; }
   .rtbl .st { width:22px; text-align:center; font-weight:700; }
-  .rtbl tr.ok .st{color:#1f7a3f}.rtbl tr.deg .st{color:#9a6a1e}.rtbl tr.err .st{color:#b23b3b}
-  .rtbl .pd { font-weight:500; }
+  .rtbl tr.ok .st{color:var(--ok)}.rtbl tr.deg .st{color:var(--deg)}.rtbl tr.err .st{color:var(--err)}
+  .rtbl .pd { font-weight:500; color:#e8e8e2; }
   .rtbl .co { width:64px; color:var(--muted); font-variant-numeric:tabular-nums; }
   .rtbl .tc { width:150px; }
   .rtbl .nt { color:var(--muted); font-size:12px; }
-  a.tx { color:var(--blue); text-decoration:none; font-variant-numeric:tabular-nums; }
+  a.tx { color:var(--gold); text-decoration:none; font-variant-numeric:tabular-nums; }
   a.tx:hover { text-decoration:underline; }
-  .notx { color:var(--line); }
-  .foot { color:var(--muted); font-size:12px; margin-top:26px; }
+  .notx { color:rgba(255,255,255,.2); }
+  .foot { color:var(--muted); font-size:12px; margin-top:30px; padding-top:16px; border-top:1px solid var(--line); }
   #updated { float:right; }
 </style>
 </head>
 <body>
   <div class="wrap">
+    <div class="eyebrow">x402 · Autonomous Agent</div>
     <h1>Daily records</h1>
     <p class="sub">On-chain record of what the <b>x402 autonomous agent</b> (ERC-8004 agentId <b>${agentId}</b>) paid for and decided, each day. Every paid call settles in USDC — click a tx to verify it on-chain.</p>
     <div class="stats">
