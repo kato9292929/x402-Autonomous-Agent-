@@ -61,17 +61,25 @@ function esc(s: string): string {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 }
 
+/** Path used to match a catalog endpoint against the agent's actual run results. */
+function pathKey(path: string): string {
+  const noHost = path.startsWith("/") ? path : "/" + path.split("/").slice(1).join("/");
+  return noHost.split("?")[0];
+}
+
 function renderEp(ep: Ep): string {
   const pill = ep.free
     ? '<span class="pill ok">200 ✓</span>'
     : '<span class="pill pay">402 ✓</span>';
   const price = ep.free ? "free" : esc(ep.price ?? "");
+  const key = esc(pathKey(ep.path));
   return (
     '<div class="ep">' +
     '<div class="ep-top">' +
     '<code class="ep-code"><span class="m">' + esc(ep.method) + '</span> <span class="p">' + esc(ep.path) + "</span></code>" +
     pill +
     '<span class="price">' + price + "</span>" +
+    '<span class="hit" data-key="' + key + '"></span>' +
     "</div>" +
     '<div class="ep-desc">' + esc(ep.desc) + "</div>" +
     "</div>"
@@ -109,6 +117,40 @@ async function getJson(url) {
   return r.json();
 }
 
+function pathOf(u) {
+  try { return new URL(u.indexOf("://") >= 0 ? u : "https://" + u).pathname; } catch { return u || ""; }
+}
+
+// Fill each catalog row's right-hand "毎日 ✓" indicator from the agent's real runs.
+function markHits(runs) {
+  const hits = {};
+  runs.forEach((run) => (run.results || []).forEach((r) => {
+    if (!r.endpoint) return;
+    const p = pathOf(r.endpoint);
+    const prev = hits[p];
+    if (!prev || new Date(run.timestamp) > new Date(prev.ts)) {
+      hits[p] = { ts: run.timestamp, txHash: r.txHash, status: r.status };
+    }
+  }));
+  document.querySelectorAll(".ep .hit").forEach((el) => {
+    const key = el.getAttribute("data-key");
+    let h = hits[key];
+    if (!h && key.indexOf(":") >= 0) {
+      const pre = key.slice(0, key.indexOf(":"));
+      const k = Object.keys(hits).find((x) => x.indexOf(pre) === 0);
+      if (k) h = hits[k];
+    }
+    if (h) {
+      const tx = h.txHash
+        ? '<a class="tx" href="' + txUrl(h.txHash) + '" target="_blank" rel="noopener">' + esc(shortTx(h.txHash)) + '</a>'
+        : '';
+      el.innerHTML = '<span class="chip-on">毎日 ✓</span>' + tx;
+    } else {
+      el.innerHTML = '<span class="miss">—</span>';
+    }
+  });
+}
+
 async function loadRun() {
   try {
     const res = await getJson("/api/runs?limit=40");
@@ -118,6 +160,7 @@ async function loadRun() {
       $("#run-grid").innerHTML = '<p class="empty glass">まだ稼働記録がありません(次回 06:00 JST 以降)。</p>';
       return;
     }
+    markHits(runs);
     const latest = runs.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
     $("#run-when").textContent = fmtTs(latest.timestamp) + " JST";
     const cards = (latest.results || []).map((r) => {
@@ -173,7 +216,9 @@ setInterval(loadRun, 60000);
     background:radial-gradient(140% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.5)); }
 
   .wrap { position:relative; z-index:10; max-width:896px; margin:0 auto; padding:64px 24px 96px; }
-  h1 { font-family:"Outfit",sans-serif; font-weight:700; font-size:38px; line-height:1.05; letter-spacing:-.02em; margin:0 0 22px; }
+  h1 { font-family:"Outfit",sans-serif; font-weight:700; font-size:38px; line-height:1.05; letter-spacing:-.02em; margin:0 0 12px; }
+  .legend { font-size:12.5px; color:rgba(255,255,255,.55); line-height:1.6; margin:0 0 24px; }
+  .legend .chip-on, .legend .miss { position:relative; top:-1px; }
 
   /* liquid glass */
   .glass { position:relative; background:rgba(255,255,255,.03);
@@ -203,6 +248,9 @@ setInterval(loadRun, 60000);
   .pill.ok { color:var(--green); border-color:rgba(40,200,64,.5); background:rgba(40,200,64,.1); }
   .pill.pay { color:var(--gold-c); border-color:rgba(232,195,56,.5); background:rgba(232,195,56,.1); }
   .price { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--gold-c); }
+  .hit { margin-left:auto; display:inline-flex; align-items:center; gap:8px; }
+  .chip-on { font-family:var(--mono); font-size:11px; color:var(--green); border:1px solid rgba(40,200,64,.5); background:rgba(40,200,64,.1); padding:2px 8px; border-radius:6px; white-space:nowrap; }
+  .miss { font-family:var(--mono); font-size:12px; color:rgba(255,255,255,.28); }
   .ep-desc { font-size:13px; color:rgba(255,255,255,.5); line-height:1.6; margin-top:6px; }
 
   /* agent block */
@@ -231,6 +279,7 @@ setInterval(loadRun, 60000);
   <div class="bg-fx"></div>
   <div class="wrap">
     <h1>Endpoints</h1>
+    <p class="legend">各行の右端 <span class="chip-on">毎日 ✓</span> は、自律エージェント(AA)が直近の稼働で実際に叩いた(＝オンチェーン決済した)エンドポイント。<span class="miss">—</span> は直近では未取得。</p>
     ${groupsHtml}
 
     <section class="agent">
