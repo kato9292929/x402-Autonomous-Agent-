@@ -18,7 +18,7 @@ type Group = { name: string; host?: string; note: string; eps: Ep[] };
 const GROUPS: Group[] = [
   {
     name: "Japan Inflation Nowcast",
-    host: "jin-orcin-pi.vercel.app",
+    host: "jin.x402jp.com",
     note: "決済は Solana USDC。discovery は /.well-known/x402.json。",
     eps: [
       { method: "GET", path: "/api/jin/latest", free: true, desc: "最新観測日の指数。観測値 + matched + 方法論。" },
@@ -28,7 +28,7 @@ const GROUPS: Group[] = [
   },
   {
     name: "Onchain Stock Data",
-    host: "osd-coral.vercel.app",
+    host: "osd.x402jp.com",
     note: "決済は Base または Solana USDC。402が両方のチェーンを提示するので、クライアントがどちらかを選ぶ。",
     eps: [
       { method: "GET", path: "/api/alpha/portfolio/current", price: "$0.01", desc: "米国ポートフォリオ。現在の10銘柄と各社のthesis・判定期日。" },
