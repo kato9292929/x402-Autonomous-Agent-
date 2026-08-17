@@ -14,17 +14,31 @@ import {
   ARC_VALIDATION_REGISTRY,
   ARC_VALIDATION_REQUEST_SIG,
   ARC_VALIDATION_RESPONSE_SIG,
+  ARC_CIRCLE_BLOCKCHAIN,
+  arcTxUrl,
 } from "./arc-contract";
-import {
-  getOwnerWalletId,
-  getValidatorWalletId,
-  submitContractExecution,
-  waitForTxHash,
-} from "./arc-tx";
+import { getOwnerWalletId, getValidatorWalletId } from "./arc-tx";
+import { guardedExecute } from "./guarded-execute";
 
 /** 任意 JSON の keccak256(bytes32, 0x…)。requestHash / responseHash に使う。 */
 export function hashOf(json: string): string {
   return keccak256(toBytes(json));
+}
+
+/**
+ * validationResponse の response は 0-100 の整数(一次確認:
+ * ValidationRegistryUpgradeable.sol の require(response <= 100, "resp>100"))。
+ * 真偽値ではないので 0/1 ではなく 0-100 のスケールで渡す。
+ */
+export const VALIDATION_RESPONSE_MAX = 100;
+
+/** response が仕様の範囲(0-100 の整数)か検証する。範囲外は送信前に落とす。 */
+export function assertValidResponse(response: number): void {
+  if (!Number.isInteger(response) || response < 0 || response > VALIDATION_RESPONSE_MAX) {
+    throw new Error(
+      `validationResponse の response は 0-${VALIDATION_RESPONSE_MAX} の整数である必要があります(受領: ${response})`
+    );
+  }
 }
 
 export interface ValidationResult {
@@ -32,6 +46,8 @@ export interface ValidationResult {
   requestTxHash: string;
   responseTxHash: string;
   response: number;
+  gasCostUsd: number;
+  cumulativeUsd: number;
 }
 
 /**
@@ -52,37 +68,60 @@ export async function runValidation(input: {
   response: number;
   tag: string;
 }): Promise<ValidationResult> {
+  assertValidResponse(input.response);
+
   const requestJson = JSON.stringify(input.requestPayload);
   const requestHash = hashOf(requestJson);
 
-  // 1) owner が validationRequest
-  const reqTxId = await submitContractExecution({
-    walletId: getOwnerWalletId(),
-    contractAddress: ARC_VALIDATION_REGISTRY,
+  // 1) validationRequest は owner ウォレットから送る。
+  //    一次確認(ValidationRegistryUpgradeable.sol):
+  //      require(msg.sender == owner || isApprovedForAll(owner, msg.sender)
+  //              || getApproved(agentId) == msg.sender, "Not authorized")
+  //    → validator ウォレットからは送れない(コントラクトが拒否する)。
+  //    reputation(giveFeedback)は逆に owner から送れないため、役割は自然に分離される。
+  // UNVERIFIED(ライブ未検証): 実送信・revert 分岐は環境B未消化。
+  const req = await guardedExecute({
+    chain: ARC_CIRCLE_BLOCKCHAIN,
+    registry: "ValidationRegistry",
+    registryAddress: ARC_VALIDATION_REGISTRY,
     abiFunctionSignature: ARC_VALIDATION_REQUEST_SIG,
     abiParameters: [input.validatorAddress, input.agentId, input.requestURI, requestHash],
+    walletId: getOwnerWalletId(),
+    subject: `agentId=${input.agentId} requestHash=${requestHash}`,
+    unverified: ["validationRequest-live-unverified"],
+    explorerUrl: arcTxUrl,
   });
-  console.log(`[ARC-VAL] validationRequest submitted: ${reqTxId}`);
-  const requestTxHash = await waitForTxHash(reqTxId);
-  console.log(`[ARC-VAL] request confirmed: ${requestTxHash} (requestHash=${requestHash})`);
+  console.log(`[ARC-VAL] request confirmed: ${req.txHash} (requestHash=${requestHash})`);
 
   // 2) validator が validationResponse(同じ requestHash を参照)
+  //    一次確認: require(msg.sender == s.validatorAddress, "not validator")
+  //              require(response <= 100, "resp>100")
   const responseHash = hashOf(JSON.stringify({ ...input.responsePayload, requestHash }));
-  const resTxId = await submitContractExecution({
-    walletId: getValidatorWalletId(),
-    contractAddress: ARC_VALIDATION_REGISTRY,
+  const res = await guardedExecute({
+    chain: ARC_CIRCLE_BLOCKCHAIN,
+    registry: "ValidationRegistry",
+    registryAddress: ARC_VALIDATION_REGISTRY,
     abiFunctionSignature: ARC_VALIDATION_RESPONSE_SIG,
     abiParameters: [
       requestHash,
-      String(Math.trunc(input.response)), // uint8
+      String(input.response), // uint8(0-100)
       input.responseURI,
       responseHash,
       input.tag,
     ],
+    walletId: getValidatorWalletId(),
+    subject: `requestHash=${requestHash} response=${input.response}`,
+    unverified: ["validationResponse-live-unverified"],
+    explorerUrl: arcTxUrl,
   });
-  console.log(`[ARC-VAL] validationResponse submitted: ${resTxId}`);
-  const responseTxHash = await waitForTxHash(resTxId);
-  console.log(`[ARC-VAL] response confirmed: ${responseTxHash}`);
+  console.log(`[ARC-VAL] response confirmed: ${res.txHash}`);
 
-  return { requestHash, requestTxHash, responseTxHash, response: input.response };
+  return {
+    requestHash,
+    requestTxHash: req.txHash,
+    responseTxHash: res.txHash,
+    response: input.response,
+    gasCostUsd: req.gasCostUsd + res.gasCostUsd,
+    cumulativeUsd: res.cumulativeUsd,
+  };
 }

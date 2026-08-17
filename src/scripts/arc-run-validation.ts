@@ -23,9 +23,11 @@ async function main(): Promise<void> {
   const agentId = process.env.ARC_AGENT_ID ?? reg?.arc_agent_id ?? "845265";
   const validatorAddress = getValidatorAddress();
 
-  // 検証根拠: M0 identity 登録が存在するか(捏造しない)。存在すれば valid(1)。
+  // 検証根拠: M0 identity 登録が存在するか(捏造しない)。
+  // response は真偽値ではなく 0-100 の整数(一次確認: require(response <= 100, "resp>100"))。
+  // 登録が確認できれば 100、確認できなければ 0 とする。中間値は根拠が無いので使わない。
   const hasIdentity = Boolean(reg?.arc_agent_id);
-  const response = hasIdentity ? 1 : 0;
+  const response = hasIdentity ? 100 : 0;
   const now = new Date().toISOString();
 
   const result = await runValidation({

@@ -117,3 +117,50 @@ export async function getReceiptLogs(txHash: string): Promise<RpcLog[]> {
   if (!receipt) throw new Error(`Arc receipt not found for ${txHash}`);
   return receipt.logs ?? [];
 }
+
+export interface GasActual {
+  gasUnits: bigint;
+  gasPriceWei: bigint;
+}
+
+/**
+ * receipt から gas 実額の材料(gasUsed / effectiveGasPrice)を採取する。
+ * effectiveGasPrice が無い receipt 形式なら eth_gasPrice で補わず失敗させる
+ * (推測で埋めない。gas 実額を記録できないことを隠さない)。
+ */
+export async function getGasActual(txHash: string): Promise<GasActual> {
+  const receipt = await arcRpc<{
+    gasUsed?: string;
+    effectiveGasPrice?: string;
+  } | null>("eth_getTransactionReceipt", [txHash]);
+  if (!receipt) throw new Error(`Arc receipt not found for ${txHash}`);
+  if (!receipt.gasUsed || !receipt.effectiveGasPrice) {
+    throw new Error(
+      `Arc receipt に gasUsed/effectiveGasPrice が無い(${txHash}): gas 実額を記録できません`
+    );
+  }
+  return {
+    gasUnits: BigInt(receipt.gasUsed),
+    gasPriceWei: BigInt(receipt.effectiveGasPrice),
+  };
+}
+
+/** 現在の gasPrice(wei)。書き込み前の見積もりに使う。 */
+export async function getGasPriceWei(): Promise<bigint> {
+  return BigInt(await arcRpc<string>("eth_gasPrice", []));
+}
+
+/**
+ * 書き込み前の gas 見積もり(単位)。from/to/data で eth_estimateGas を引く。
+ * 見積もれない場合は例外(推測値で通さない)。
+ */
+export async function estimateGasUnits(opts: {
+  from: string;
+  to: string;
+  data: string;
+}): Promise<bigint> {
+  const hex = await arcRpc<string>("eth_estimateGas", [
+    { from: opts.from, to: opts.to, data: opts.data },
+  ]);
+  return BigInt(hex);
+}

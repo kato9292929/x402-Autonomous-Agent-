@@ -15,14 +15,11 @@ import {
   ARC_REPUTATION_REGISTRY,
   ARC_GIVE_FEEDBACK_SIG,
   ARC_NEW_FEEDBACK_EVENT,
+  ARC_CIRCLE_BLOCKCHAIN,
+  arcTxUrl,
 } from "./arc-contract";
-import {
-  getValidatorWalletId,
-  submitContractExecution,
-  waitForTxHash,
-  getReceiptLogs,
-  type RpcLog,
-} from "./arc-tx";
+import { getValidatorWalletId, getReceiptLogs, type RpcLog } from "./arc-tx";
+import { guardedExecute } from "./guarded-execute";
 
 export interface JudgedItem {
   status: string; // "pending" | "hit" | "partial" | "miss" | "na" | ...
@@ -124,11 +121,23 @@ export function extractFeedbackIndex(logs: RpcLog[]): string | null {
 export interface RecordFeedbackResult {
   txHash: string;
   feedbackIndex: string | null;
+  gasCostUsd: number;
+  cumulativeUsd: number;
 }
 
 /**
  * validator ウォレットで giveFeedback を実行する。
  * value=score(int128), valueDecimals=0。tag/endpoint/feedbackURI/feedbackHash は任意。
+ *
+ * コントラクト側の制約(一次確認: contracts/ReputationRegistryUpgradeable.sol):
+ *   require(!isAuthorizedOrOwner(msg.sender, agentId), "Self-feedback not allowed")
+ *   require(valueDecimals <= 18, "too many decimals")
+ *   require(value >= -MAX_ABS_VALUE && value <= MAX_ABS_VALUE, "value too large")
+ * → validator ウォレットは owner でないことに加え、対象 agent の approved/operator でも
+ *   あってはならない。該当すると revert する。
+ *
+ * UNVERIFIED(ライブ未検証): giveFeedback の実送信・revert 分岐は環境B未消化のため
+ * 実チェーンで未検証。想定外レスポンスはフォールバックせず throw する。
  */
 export async function recordFeedback(input: {
   agentId: string;
@@ -143,7 +152,7 @@ export async function recordFeedback(input: {
   const abiParameters = [
     input.agentId,
     String(Math.trunc(input.score)), // int128 value
-    "0", // uint8 valueDecimals
+    "0", // uint8 valueDecimals(<=18 制約を満たす)
     input.tag1 ?? "",
     input.tag2 ?? "",
     input.endpoint ?? "",
@@ -151,15 +160,23 @@ export async function recordFeedback(input: {
     input.feedbackHash ?? zeroHash,
   ];
 
-  const txId = await submitContractExecution({
-    walletId: getValidatorWalletId(), // owner ではなく validator(self-dealing 回避)
-    contractAddress: ARC_REPUTATION_REGISTRY,
+  const { txHash, gasCostUsd, cumulativeUsd } = await guardedExecute({
+    chain: ARC_CIRCLE_BLOCKCHAIN,
+    registry: "ReputationRegistry",
+    registryAddress: ARC_REPUTATION_REGISTRY,
     abiFunctionSignature: ARC_GIVE_FEEDBACK_SIG,
     abiParameters,
+    walletId: getValidatorWalletId(), // owner ではなく validator(self-feedback 回避)
+    subject: `agentId=${input.agentId} feedbackHash=${input.feedbackHash ?? zeroHash}`,
+    unverified: ["giveFeedback-live-unverified"],
+    explorerUrl: arcTxUrl,
   });
-  console.log(`[ARC-REP] giveFeedback submitted: ${txId}`);
-  const txHash = await waitForTxHash(txId);
-  console.log(`[ARC-REP] tx confirmed: ${txHash}`);
+
   const logs = await getReceiptLogs(txHash);
-  return { txHash, feedbackIndex: extractFeedbackIndex(logs) };
+  return {
+    txHash,
+    feedbackIndex: extractFeedbackIndex(logs),
+    gasCostUsd,
+    cumulativeUsd,
+  };
 }
