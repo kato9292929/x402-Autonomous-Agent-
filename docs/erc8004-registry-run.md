@@ -235,20 +235,54 @@ npm run build && node dist/scripts/erc8004-run-report.js --write
 
 通算 gas: **$0.000000** / 上限 $1.00（success 3 件 / それ以外 0 件）
 
-gas 実額が $0.000000 なのは、Arc Testnet の native token が faucet 配布で市場価格を持たないため
-（`resolveUsdPerNative("ARC-TESTNET") = 0`）。gas 単位・gasPrice の実値は
-`data/arc/registry-run.jsonl` の `gas_units` / `gas_price_wei` に残る。
+**この `$0.000000` は誤解を招く表示であり、ガードの欠陥である（未修正）。**
+
+`resolveUsdPerNative("ARC-TESTNET")` を 0 と決め打ちしているため 0 と表示されるが、
+arcscan 上では実際に **0.028217 USDC** が動いている（Arc は gas を USDC で支払う）。
+結果として:
+
+- **通算上限 $1.00 が一度も効かない。** すべての tx が $0 と評価されるため、
+  `checkBudget` は永遠に許可を返す。予算ガードは Arc 上で**実質的に無効**。
+- 記録が「消費ゼロ」に見え、実際の消費を隠している（「失敗・実態を隠さない」規律に反する）。
+
+gas 単位・gasPrice の実値自体は `data/arc/registry-run.jsonl` の
+`gas_units` / `gas_price_wei` に残っているため、事後の復元は可能。
+
+**修正方針:** Arc の gas 通貨は USDC なので、名目 1:1（1 native = $1）で評価するのが正しい。
+テストネット USDC に市場価値が無いことと、**予算ガードの単位として正しいこと**は別問題。
+名目 1:1 にすれば 0.028217/tx となり、$0.10/tx 上限は効き、$1.00 通算は約 35 tx で当たる。
 <!-- END:RUN-RECORD -->
 
 ---
 
 ## M4. 環境Bの消化状況
 
-**消化済み（2026-08-18、Railway 上で実行）。** ReputationRegistry / ValidationRegistry の
-両方に最初の 1 件が着地した。
+**消化済み（2026-08-18、Railway 上で実行）。**
 
-- [x] ReputationRegistry への最初の 1 件 — `giveFeedback` 成功、`feedbackIndex=2`
-- [x] ValidationRegistry への最初の 1 往復 — `validationRequest` → `validationResponse(100)` 成功
+**訂正:** 当初この節を「最初の 1 件が着地した」と書いたが誤り。
+**2026-07-06 に同じ 3 点セットが実行済み**（rep `0x676940…` / req `0x281ac8…` / resp `0xe859eb…`、score 30）で、
+今回は 2 回目にあたる。リポジトリ側の裏づけ: `1bac930`（2026-07-04, Reputation+Validation 追加）、
+`2346f5e`（2026-07-06, score 源を trade_agent_daily に対応）。
+今回の `feedbackIndex=2` は上書きではなく積み上がった結果で、これ自体が append-only の実証になっている
+（ただし index が 0 起点か 1 起点かはコントラクト実装を未確認のため、
+「同一 validator から過去に 1 件以上の書き込みがある」ことまでが確実に言える範囲）。
+
+- [x] ReputationRegistry への書き込み — `giveFeedback` 成功、`feedbackIndex=2`（**2 回目**）
+- [x] ValidationRegistry への 1 往復 — `validationRequest` → `validationResponse(100)` 成功（**2 回目**）
+
+### score 30（7/6）→ 12（8/18）は精度低下ではない
+
+算出式は **同一**。`computeDecisionActivityScore` = `round(mean(|decision.score|)*100)` は
+`2346f5e`（2026-07-06）で導入され、HEAD まで**変更されていない**（`git diff 2346f5e..HEAD -- src/erc8004/arc-reputation.ts` に
+式の差分なし）。したがって 30→12 の差は **対象期間と n の差**であり、
+同じ `mode-a-daily-decision` 定義の上での母数変化（8/18 時点で n=65, BUY=14, SKIP=51）。
+
+より重要な構造的問題として、**算出定義はレジストリに残らない**。オンチェーンに載るのは
+`value`(=score) と `tag1` だけで、`catalyst-accuracy` に切り替われば
+**同じ「score」という名前で別定義の数値**が同じ列に積まれる。
+定義は off-chain の feedback JSON（`feedbackHash` で紐づく）にしか無く、
+そのJSONは現状どこにも公開していない（`feedbackURI` は空）。
+→ 第三者が score の意味を復元できない。**`feedbackURI` に定義を公開することが次の課題。**
 - [x] validator ウォレットからの送信が通ること（`"Self-feedback not allowed"` で弾かれなかった＝
       validator は owner でも approved でもない、と実チェーンで裏づけられた）
 - [x] owner からの `validationRequest` が通ること（`"Not authorized"` で弾かれなかった）
