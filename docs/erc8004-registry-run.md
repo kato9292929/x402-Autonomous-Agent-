@@ -229,31 +229,65 @@ npm run build && node dist/scripts/erc8004-run-report.js --write
 <!-- BEGIN:RUN-RECORD -->
 | 日時 | チェーン | レジストリ | 関数 | 対象 | tx | gas実額 | 結果 |
 |---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | **未実行（環境B未消化）** |
+| 2026-08-18 | ARC-TESTNET | ReputationRegistry | giveFeedback | `agentId=845265` / `feedbackHash=0x1ff5506d…a320e272` | [`0x903015ff…`](https://testnet.arcscan.app/tx/0x903015ffcb835aa774daec4d8ab93fe016f71e957b8695ca5ffa5f78b94bc14e) | $0.000000 | success |
+| 2026-08-18 | ARC-TESTNET | ValidationRegistry | validationRequest | `agentId=845265` / `requestHash=0x5ac85dca…f776561b` | [`0xa2ba4a09…`](https://testnet.arcscan.app/tx/0xa2ba4a09bcc2ff1ba1907853e160f4776152249c1164ecc8490213f277366abc) | $0.000000 | success |
+| 2026-08-18 | ARC-TESTNET | ValidationRegistry | validationResponse | `requestHash=0x5ac85dca…f776561b` / `response=100` | [`0xce0a6375…`](https://testnet.arcscan.app/tx/0xce0a6375fe906574568ff506932670e6359088d8ce80cd57ed19d870fe76e2e2) | $0.000000 | success |
 
-通算 gas: **$0.000000** / 上限 $1.00
+通算 gas: **$0.000000** / 上限 $1.00（success 3 件 / それ以外 0 件）
+
+gas 実額が $0.000000 なのは、Arc Testnet の native token が faucet 配布で市場価格を持たないため
+（`resolveUsdPerNative("ARC-TESTNET") = 0`）。gas 単位・gasPrice の実値は
+`data/arc/registry-run.jsonl` の `gas_units` / `gas_price_wei` に残る。
 <!-- END:RUN-RECORD -->
 
 ---
 
 ## M4. 環境Bの消化状況
 
-**未消化。** 着手できていない理由（事実のみ）:
+**消化済み（2026-08-18、Railway 上で実行）。** ReputationRegistry / ValidationRegistry の
+両方に最初の 1 件が着地した。
 
-1. **鍵が無い。** `CIRCLE_API_KEY_TEST` / `CIRCLE_ENTITY_SECRET_TEST` /
-   `CIRCLE_ARC_OWNER_WALLET_ID` / `CIRCLE_ARC_VALIDATOR_WALLET_ID` / `ARC_VALIDATOR_ADDRESS` は
-   このサンドボックスに未設定（値を持ち込まない方針のため、これは想定どおり）。
-2. **ネットワークが通らない。** egress proxy が RPC への接続を拒否する:
-   - `https://rpc.testnet.arc.network/` → `CONNECT tunnel failed, response 403`
-   - `https://mainnet.base.org` → `CONNECT tunnel failed, response 403`
-
-そのため以下は未実施:
-
-- [ ] レジストリアドレスの実確認（`eth_getCode`）と UNVERIFIED の解消
-- [ ] validator ウォレット残高の確認
-- [ ] ReputationRegistry への最初の 1 件（txハッシュ・gas実額の記録）
-- [ ] ValidationRegistry への最初の 1 件（判定済み dated catalyst 1 本）
+- [x] ReputationRegistry への最初の 1 件 — `giveFeedback` 成功、`feedbackIndex=2`
+- [x] ValidationRegistry への最初の 1 往復 — `validationRequest` → `validationResponse(100)` 成功
+- [x] validator ウォレットからの送信が通ること（`"Self-feedback not allowed"` で弾かれなかった＝
+      validator は owner でも approved でもない、と実チェーンで裏づけられた）
+- [x] owner からの `validationRequest` が通ること（`"Not authorized"` で弾かれなかった）
+- [ ] レジストリアドレスの `eth_getCode` による明示確認（下記のとおり実質的には裏づけ済み）
+- [ ] 判定済み dated catalyst を対象にした validation（今回は identity-liveness を対象にした）
 - [ ] 実測 gas を踏まえた運用組み込み（日次か判定日ごとか）の決定
+
+### 今回の実行で解消された UNVERIFIED
+
+| ラベル | 状態 |
+|---|---|
+| `giveFeedback-live-unverified` | **解消**。tx 成功かつ `NewFeedback` から `feedbackIndex=2` を抽出できた（event が出た＝関数が通った） |
+| `validationRequest-live-unverified` | **解消**。tx 成功 |
+| `validationResponse-live-unverified` | **解消**。tx 成功。`response=100` が `require(response <= 100)` を通った |
+| Arc レジストリアドレス | **実質解消**。当該アドレス宛の呼び出しが 3 件とも成功しているため、コード存在・稼働は裏づけられた |
+| Base `0x8004BAa1…` のコード存在 | **未解消**。Base へは書いていない（下記「Base を対象にしない理由」） |
+
+### 残っている確認
+
+`giveFeedback` は `NewFeedback` event を抽出できたため関数の実行そのものが確認できている。
+`validationRequest` / `validationResponse` は event 抽出をしていないため、
+**arcscan で 2 tx が Success（revert していない）ことを目視確認するまで「記録できた」と断定しない。**
+
+なお実装の穴として、`getGasActual` が `receipt.status` を見ておらず、revert した tx でも
+`success` として記録されうる状態だった。今回の実行後に status チェックを追加済み
+（成功でなければ throw する）。
+
+### Base を対象にしない理由（記録）
+
+1. Base には **ValidationRegistry が公開されていない**（M0-2）。Reputation だけ Base に置くと
+   validation と参照先が割れる。
+2. Arc Testnet の gas は faucet トークンで実質 $0。通算上限 $1.00 を消費しない。
+3. Circle のグラントを想定する場合、Arc は Circle 自身のチェーンであり、
+   identity（845265）・reputation・validation が同一チェーンに揃う方が第三者が追いやすい。
+
+Base の ReputationRegistry へ広げる場合に必要なもの: `BASE_REPUTATION_REGISTRY` の
+`eth_getCode` 確認、Base の owner/validator ウォレット、および
+`ERC8004_GAS_USD_PER_NATIVE`（ETH の USD レート）の明示設定
+（未設定なら見積もれないためコードが書き込みを拒否する）。
 
 ### 環境Bでの実行手順
 

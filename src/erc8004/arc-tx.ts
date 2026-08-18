@@ -127,13 +127,23 @@ export interface GasActual {
  * receipt から gas 実額の材料(gasUsed / effectiveGasPrice)を採取する。
  * effectiveGasPrice が無い receipt 形式なら eth_gasPrice で補わず失敗させる
  * (推測で埋めない。gas 実額を記録できないことを隠さない)。
+ *
+ * status が成功(0x1)でなければ throw する。revert した tx も receipt は返るため、
+ * ここで見ないと「revert したのに success として記録」してしまう。
  */
 export async function getGasActual(txHash: string): Promise<GasActual> {
   const receipt = await arcRpc<{
     gasUsed?: string;
     effectiveGasPrice?: string;
+    status?: string;
   } | null>("eth_getTransactionReceipt", [txHash]);
   if (!receipt) throw new Error(`Arc receipt not found for ${txHash}`);
+  if (receipt.status !== undefined && BigInt(receipt.status) !== 1n) {
+    throw new Error(
+      `Arc tx が失敗しています(status=${receipt.status}): ${txHash} — ` +
+        `revert した可能性があります。arcscan で確認してください`
+    );
+  }
   if (!receipt.gasUsed || !receipt.effectiveGasPrice) {
     throw new Error(
       `Arc receipt に gasUsed/effectiveGasPrice が無い(${txHash}): gas 実額を記録できません`
