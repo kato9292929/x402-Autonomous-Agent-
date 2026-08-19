@@ -124,6 +124,13 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * Assets the landing page requests from the root. The page is served at "/", so
+ * its relative "./styles.css" resolves to "/styles.css" — these must be served
+ * from site/ rather than falling through to 404.
+ */
+const SITE_ASSETS = new Set(["/styles.css", "/glass-card.js", "/ui.js"]);
+
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
   res.setHeader("Content-Type", "application/json");
@@ -440,7 +447,13 @@ export function startHttpServer(): void {
 
     // Static preview of the new hero design (site/). Railway gives no PR preview
     // URLs, so the agent serves the candidate design itself at /preview.
-    if (urlPath.startsWith("/preview") && req.method === "GET") {
+    // Landing page (site/) at "/", plus its assets. /preview/ is kept as an
+    // alias. The daily-records dashboard moves to /dashboard.
+    const isSiteAsset = SITE_ASSETS.has(urlPath);
+    if (
+      req.method === "GET" &&
+      (urlPath === "/" || isSiteAsset || urlPath.startsWith("/preview"))
+    ) {
       // Without the trailing slash the browser resolves the page's relative
       // "./styles.css" against /, not /preview/, and every asset 404s.
       if (urlPath === "/preview") {
@@ -448,9 +461,12 @@ export function startHttpServer(): void {
         res.end();
         return;
       }
-      const rel = urlPath === "/preview/"
-        ? "index.html"
-        : urlPath.slice("/preview/".length);
+      const rel =
+        urlPath === "/" || urlPath === "/preview/"
+          ? "index.html"
+          : isSiteAsset
+            ? urlPath.slice(1)
+            : urlPath.slice("/preview/".length);
       const root = path.join(process.cwd(), "site");
       const filePath = path.normalize(path.join(root, rel));
       if (!filePath.startsWith(root)) {
@@ -479,7 +495,7 @@ export function startHttpServer(): void {
     }
 
     // Daily-records dashboard (served by the agent itself) + its data endpoints
-    if ((urlPath === "/" || urlPath === "/dashboard") && req.method === "GET") {
+    if (urlPath === "/dashboard" && req.method === "GET") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.writeHead(200);
       res.end(buildDashboardPage());

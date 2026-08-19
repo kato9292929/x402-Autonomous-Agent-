@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Terranova — Signals from the Deep Green</title>
+  <title>x402 Autonomous Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://db.onlinewebfonts.com/c/0e6de1ec911a2e267ff136bbdd384a44?family=Helvetica+Neue+Light" />
@@ -107,33 +107,34 @@
         <span class="nav__label nav__label--menu">Menu</span>
       </button>
 
-      <a class="nav__item" href="#">
+      <a class="nav__item" href="https://x402jp.com" target="_blank" rel="noopener">
         <span class="nav__dot" aria-hidden="true"></span>
-        <span class="nav__label">Book a call</span>
+        <span class="nav__label">x402 Inc.</span>
       </a>
     </nav>
 
     <div class="hero-bottom">
 
       <div class="lede">
-        <h1 class="lede__title">Signals from<br />the Deep Green</h1>
+        <h1 class="lede__title">x402<br />Autonomous Agent</h1>
         <p class="lede__body">
-          An open research collective mapping, decoding, and archiving the silent
-          vibrations that bind our planet’s ecological networks.
+          An agent with an on-chain identity that buys the data it needs, one
+          call at a time, and settles every call in USDC.
         </p>
 
-        <a class="chamfer" href="#">
+        <button class="chamfer" type="button" id="endpoints-open"
+                aria-expanded="false" aria-controls="endpoints">
           <span class="chamfer__glass" aria-hidden="true"></span>
           <svg class="chamfer__outline" viewBox="0 0 260 48" preserveAspectRatio="none" aria-hidden="true">
             <polygon points="14,0 260,0 260,34 246,48 0,48 0,14"
                      fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
           </svg>
-          <span class="chamfer__label">Start listening</span>
+          <span class="chamfer__label">View endpoints</span>
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
           </svg>
-        </a>
+        </button>
       </div>
 
       <aside class="card group" data-glass-card>
@@ -141,19 +142,17 @@
         <div class="card__frost" aria-hidden="true"></div>
 
         <div class="card__head">
-          <h2 class="card__title">Latest findings</h2>
-          <span class="card__index">//02</span>
+          <h2 class="card__title">Latest run</h2>
+          <span class="card__index" id="run-when">—</span>
         </div>
 
         <div class="card__body">
-          <div class="finding">
-            <h3 class="finding__title">Canopy Pulse Analysis 09.17</h3>
-            <p class="finding__text">Identified harmonic oscillation links between root mycelia networks and surrounding atmospheric moisture.</p>
+          <div class="stats">
+            <div class="stat"><span class="stat__n" id="stat-spend">—</span><span class="stat__l">USDC spent</span></div>
+            <div class="stat"><span class="stat__n" id="stat-tx">—</span><span class="stat__l">Settlements</span></div>
+            <div class="stat"><span class="stat__n" id="stat-ok">—</span><span class="stat__l">Calls OK</span></div>
           </div>
-          <div class="finding">
-            <h3 class="finding__title">Watershed Harmonic Index 11.06</h3>
-            <p class="finding__text">Forecasting framework for ecosystem regeneration spanning six continents using over 2,400 sensor arrays.</p>
-          </div>
+          <ul class="settle" id="settle"><li class="settle__empty">Loading…</li></ul>
         </div>
 
         <svg class="card__wave" viewBox="0 0 220 50" fill="none" aria-hidden="true">
@@ -164,6 +163,33 @@
 
     </div>
   </main>
+
+  <!-- ── Endpoints overlay ─────────────────────────────────────────────────
+       The hero itself never scrolls; the catalog lives in an overlay that
+       scrolls internally. -->
+  <div class="sheet" id="endpoints">
+    <div class="sheet__backdrop" id="endpoints-backdrop"></div>
+    <div class="sheet__panel">
+      <div class="sheet__bar">
+        <h2 class="sheet__title">Endpoints</h2>
+        <button class="sheet__close" id="endpoints-close" type="button">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+          </svg>
+          <span>Close</span>
+        </button>
+      </div>
+
+      <p class="sheet__lede">
+        Machine-payable endpoints. <span class="pill pill--pay">402</span> means the call is
+        priced — a client pays per request in USDC and gets the data back in the same round trip.
+        Rows marked <span class="chip-on">daily ✓</span> are the ones this agent calls every day at 06:00 JST.
+      </p>
+
+      <div class="sheet__scroll" id="groups"><!-- filled by ui.js --></div>
+    </div>
+  </div>
 
   <div class="menu" id="menu">
     <div class="menu__backdrop" id="menu-backdrop"></div>
@@ -177,36 +203,36 @@
       </button>
 
       <nav class="menu__nav">
-        <a class="menu__link" href="#">
-          <span class="menu__linkText">About</span>
+        <a class="menu__link" href="#" data-open-endpoints>
+          <span class="menu__linkText">Endpoints</span>
           <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
           </svg>
         </a>
-        <a class="menu__link" href="#">
-          <span class="menu__linkText">Research</span>
+        <a class="menu__link" href="/dashboard">
+          <span class="menu__linkText">Daily records</span>
           <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
           </svg>
         </a>
-        <a class="menu__link" href="#">
-          <span class="menu__linkText">Projects</span>
+        <a class="menu__link" href="/.well-known/agent-card.json">
+          <span class="menu__linkText">Agent card</span>
           <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
           </svg>
         </a>
-        <a class="menu__link" href="#">
-          <span class="menu__linkText">Journal</span>
+        <a class="menu__link" href="/api/runs?limit=40">
+          <span class="menu__linkText">Run data</span>
           <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
           </svg>
         </a>
-        <a class="menu__link" href="#">
-          <span class="menu__linkText">Contact</span>
+        <a class="menu__link" href="https://x402jp.com" target="_blank" rel="noopener">
+          <span class="menu__linkText">x402 Inc.</span>
           <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
@@ -215,8 +241,9 @@
       </nav>
 
       <div class="menu__foot">
-        <span class="menu__footLabel">Get in touch</span>
-        <a class="menu__mail" href="mailto:hello@terranova.earth">hello@terranova.earth</a>
+        <span class="menu__footLabel">On-chain identity</span>
+        <span class="menu__ident" id="menu-ident">ERC-8004 · agentId 55560 (Base) · 845265 (Arc)</span>
+        <a class="menu__mail" href="mailto:hello@x402jp.com">hello@x402jp.com</a>
       </div>
     </div>
   </div>
