@@ -438,6 +438,39 @@ export function startHttpServer(): void {
       return;
     }
 
+    // Static preview of the new hero design (site/). Railway gives no PR preview
+    // URLs, so the agent serves the candidate design itself at /preview.
+    if (urlPath.startsWith("/preview") && req.method === "GET") {
+      const rel = urlPath === "/preview" || urlPath === "/preview/"
+        ? "index.html"
+        : urlPath.slice("/preview/".length);
+      const root = path.join(process.cwd(), "site");
+      const filePath = path.normalize(path.join(root, rel));
+      if (!filePath.startsWith(root)) {
+        res.writeHead(404);
+        res.end("not found");
+        return;
+      }
+      const types: Record<string, string> = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".mjs": "text/javascript; charset=utf-8",
+        ".svg": "image/svg+xml",
+      };
+      try {
+        const body = fs.readFileSync(filePath);
+        res.setHeader("Content-Type", types[path.extname(filePath)] ?? "application/octet-stream");
+        res.setHeader("Cache-Control", "no-store");
+        res.writeHead(200);
+        res.end(body);
+      } catch {
+        res.writeHead(404);
+        res.end("not found");
+      }
+      return;
+    }
+
     // Daily-records dashboard (served by the agent itself) + its data endpoints
     if ((urlPath === "/" || urlPath === "/dashboard") && req.method === "GET") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -528,6 +561,7 @@ export function startHttpServer(): void {
   server.listen(port, () => {
     console.log(`[SERVER] HTTP server listening on port ${port}`);
     console.log(`[SERVER] GET  /                            — Daily-records dashboard`);
+    console.log(`[SERVER] GET  /preview                     — Hero design preview (site/)`);
     console.log(`[SERVER] GET  /api/runs?limit=N            — Recent run summaries (JSON)`);
     console.log(`[SERVER] GET  /api/decisions               — Recent Mode A decisions (JSON)`);
     console.log(`[SERVER] GET  /api/latest-external-data`);
