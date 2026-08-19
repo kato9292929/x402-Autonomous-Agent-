@@ -441,7 +441,14 @@ export function startHttpServer(): void {
     // Static preview of the new hero design (site/). Railway gives no PR preview
     // URLs, so the agent serves the candidate design itself at /preview.
     if (urlPath.startsWith("/preview") && req.method === "GET") {
-      const rel = urlPath === "/preview" || urlPath === "/preview/"
+      // Without the trailing slash the browser resolves the page's relative
+      // "./styles.css" against /, not /preview/, and every asset 404s.
+      if (urlPath === "/preview") {
+        res.writeHead(301, { Location: "/preview/" });
+        res.end();
+        return;
+      }
+      const rel = urlPath === "/preview/"
         ? "index.html"
         : urlPath.slice("/preview/".length);
       const root = path.join(process.cwd(), "site");
