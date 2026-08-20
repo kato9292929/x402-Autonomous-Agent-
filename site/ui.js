@@ -48,12 +48,20 @@ const GROUPS = [
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/** Path key used to match a catalog row against a captured sample. */
+function pathKey(p) {
+  const withoutHost = p.startsWith('/') ? p : '/' + p.split('/').slice(1).join('/');
+  return withoutHost.split('?')[0];
+}
+
 function renderGroups() {
   const host = document.getElementById('groups');
   if (!host) return;
   host.innerHTML = GROUPS.map((g) => {
-    const rows = g.eps.map((ep) => `
-      <div class="ep">
+    const rows = g.eps.map((ep) => {
+      const key = pathKey(ep.path);
+      return `
+      <div class="ep" data-path="${esc(key)}">
         <div class="ep__top">
           <code class="ep__code"><span class="ep__m">${esc(ep.method)}</span> <span class="ep__p">${esc(ep.path)}</span></code>
           <span class="pill ${ep.free ? 'pill--ok' : 'pill--pay'}">${ep.free ? '200' : '402'}</span>
@@ -61,7 +69,9 @@ function renderGroups() {
           ${ep.daily ? '<span class="chip-on">daily ✓</span>' : '<span class="chip-off">—</span>'}
         </div>
         <p class="ep__desc">${esc(ep.desc)}</p>
-      </div>`).join('');
+        <div class="ep__sample" data-sample></div>
+      </div>`;
+    }).join('');
     return `
       <section class="grp">
         <div class="grp__head">
@@ -74,6 +84,59 @@ function renderGroups() {
   }).join('');
 }
 renderGroups();
+
+/* ── Response samples: what the agent actually got back ───────────────────
+   Real captured bodies from /api/samples. Rows the agent has never called
+   simply say so rather than showing an invented example. */
+async function loadSamples() {
+  let samples = [];
+  try {
+    const res = await fetch('/api/samples');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    samples = (await res.json()).samples || [];
+  } catch {
+    document.querySelectorAll('[data-sample]').forEach((el) => {
+      el.innerHTML = '<p class="sample__none">Response data unavailable.</p>';
+    });
+    return;
+  }
+
+  const byPath = new Map(samples.map((s) => [s.path, s]));
+
+  document.querySelectorAll('.ep').forEach((row) => {
+    const slot = row.querySelector('[data-sample]');
+    if (!slot) return;
+    const key = row.getAttribute('data-path');
+    let s = byPath.get(key);
+    // ":ticker" style rows match whatever concrete path the agent actually used.
+    if (!s && key.includes(':')) {
+      const prefix = key.slice(0, key.indexOf(':'));
+      for (const [p, v] of byPath) if (p.startsWith(prefix)) { s = v; break; }
+    }
+    if (!s) {
+      slot.innerHTML = '<p class="sample__none">Not called by this agent — no captured response.</p>';
+      return;
+    }
+
+    const when = new Date(s.at).toLocaleDateString('ja-JP');
+    const tx = s.txHash
+      ? `<a class="sample__tx" href="${txUrl(s.txHash)}" target="_blank" rel="noopener">${esc(shortTx(s.txHash))}</a>`
+      : '';
+    const body = s.sample !== undefined
+      ? `<pre class="sample__pre">${esc(JSON.stringify(s.sample, null, 2))}</pre>`
+        + (s.truncated ? '<p class="sample__note">Trimmed for display — the agent stored the full body.</p>' : '')
+      : `<p class="sample__note">Body not captured for this endpoint. Logged excerpt: <code>${esc(s.peek || '—')}</code></p>`;
+
+    slot.innerHTML = `
+      <details class="sample">
+        <summary class="sample__sum">
+          <span>Response data</span>
+          <span class="sample__meta">${esc(when)} · ${esc(s.status)}${tx ? ' · ' : ''}${tx}</span>
+        </summary>
+        ${body}
+      </details>`;
+  });
+}
 
 /* ── Live "latest run" card ─────────────────────────────────────────────── */
 const money = (n) => '$' + (Number(n) || 0).toFixed(3);
@@ -143,12 +206,22 @@ const sheetOpen = document.getElementById('endpoints-open');
 const sheetClose = document.getElementById('endpoints-close');
 const sheetBackdrop = document.getElementById('endpoints-backdrop');
 
+let samplesLoaded = false;
+
 function setSheet(open) {
   if (!sheet || !sheetOpen) return;
   sheet.classList.toggle('is-open', open);
   sheetOpen.setAttribute('aria-expanded', String(open));
-  if (open) sheetClose?.focus({ preventScroll: true });
-  else sheetOpen.focus({ preventScroll: true });
+  if (open) {
+    // Fetch the captured responses the first time the catalog is opened.
+    if (!samplesLoaded) {
+      samplesLoaded = true;
+      loadSamples();
+    }
+    sheetClose?.focus({ preventScroll: true });
+  } else {
+    sheetOpen.focus({ preventScroll: true });
+  }
 }
 
 sheetOpen?.addEventListener('click', () => setSheet(true));

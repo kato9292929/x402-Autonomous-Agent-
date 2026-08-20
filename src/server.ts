@@ -10,6 +10,7 @@ import { claimNullifier } from "./world-id/nullifier-store";
 import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessions";
 import { runModeC } from "./modes/modeC";
 import { loadRuns } from "./store/run-store";
+import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { buildDashboardPage } from "./dashboard";
 import type { WorldIdVerifyResponse } from "./world-id/types";
@@ -512,6 +513,20 @@ export function startHttpServer(): void {
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/runs error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // Per-endpoint sample of what the agent actually received on its last call.
+    if (urlPath === "/api/samples" && req.method === "GET") {
+      loadRuns(60)
+        .then((runs) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { samples: buildSamples(runs) });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/samples error:", err);
           if (!res.headersSent) sendJson(res, 500, { error: String(err) });
         });
       return;
