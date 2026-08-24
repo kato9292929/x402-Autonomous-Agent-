@@ -20,17 +20,17 @@ test("MODE B has 5 osd Solana endpoints (osd-ipo, osd-holders, osd-liquidity, os
   assert.ok(ids.includes("osd-jin-latest"), "osd-jin-latest should be present");
   assert.ok(ids.includes("osd-jin-movers"), "osd-jin-movers should be present");
 
-  // osd endpoints point to osd-coral; JIN endpoints point to jin-orcin-pi
+  // osd endpoints point to osd.x402jp.com; JIN endpoints point to jin.x402jp.com
   const osdEps = solanaEndpoints.filter((e) => ["osd-ipo", "osd-holders", "osd-liquidity"].includes(e.id));
   for (const ep of osdEps) {
-    assert.ok(ep.url.includes("osd-coral.vercel.app"), `${ep.id} must point to osd-coral`);
+    assert.ok(ep.url.includes("osd.x402jp.com"), `${ep.id} must point to osd.x402jp.com`);
     assert.equal(ep.method, "GET");
     assert.equal(ep.cost, 0.01);
   }
 
   const jinEps = solanaEndpoints.filter((e) => e.id.startsWith("osd-jin-"));
   for (const ep of jinEps) {
-    assert.ok(ep.url.includes("jin-orcin-pi.vercel.app"), `${ep.id} must point to jin-orcin-pi`);
+    assert.ok(ep.url.includes("jin.x402jp.com"), `${ep.id} must point to jin.x402jp.com`);
     assert.equal(ep.method, "GET");
     assert.equal(ep.cost, 0.01);
   }

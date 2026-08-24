@@ -10,7 +10,7 @@ import { decodePaymentResponseHeader } from "@x402/fetch";
 import { fetchWithPayment } from "../x402";
 
 export function osdBase(): string {
-  return process.env.OSD_API_BASE ?? "https://osd-coral.vercel.app";
+  return process.env.OSD_API_BASE ?? "https://osd.x402jp.com";
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;

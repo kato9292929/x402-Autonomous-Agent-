@@ -115,7 +115,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "osd-ipo",
     name: "OSD IPO Data (Solana)",
-    url: getEnvOrDefault("OSD_IPO_URL", "https://osd-coral.vercel.app/api/ipo"),
+    url: getEnvOrDefault("OSD_IPO_URL", "https://osd.x402jp.com/api/ipo"),
     method: "GET",
     cost: 0.01,
     chain: "solana",
@@ -124,7 +124,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "osd-holders",
     name: "OSD Holders Data (Solana)",
-    url: getEnvOrDefault("OSD_HOLDERS_URL", "https://osd-coral.vercel.app/api/holders"),
+    url: getEnvOrDefault("OSD_HOLDERS_URL", "https://osd.x402jp.com/api/holders"),
     method: "GET",
     cost: 0.01,
     chain: "solana",
@@ -133,7 +133,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "osd-liquidity",
     name: "OSD Liquidity Data (Solana)",
-    url: getEnvOrDefault("OSD_LIQUIDITY_URL", "https://osd-coral.vercel.app/api/liquidity"),
+    url: getEnvOrDefault("OSD_LIQUIDITY_URL", "https://osd.x402jp.com/api/liquidity"),
     method: "GET",
     cost: 0.01,
     chain: "solana",
@@ -142,7 +142,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "osd-jin-latest",
     name: "JIN Index Latest (Solana)",
-    url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://jin-orcin-pi.vercel.app/api/jin/latest"),
+    url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://jin.x402jp.com/api/jin/latest"),
     method: "GET",
     cost: 0.01,
     chain: "solana",
@@ -152,7 +152,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "osd-jin-movers",
     name: "JIN Movers (Solana)",
-    url: getEnvOrDefault("OSD_JIN_MOVERS_URL", "https://jin-orcin-pi.vercel.app/api/jin/movers"),
+    url: getEnvOrDefault("OSD_JIN_MOVERS_URL", "https://jin.x402jp.com/api/jin/movers"),
     method: "GET",
     cost: 0.01,
     chain: "solana",
@@ -219,7 +219,7 @@ export const ENDPOINTS_MODE_C: EndpointConfig[] = [
  * capped by the payment policy (withinMicroUsdcCap). chain is a log label —
  * fetchWithPayment auto-selects the settlement leg from the 402.
  */
-const OSD_ALPHA_BASE = process.env.OSD_API_BASE ?? "https://osd-coral.vercel.app";
+const OSD_ALPHA_BASE = process.env.OSD_API_BASE ?? "https://osd.x402jp.com";
 const alphaUrl = (envName: string, path: string): string =>
   process.env[envName] || `${OSD_ALPHA_BASE}${path}`;
 

@@ -15,7 +15,7 @@ import { fetchWithPayment } from "../x402";
 
 /** JIN の本番配信ベース URL。JIN_API_BASE で上書き可能。 */
 export function jinBase(): string {
-  return process.env.JIN_API_BASE ?? "https://jin-orcin-pi.vercel.app";
+  return process.env.JIN_API_BASE ?? "https://jin.x402jp.com";
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;

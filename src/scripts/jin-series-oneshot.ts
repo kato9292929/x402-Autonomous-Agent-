@@ -10,7 +10,7 @@
  *   SOLANA_PRIVATE_KEY(残高 USDC ≥ 0.01 + 手数料)、facilitator 設定、Circle 系署名 —
  *   いずれも osd 決済が現に通っている実行環境(Railway)に揃っている前提。
  * 任意 env:
- *   JIN_API_BASE(既定 https://jin-orcin-pi.vercel.app)
+ *   JIN_API_BASE(既定 https://jin.x402jp.com)
  *
  * フロー(§4):
  *   1. 疎通 /api/jin/latest と /.well-known/x402.json
