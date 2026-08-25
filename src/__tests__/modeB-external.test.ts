@@ -108,11 +108,13 @@ test("MODE B has 15 endpoints (10 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI r
   const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
   assert.equal(solanaEps.length, 5, "Should have exactly 5 Solana endpoints");
 
+  // Prices per the published catalog: jin/latest is free, jin/movers is $0.02.
+  const expectedCost: Record<string, number> = { "osd-jin-latest": 0, "osd-jin-movers": 0.02 };
   for (const ep of solanaEps) {
     // osd endpoints → osd.x402jp.com; JIN endpoints → jin.x402jp.com
     const expectedHost = ep.id.startsWith("osd-jin-") ? "jin.x402jp.com" : "osd.x402jp.com";
     assert.ok(ep.url.includes(expectedHost), `${ep.id} should point to ${expectedHost}`);
     assert.equal(ep.method, "GET");
-    assert.equal(ep.cost, 0.01);
+    assert.equal(ep.cost, expectedCost[ep.id] ?? 0.01);
   }
 });

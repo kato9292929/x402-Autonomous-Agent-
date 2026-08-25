@@ -28,11 +28,13 @@ test("MODE B has 5 osd Solana endpoints (osd-ipo, osd-holders, osd-liquidity, os
     assert.equal(ep.cost, 0.01);
   }
 
+  // JIN prices come from the published catalog: latest is free, movers is $0.02.
+  const jinCost: Record<string, number> = { "osd-jin-latest": 0, "osd-jin-movers": 0.02 };
   const jinEps = solanaEndpoints.filter((e) => e.id.startsWith("osd-jin-"));
   for (const ep of jinEps) {
     assert.ok(ep.url.includes("jin.x402jp.com"), `${ep.id} must point to jin.x402jp.com`);
     assert.equal(ep.method, "GET");
-    assert.equal(ep.cost, 0.01);
+    assert.equal(ep.cost, jinCost[ep.id], `${ep.id} cost must match the published catalog`);
   }
 });
 

@@ -144,7 +144,10 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     name: "JIN Index Latest (Solana)",
     url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://jin.x402jp.com/api/jin/latest"),
     method: "GET",
-    cost: 0.01,
+    // Free per the published catalog (200, no 402 challenge). `cost` is the
+    // recorded spend, not the amount paid, so charging it $0.01 overstated the
+    // daily total for a call that costs nothing.
+    cost: 0,
     chain: "solana",
     mode: "B",
     captureFullData: true,
@@ -154,7 +157,8 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     name: "JIN Movers (Solana)",
     url: getEnvOrDefault("OSD_JIN_MOVERS_URL", "https://jin.x402jp.com/api/jin/movers"),
     method: "GET",
-    cost: 0.01,
+    // $0.02 per the published catalog, not $0.01.
+    cost: 0.02,
     chain: "solana",
     mode: "B",
     captureFullData: true,
