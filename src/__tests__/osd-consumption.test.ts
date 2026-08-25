@@ -110,7 +110,7 @@ test("catalyst store: verdict update overwrites in place", async () => {
 test("consumption log: pushes one entry to the Upstash list", async () => {
   await withFakeUpstash(async (lists) => {
     await logConsumption({
-      endpoint: "/api/stocks/NVDA",
+      endpoint: "/api/alpha/catalyst/submit",
       price_usd: 0.01,
       network: "base",
       tx_or_settlement_ref: "0xdeadbeef",
@@ -120,7 +120,7 @@ test("consumption log: pushes one entry to the Upstash list", async () => {
     const list = lists.get("osd_consumption_log") ?? [];
     assert.equal(list.length, 1);
     const entry = JSON.parse(list[0]!) as { endpoint: string; tx_or_settlement_ref: string };
-    assert.equal(entry.endpoint, "/api/stocks/NVDA");
+    assert.equal(entry.endpoint, "/api/alpha/catalyst/submit");
     assert.equal(entry.tx_or_settlement_ref, "0xdeadbeef");
   });
 });

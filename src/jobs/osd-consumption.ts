@@ -14,7 +14,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { submitCatalyst, getCatalystScore, paidCall } from "../osd/client";
+import { submitCatalyst, getCatalystScore } from "../osd/client";
 import { saveCatalyst, listCatalysts, isSeedSubmitted } from "../osd/catalyst-store";
 import { logConsumption } from "../osd/consumption-log";
 import type { CatalystSeed, CatalystRecord, ConsumptionLogEntry } from "../osd/types";
@@ -151,66 +151,6 @@ async function pollPendingCatalysts(): Promise<void> {
   }
 }
 
-// ── Step 2: paid data consumption ────────────────────────────────────────────
-
-async function consumeData(): Promise<void> {
-  const cap = num("OSD_DATA_SPEND_CAP_USD", 0.2);
-  const tickersPerRun = Math.max(1, num("OSD_DATA_TICKERS_PER_RUN", 1));
-  const tickers = readJsonArray<string>("analyst-tickers.json", "tickers");
-  let spent = 0;
-
-  const reserve = (price: number): boolean => {
-    if (spent + price > cap + 1e-9) return false;
-    spent += price; // reserve up front: x402 pays before the response arrives
-    return true;
-  };
-
-  const data: Array<{ label: string; path: string; price: number; network: string; method?: "GET"; body?: unknown }> = [];
-
-  // Rotate which ticker(s) we exercise so cost stays flat but coverage spreads.
-  const dayIdx = Math.floor(Date.now() / 86_400_000);
-  for (let i = 0; i < tickersPerRun && tickers.length > 0; i++) {
-    const t = tickers[(dayIdx + i) % tickers.length];
-    data.push({ label: `/api/stocks/${t}`, path: `/api/stocks/${encodeURIComponent(t)}`, price: 0.01, network: "base" });
-  }
-  // Solana-only endpoints settle on the Solana leg.
-  data.push({ label: "/api/liquidity", path: "/api/liquidity", price: 0.01, network: "solana" });
-  data.push({ label: "/api/holders", path: "/api/holders", price: 0.01, network: "solana" });
-
-  for (const call of data) {
-    if (!reserve(call.price)) {
-      console.log(`[OSD] Step 2: budget cap $${cap.toFixed(2)} reached — skipping ${call.label}`);
-      continue;
-    }
-    try {
-      const r = await paidCall(call.path, { method: "GET", expectedNetwork: call.network });
-      await logCall(call.label, call.price, r.network, r.settlementRef, r.status);
-    } catch (err) {
-      console.error(`[OSD] Step 2: ${call.label} failed: ${String(err)}`);
-      await logCall(call.label, call.price, call.network, null, 0);
-    }
-  }
-
-  // Weekly premium: predict quick ($0.50). Gated to one day/week; not counted
-  // against the data cap. High tiers (standard/deep) are never called here.
-  const premiumDay = num("OSD_PREMIUM_WEEKLY_DAY", 1); // 1 = Monday (UTC)
-  if (new Date().getUTCDay() === premiumDay && tickers.length > 0) {
-    const t = tickers[dayIdx % tickers.length];
-    try {
-      const r = await paidCall("/api/predict", {
-        body: { tickers: [t], horizon: "1m", depth: "quick" },
-        expectedNetwork: "base",
-      });
-      await logCall("/api/predict", 0.5, r.network, r.settlementRef, r.status);
-    } catch (err) {
-      console.error(`[OSD] Step 2: weekly predict failed: ${String(err)}`);
-      await logCall("/api/predict", 0.5, "base", null, 0);
-    }
-  }
-
-  console.log(`[OSD] Step 2: data spend this run ≈ $${spent.toFixed(2)} (cap $${cap.toFixed(2)})`);
-}
-
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 export async function runOsdConsumption(): Promise<void> {
@@ -222,12 +162,6 @@ export async function runOsdConsumption(): Promise<void> {
     await pollPendingCatalysts();
   } catch (err) {
     console.error(`[OSD] Phase A error: ${String(err)}`);
-  }
-
-  try {
-    await consumeData();
-  } catch (err) {
-    console.error(`[OSD] Step 2 error: ${String(err)}`);
   }
 
   console.log(`[OSD] Consumption job complete in ${((Date.now() - start) / 1000).toFixed(1)}s`);

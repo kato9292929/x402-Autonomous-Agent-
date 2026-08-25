@@ -78,9 +78,9 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 15 endpoints (10 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI removed)", async () => {
+test("MODE B has 12 endpoints (10 base + 2 JIN Solana; deleted osd routes removed)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 15, "MODE B should have exactly 15 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 12, "MODE B should have exactly 12 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
 
@@ -98,23 +98,23 @@ test("MODE B has 15 endpoints (10 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI r
   assert.ok(!ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should NOT be in MODE B (removed)");
   assert.ok(!ids.includes("perplexity-research"), "perplexity-research should NOT be in MODE B (removed)");
 
-  // osd Solana endpoints
-  assert.ok(ids.includes("osd-ipo"), "osd-ipo should be in MODE B");
-  assert.ok(ids.includes("osd-holders"), "osd-holders should be in MODE B");
-  assert.ok(ids.includes("osd-liquidity"), "osd-liquidity should be in MODE B");
+  // JIN Solana endpoints
   assert.ok(ids.includes("osd-jin-latest"), "osd-jin-latest should be in MODE B");
   assert.ok(ids.includes("osd-jin-movers"), "osd-jin-movers should be in MODE B");
 
+  // Deleted upstream (osd PR #29) — these 404 on the new domain.
+  assert.ok(!ids.includes("osd-ipo"), "osd-ipo was deleted upstream");
+  assert.ok(!ids.includes("osd-holders"), "osd-holders was deleted upstream");
+  assert.ok(!ids.includes("osd-liquidity"), "osd-liquidity was deleted upstream");
+
   const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEps.length, 5, "Should have exactly 5 Solana endpoints");
+  assert.equal(solanaEps.length, 2, "Should have exactly 2 Solana endpoints");
 
   // Prices per the published catalog: jin/latest is free, jin/movers is $0.02.
   const expectedCost: Record<string, number> = { "osd-jin-latest": 0, "osd-jin-movers": 0.02 };
   for (const ep of solanaEps) {
-    // osd endpoints → osd.x402jp.com; JIN endpoints → jin.x402jp.com
-    const expectedHost = ep.id.startsWith("osd-jin-") ? "jin.x402jp.com" : "osd.x402jp.com";
-    assert.ok(ep.url.includes(expectedHost), `${ep.id} should point to ${expectedHost}`);
+    assert.ok(ep.url.includes("jin.x402jp.com"), `${ep.id} should point to jin.x402jp.com`);
     assert.equal(ep.method, "GET");
-    assert.equal(ep.cost, expectedCost[ep.id] ?? 0.01);
+    assert.equal(ep.cost, expectedCost[ep.id]);
   }
 });

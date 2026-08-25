@@ -113,33 +113,6 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
   // payTo + amount resolved from 402 challenge (never hardcoded)
   {
-    id: "osd-ipo",
-    name: "OSD IPO Data (Solana)",
-    url: getEnvOrDefault("OSD_IPO_URL", "https://osd.x402jp.com/api/ipo"),
-    method: "GET",
-    cost: 0.01,
-    chain: "solana",
-    mode: "B",
-  },
-  {
-    id: "osd-holders",
-    name: "OSD Holders Data (Solana)",
-    url: getEnvOrDefault("OSD_HOLDERS_URL", "https://osd.x402jp.com/api/holders"),
-    method: "GET",
-    cost: 0.01,
-    chain: "solana",
-    mode: "B",
-  },
-  {
-    id: "osd-liquidity",
-    name: "OSD Liquidity Data (Solana)",
-    url: getEnvOrDefault("OSD_LIQUIDITY_URL", "https://osd.x402jp.com/api/liquidity"),
-    method: "GET",
-    cost: 0.01,
-    chain: "solana",
-    mode: "B",
-  },
-  {
     id: "osd-jin-latest",
     name: "JIN Index Latest (Solana)",
     url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://jin.x402jp.com/api/jin/latest"),
