@@ -403,6 +403,9 @@ h1, h2, h3, p { margin: 0; }
 }
 .settle__tx:hover { color: #000; }
 .settle__empty { font-size: 0.75rem; color: rgba(0, 0, 0, 0.45); }
+.settle__more { font-size: 0.6875rem; }
+.settle__more a { color: rgba(0, 0, 0, 0.5); text-decoration: none; }
+.settle__more a:hover { color: #000; }
 
 @media (min-width: 768px) {
   .stat__n { font-size: 1.25rem; }

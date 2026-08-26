@@ -169,11 +169,20 @@ async function loadRun() {
       results.filter((r) => r.status === 'success').length + '/' + results.length;
 
     if (settle) {
-      settle.innerHTML = paid.slice(0, 3).map((r) => `
+      const SHOWN = 5;
+      const rows = paid.slice(0, SHOWN).map((r) => `
         <li class="settle__row">
           <span class="settle__name">${esc(r.product || r.endpoint)}</span>
           <a class="settle__tx" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>
-        </li>`).join('') || '<li class="settle__empty">No settlements in the latest run.</li>';
+        </li>`).join('');
+      // Say so when the run settled more than fits, rather than silently cutting.
+      const rest = paid.length - SHOWN;
+      const more = rest > 0
+        ? `<li class="settle__more"><a href="/dashboard">+${rest} more settlements →</a></li>`
+        : '';
+      settle.innerHTML = rows
+        ? rows + more
+        : '<li class="settle__empty">No settlements in the latest run.</li>';
     }
   } catch (e) {
     if (settle) settle.innerHTML = `<li class="settle__empty">Could not load run data (${esc(String(e))}).</li>`;
