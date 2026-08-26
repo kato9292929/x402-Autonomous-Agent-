@@ -145,31 +145,44 @@ const money = (n) => '$' + (Number(n) || 0).toFixed(3);
 const shortTx = (t) => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
 const txUrl = (t) => (t && t.startsWith('0x') ? 'https://basescan.org/tx/' + t : 'https://solscan.io/tx/' + t);
 
+/** Local YYYY-MM-DD of a run timestamp, used to group one day's modes together. */
+function dayKey(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 async function loadRun() {
   const settle = document.getElementById('settle');
   try {
     const res = await fetch('/api/runs?limit=40');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const runs = (await res.json()).runs || [];
-    // Only the data-fetching runs; Mode A carries no endpoint results.
-    const shown = runs.filter((r) => r.mode === 'B' || r.mode === 'D');
-    if (!shown.length) {
+    if (!runs.length) {
       if (settle) settle.innerHTML = '<li class="settle__empty">No runs recorded yet.</li>';
       return;
     }
-    const latest = shown.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-    const results = latest.results || [];
+
+    // One daily run is several modes in sequence (B → A → D), so aggregate the
+    // whole day rather than picking the newest single mode. Picking the newest
+    // always landed on Mode D, which runs last and is the smallest slice of the
+    // day's spend.
+    const ordered = runs.slice().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const latestDay = dayKey(ordered[ordered.length - 1].timestamp);
+    const today = ordered.filter((r) => dayKey(r.timestamp) === latestDay);
+
+    const results = today.flatMap((r) => r.results || []);
     const paid = results.filter((r) => r.txHash);
+    const spend = today.reduce((a, r) => a + (Number(r.totalCostUsdc) || 0), 0);
 
     document.getElementById('run-when').textContent =
-      new Date(latest.timestamp).toLocaleDateString('ja-JP');
-    document.getElementById('stat-spend').textContent = money(latest.totalCostUsdc);
+      new Date(today[today.length - 1].timestamp).toLocaleDateString('ja-JP');
+    document.getElementById('stat-spend').textContent = money(spend);
     document.getElementById('stat-tx').textContent = paid.length;
     document.getElementById('stat-ok').textContent =
       results.filter((r) => r.status === 'success').length + '/' + results.length;
 
     if (settle) {
-      const SHOWN = 5;
+      const SHOWN = 8;
       const rows = paid.slice(0, SHOWN).map((r) => `
         <li class="settle__row">
           <span class="settle__name">${esc(r.product || r.endpoint)}</span>
