@@ -10,7 +10,7 @@
  */
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
-import { registerExactSvmScheme } from "@x402/svm/exact/client";
+import { registerExactSvmScheme, ExactSvmScheme } from "@x402/svm/exact/client";
 import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { base58 } from "@scure/base";
 import { privateKeyToAccount } from "viem/accounts";
@@ -103,7 +103,28 @@ export async function initX402Fetch(): Promise<void> {
     // SOLANA_PRIVATE_KEY: base58-encoded 64-byte keypair (32-byte seed + 32-byte pubkey)
     const keyBytes = base58.decode(solanaPrivateKey);
     const svmSigner = await createKeyPairSignerFromBytes(keyBytes);
+
+    // registerExactSvmScheme constructs `new ExactSvmScheme(signer)` with no
+    // config, so the v2 leg always builds its transaction against the default
+    // public RPC (https://api.mainnet-beta.solana.com). That endpoint rate-limits
+    // server traffic, and a failure there aborts the payment — the 402 then flows
+    // back to the caller with the empty v2 body, which is what "HTTP 402: {}"
+    // against Solana-only endpoints looks like.
+    //
+    // Register the v2 scheme ourselves so a dedicated RPC can be supplied. The
+    // helper still handles the v1 registrations, and re-registering "solana:*"
+    // afterwards overrides its RPC-less instance.
+    const rpcUrl = process.env.SOLANA_RPC_URL;
     registerExactSvmScheme(client, { signer: svmSigner });
+    if (rpcUrl) {
+      client.register("solana:*", new ExactSvmScheme(svmSigner, { rpcUrl }));
+      console.log(`[X402] Solana RPC override active: ${new URL(rpcUrl).host}`);
+    } else {
+      console.warn(
+        "[X402] SOLANA_RPC_URL not set — Solana payments use the public " +
+          "api.mainnet-beta.solana.com endpoint, which rate-limits server traffic"
+      );
+    }
     console.log(`[X402] Solana SVM scheme registered (address: ${svmSigner.address})`);
   } else {
     console.log("[X402] SOLANA_PRIVATE_KEY not set — Solana endpoints will be skipped");
