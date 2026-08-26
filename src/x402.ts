@@ -17,9 +17,10 @@ import { createKeyPairSignerFromBytes, type TransactionPartialSigner } from "@so
 import { base58 } from "@scure/base";
 import { privateKeyToAccount } from "viem/accounts";
 import type { PaymentRequirements } from "@x402/core/types";
-import { getCircleEvmSignerFromEnv } from "./circle/evm-signer";
+import { getCircleEvmSignerFromEnv, createCircleEvmSigner } from "./circle/evm-signer";
 import { getCircleSolanaSignerFromEnv, resolveSolanaBackend } from "./circle/solana-signer";
 import { DEFAULT_MAX_BASE_MICRO_USDC } from "./circle/spending-controls";
+import { TESTNET_NETWORK } from "./payment-guard";
 
 let _fetchWithPayment:
   | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
@@ -110,6 +111,25 @@ export async function initX402Fetch(): Promise<void> {
     .registerPolicy((_version: number, reqs: PaymentRequirements[]) =>
       reqs.filter((r) => withinMicroUsdcCap(r, maxUsdc))
     );
+
+  // Base Sepolia leg for the buyer-side demo. Off unless explicitly enabled, so
+  // the daily run never gains a testnet leg by accident. Its wallet lives under
+  // the Circle TEST credentials — a LIVE key is rejected on testnet chains.
+  if (process.env.X402_TESTNET_ENABLED === "true") {
+    const testnetWalletId = process.env.CIRCLE_BASE_SEPOLIA_WALLET_ID;
+    const testnetAddress = process.env.CIRCLE_BASE_SEPOLIA_WALLET_ADDRESS;
+    if (!testnetWalletId || !testnetAddress) {
+      throw new Error(
+        "X402_TESTNET_ENABLED=true requires CIRCLE_BASE_SEPOLIA_WALLET_ID and " +
+          "CIRCLE_BASE_SEPOLIA_WALLET_ADDRESS (run scripts/circle-create-base-sepolia-wallet)"
+      );
+    }
+    const testnetScheme = new ExactEvmScheme(
+      createCircleEvmSigner(testnetWalletId, testnetAddress as `0x${string}`, "test")
+    );
+    client.register(TESTNET_NETWORK, testnetScheme);
+    console.log(`[X402] Base Sepolia leg registered (Circle TEST wallet: ${testnetAddress})`);
+  }
 
   // Solana signer: Circle DCW (SOLANA_SIGNER_BACKEND=circle) or a local keypair.
   // Circle keeps the key out of the deployment and matches how Base is signed;

@@ -12,7 +12,12 @@
  * Reference: https://developers.circle.com/w3s/reference/developersigntyped
  */
 import type { ClientEvmSigner } from "@x402/evm";
-import { CIRCLE_API, buildEntitySecretCiphertext, getRequiredApiKey } from "./client";
+import {
+  CIRCLE_API,
+  getCircleCredentials,
+  buildCiphertextFor,
+  type CircleEnv,
+} from "./client";
 
 // Standard EIP-712 domain field types — used to build EIP712Domain for Circle
 const EIP712_DOMAIN_FIELD_TYPES: Record<string, string> = {
@@ -23,16 +28,23 @@ const EIP712_DOMAIN_FIELD_TYPES: Record<string, string> = {
   salt: "bytes32",
 };
 
+/**
+ * @param env Which Circle environment holds the wallet. Testnet chains such as
+ *   Base Sepolia live under the TEST credentials; a LIVE key is rejected there
+ *   with 156006, so the caller states this rather than it being guessed.
+ */
 export function createCircleEvmSigner(
   walletId: string,
-  walletAddress: `0x${string}`
+  walletAddress: `0x${string}`,
+  env: CircleEnv = "live"
 ): ClientEvmSigner {
   return {
     address: walletAddress,
 
     async signTypedData({ domain, types, primaryType, message }) {
-      const apiKey = getRequiredApiKey();
-      const entitySecretCiphertext = await buildEntitySecretCiphertext(apiKey);
+      const creds = getCircleCredentials(env);
+      const apiKey = creds.apiKey;
+      const entitySecretCiphertext = await buildCiphertextFor(creds);
 
       // Circle requires EIP712Domain in types; viem/x402 omits it (uses domain object instead).
       // Derive EIP712Domain from the actual domain keys so it matches exactly.
@@ -46,9 +58,6 @@ export function createCircleEvmSigner(
         { domain, types: typesWithDomain, primaryType, message },
         (_k, v) => (typeof v === "bigint" ? v.toString() : v)
       );
-
-      // Temporary debug log — remove after Base signing is confirmed working
-      console.log("[CIRCLE:EVM] data sent to sign/typedData:", dataStr);
 
       const res = await fetch(`${CIRCLE_API}/developer/sign/typedData`, {
         method: "POST",
