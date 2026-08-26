@@ -5,17 +5,20 @@
  *   "circle"     — Circle Developer-Controlled Wallet (CIRCLE_EVM_WALLET_ID + CIRCLE_EVM_WALLET_ADDRESS)
  *   "privatekey" — Local EOA private key (PAYMENT_PRIVATE_KEY)  ← default
  *
- * Solana signing: native keypair from SOLANA_PRIVATE_KEY (base58-encoded 64-byte keypair).
- * SOLANA_PRIVATE_KEY is optional — if absent, Solana endpoints are skipped.
+ * Solana signing backend (SOLANA_SIGNER_BACKEND):
+ *   "circle"     — Circle Developer-Controlled Wallet (CIRCLE_SOLANA_WALLET_ID + CIRCLE_SOLANA_WALLET_ADDRESS)
+ *   "privatekey" — Local keypair from SOLANA_PRIVATE_KEY (base58 64-byte)  ← default
+ * If neither is configured, Solana endpoints are skipped.
  */
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { registerExactSvmScheme, ExactSvmScheme } from "@x402/svm/exact/client";
-import { createKeyPairSignerFromBytes } from "@solana/kit";
+import { createKeyPairSignerFromBytes, type TransactionPartialSigner } from "@solana/kit";
 import { base58 } from "@scure/base";
 import { privateKeyToAccount } from "viem/accounts";
 import type { PaymentRequirements } from "@x402/core/types";
 import { getCircleEvmSignerFromEnv } from "./circle/evm-signer";
+import { getCircleSolanaSignerFromEnv, resolveSolanaBackend } from "./circle/solana-signer";
 import { DEFAULT_MAX_BASE_MICRO_USDC } from "./circle/spending-controls";
 
 let _fetchWithPayment:
@@ -108,13 +111,29 @@ export async function initX402Fetch(): Promise<void> {
       reqs.filter((r) => withinMicroUsdcCap(r, maxUsdc))
     );
 
-  // Solana: register SVM scheme if SOLANA_PRIVATE_KEY is set
-  const solanaPrivateKey = process.env.SOLANA_PRIVATE_KEY;
-  if (solanaPrivateKey) {
+  // Solana signer: Circle DCW (SOLANA_SIGNER_BACKEND=circle) or a local keypair.
+  // Circle keeps the key out of the deployment and matches how Base is signed;
+  // the local key stays supported so the switch can be reverted from env alone.
+  const solanaBackend = resolveSolanaBackend();
+  let svmSigner: TransactionPartialSigner | undefined;
+
+  if (solanaBackend === "circle") {
+    const circleSolana = getCircleSolanaSignerFromEnv();
+    if (circleSolana) {
+      svmSigner = circleSolana.signer;
+      _solanaPayerAddress = circleSolana.address;
+      console.log(`[X402] Using Circle DCW signer for Solana (wallet: ${circleSolana.address})`);
+    }
+  } else if (solanaBackend === "privatekey") {
     // SOLANA_PRIVATE_KEY: base58-encoded 64-byte keypair (32-byte seed + 32-byte pubkey)
-    const keyBytes = base58.decode(solanaPrivateKey);
-    const svmSigner = await createKeyPairSignerFromBytes(keyBytes);
-    _solanaPayerAddress = svmSigner.address;
+    const keyBytes = base58.decode(process.env.SOLANA_PRIVATE_KEY as string);
+    const localSigner = await createKeyPairSignerFromBytes(keyBytes);
+    svmSigner = localSigner;
+    _solanaPayerAddress = localSigner.address;
+    console.log(`[X402] Using local keypair signer for Solana (${localSigner.address})`);
+  }
+
+  if (svmSigner) {
 
     // registerExactSvmScheme constructs `new ExactSvmScheme(signer)` with no
     // config, so the v2 leg always builds its transaction against the default
@@ -139,7 +158,10 @@ export async function initX402Fetch(): Promise<void> {
     }
     console.log(`[X402] Solana SVM scheme registered (address: ${svmSigner.address})`);
   } else {
-    console.log("[X402] SOLANA_PRIVATE_KEY not set — Solana endpoints will be skipped");
+    console.log(
+      "[X402] No Solana signer configured — Solana endpoints will be skipped " +
+        "(set SOLANA_PRIVATE_KEY, or SOLANA_SIGNER_BACKEND=circle with the CIRCLE_SOLANA_* vars)"
+    );
   }
 
   _fetchWithPayment = wrapFetchWithPayment(fetch, client);
