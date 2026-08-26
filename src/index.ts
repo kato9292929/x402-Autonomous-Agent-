@@ -1,6 +1,8 @@
 import "dotenv/config";
 import cron from "node-cron";
-import { initX402Fetch } from "./x402";
+import { initX402Fetch, getSolanaPayerAddress } from "./x402";
+import { logBalances } from "./balance-guard";
+import { setBalanceWarnings } from "./notify";
 import { runModeA } from "./modes/modeA";
 import { runModeB } from "./modes/modeB";
 import { runModeC, queueModeC } from "./modes/modeC";
@@ -12,6 +14,15 @@ async function dailyRun(): Promise<void> {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`[AGENT] Daily run — ${new Date().toISOString()}`);
   console.log(`${"=".repeat(60)}`);
+  // Advisory: says the wallet balances out loud before spending. Never blocks
+  // the run — not knowing the balance is not a reason to skip the day's work.
+  const balanceWarnings = await logBalances(getSolanaPayerAddress()).catch(
+    (err: unknown) => {
+      console.warn(`[BALANCE] check failed: ${String(err)}`);
+      return [] as string[];
+    }
+  );
+  setBalanceWarnings(balanceWarnings);
   const modeBLog = await runModeB();
   await runModeA(modeBLog);
   await runModeD();

@@ -22,6 +22,17 @@ let _fetchWithPayment:
   | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
   | null = null;
 
+/**
+ * Address of the wallet that actually signs Solana payments, captured when the
+ * signer is built. The balance check uses this rather than SOLANA_WALLET_ADDRESS
+ * so it can never end up reporting on a different wallet than the one paying.
+ */
+let _solanaPayerAddress: string | undefined;
+
+export function getSolanaPayerAddress(): string | undefined {
+  return _solanaPayerAddress;
+}
+
 export interface EvmSchemeInfo {
   scheme: ExactEvmScheme;
   address: string;
@@ -103,6 +114,7 @@ export async function initX402Fetch(): Promise<void> {
     // SOLANA_PRIVATE_KEY: base58-encoded 64-byte keypair (32-byte seed + 32-byte pubkey)
     const keyBytes = base58.decode(solanaPrivateKey);
     const svmSigner = await createKeyPairSignerFromBytes(keyBytes);
+    _solanaPayerAddress = svmSigner.address;
 
     // registerExactSvmScheme constructs `new ExactSvmScheme(signer)` with no
     // config, so the v2 leg always builds its transaction against the default
