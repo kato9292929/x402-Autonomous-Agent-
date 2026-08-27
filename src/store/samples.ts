@@ -32,6 +32,8 @@ export interface EndpointSample {
   truncated?: boolean;
   /** Short excerpt the agent logs for every call, captured or not. */
   peek?: string;
+  /** A few figures lifted verbatim from `sample`, for compact display. */
+  highlights?: string[];
 }
 
 /** Path of a configured endpoint URL; returns the input unchanged if unparseable. */
@@ -83,6 +85,55 @@ export function trimSample(value: unknown, cap = SAMPLE_CHAR_CAP): { value: unkn
   return { value: String(full).slice(0, cap), truncated: true };
 }
 
+/** Keys whose values are bookkeeping rather than findings. */
+const NOISE_KEY = /(_at$|^as_of$|date|time|url|uri|hash|^id$|_id$|address|source|note|version|status)/i;
+
+/**
+ * Pull a few concrete figures out of a captured response, so a reader can see
+ * what was actually bought rather than just that something was.
+ *
+ * Deliberately generic: it walks the body and keeps short, named values,
+ * preferring numbers, instead of hardcoding a shape per endpoint. Nothing is
+ * computed or inferred — every pair appears verbatim in the response.
+ */
+export function summarizeSample(value: unknown, max = 4): string[] {
+  const out: { label: string; num: boolean }[] = [];
+
+  const visit = (node: unknown, depth: number): void => {
+    if (out.length >= max * 3 || depth > 3 || node === null || node === undefined) return;
+
+    if (Array.isArray(node)) {
+      // One element is enough to show the shape of a list.
+      if (node.length > 0) visit(node[0], depth + 1);
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    for (const [key, v] of Object.entries(node as Record<string, unknown>)) {
+      if (out.length >= max * 3) return;
+      if (NOISE_KEY.test(key)) continue;
+
+      if (typeof v === "number" && Number.isFinite(v)) {
+        // Trim float noise without changing the value's meaning.
+        const shown = Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)));
+        out.push({ label: `${key} ${shown}`, num: true });
+      } else if (typeof v === "boolean") {
+        out.push({ label: `${key} ${v}`, num: false });
+      } else if (typeof v === "string" && v.length > 0 && v.length <= 20) {
+        out.push({ label: `${key} ${v}`, num: false });
+      } else if (v && typeof v === "object") {
+        visit(v, depth + 1);
+      }
+    }
+  };
+
+  visit(value, 0);
+  // Numbers first — they carry the finding; short strings are context.
+  return [...out.filter((o) => o.num), ...out.filter((o) => !o.num)]
+    .slice(0, max)
+    .map((o) => o.label);
+}
+
 /**
  * Build one sample per endpoint from the given runs, newest wins.
  * A result with a captured body always beats one without.
@@ -122,6 +173,10 @@ export function buildSamples(runs: RunLog[]): EndpointSample[] {
     if (trimmed) {
       out.sample = trimmed.value;
       if (trimmed.truncated) out.truncated = true;
+      // Summarise the untrimmed body: trimming drops tail elements, and a
+      // highlight should reflect what actually came back.
+      const highlights = summarizeSample(result.fullData);
+      if (highlights.length > 0) out.highlights = highlights;
     }
     if (result.responsePeek) out.peek = result.responsePeek;
     return out;

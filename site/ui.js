@@ -144,6 +144,8 @@ async function loadSamples() {
 const money = (n) => '$' + (Number(n) || 0).toFixed(3);
 const shortTx = (t) => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
 const txUrl = (t) => (t && t.startsWith('0x') ? 'https://basescan.org/tx/' + t : 'https://solscan.io/tx/' + t);
+/** Path of a called URL, to match a settlement against its captured sample. */
+const pathOf = (u) => { try { return new URL(u.indexOf('://') >= 0 ? u : 'https://' + u).pathname; } catch { return u || ''; } };
 
 /** Local YYYY-MM-DD of a run timestamp, used to group one day's modes together. */
 function dayKey(ts) {
@@ -182,20 +184,33 @@ async function loadRun() {
       results.filter((r) => r.status === 'success').length + '/' + results.length;
 
     if (settle) {
-      const SHOWN = 8;
-      const rows = paid.slice(0, SHOWN).map((r) => `
+      // Figures the agent actually received, keyed by path, so each row can show
+      // what was bought instead of only that something was.
+      const factsByPath = new Map();
+      try {
+        const sres = await fetch('/api/samples');
+        if (sres.ok) {
+          for (const s of (await sres.json()).samples || []) {
+            if (s.highlights && s.highlights.length) factsByPath.set(s.path, s.highlights);
+          }
+        }
+      } catch { /* highlights are additive — the list still renders without them */ }
+
+      settle.innerHTML = paid.map((r) => {
+        const facts = factsByPath.get(pathOf(r.endpoint || '')) || [];
+        const line = facts.length
+          ? `<div class="settle__facts">${facts.map((f) => `<span>${esc(f)}</span>`).join('')}</div>`
+          : (r.responsePeek ? `<div class="settle__facts settle__facts--raw">${esc(String(r.responsePeek).slice(0, 70))}</div>` : '');
+        return `
         <li class="settle__row">
-          <span class="settle__name">${esc(r.product || r.endpoint)}</span>
-          <a class="settle__tx" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>
-        </li>`).join('');
-      // Say so when the run settled more than fits, rather than silently cutting.
-      const rest = paid.length - SHOWN;
-      const more = rest > 0
-        ? `<li class="settle__more"><a href="/dashboard">+${rest} more settlements →</a></li>`
-        : '';
-      settle.innerHTML = rows
-        ? rows + more
-        : '<li class="settle__empty">No settlements in the latest run.</li>';
+          <div class="settle__head">
+            <span class="settle__name">${esc(r.product || r.endpoint)}</span>
+            <span class="settle__cost">${money(r.costUsdc)}</span>
+            <a class="settle__tx" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>
+          </div>
+          ${line}
+        </li>`;
+      }).join('') || '<li class="settle__empty">No settlements in the latest run.</li>';
     }
   } catch (e) {
     if (settle) settle.innerHTML = `<li class="settle__empty">Could not load run data (${esc(String(e))}).</li>`;

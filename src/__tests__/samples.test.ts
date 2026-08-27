@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSamples, trimSample, pathOf, SAMPLE_CHAR_CAP } from "../store/samples";
+import { buildSamples, trimSample, pathOf, summarizeSample, SAMPLE_CHAR_CAP } from "../store/samples";
 import type { RunLog } from "../types";
 
 function run(timestamp: string, results: RunLog["results"]): RunLog {
@@ -110,4 +110,49 @@ test("trimSample: 上限内ならそのまま返す", () => {
   const { value, truncated } = trimSample(small);
   assert.deepEqual(value, small);
   assert.equal(truncated, false);
+});
+
+test("summarizeSample: 実データから数値を抜き出す(捏造しない)", () => {
+  // OSD US Scorecard の実レスポンス形
+  const body = {
+    as_of: "2026-08-25",
+    hit_rate: { hit: 9, partial: 13, miss: 6, na: 0, pending: 0, total_judged: 28 },
+  };
+  const h = summarizeSample(body);
+  assert.ok(h.includes("hit 9"), h.join(" | "));
+  assert.ok(h.includes("partial 13"), h.join(" | "));
+  assert.ok(!h.some((x) => x.startsWith("as_of")), "日付は拾わない");
+});
+
+test("summarizeSample: 配列の先頭要素まで潜る", () => {
+  // JIN movers の実レスポンス形
+  const body = {
+    source: "japan-inflation-nowcast",
+    movers: [{ category: "野菜・海藻", item: "国内産 キャベツ 1玉", pct: 86.2 }],
+  };
+  const h = summarizeSample(body);
+  assert.ok(h.includes("pct 86.2"), h.join(" | "));
+  assert.ok(!h.some((x) => x.startsWith("source")), "source は拾わない");
+});
+
+test("summarizeSample: 数値を短い文字列より優先する", () => {
+  const h = summarizeSample({ label: "abc", count: 7, other: "def" }, 1);
+  assert.deepEqual(h, ["count 7"]);
+});
+
+test("summarizeSample: 長い文字列・タイムスタンプ・hash は落とす", () => {
+  const h = summarizeSample({
+    updated_at: "2026-08-09T21:29:54.274Z",
+    tx_hash: "0xabc",
+    note: "Weekly Claude-selected US equity portfolio.",
+    apy: 0.213,
+  });
+  assert.deepEqual(h, ["apy 0.213"]);
+});
+
+test("summarizeSample: 上限を超えない / 空でも落ちない", () => {
+  const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`k${i}`, i]));
+  assert.equal(summarizeSample(many, 4).length, 4);
+  assert.deepEqual(summarizeSample({}), []);
+  assert.deepEqual(summarizeSample(undefined), []);
 });
