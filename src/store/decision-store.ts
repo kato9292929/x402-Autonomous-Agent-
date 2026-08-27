@@ -36,6 +36,9 @@ export interface DecisionSignals {
     intent?: string;
     confidence?: number;
     source: "wid" | "unavailable";
+    /** Which signal opened the gate, and on which token. Absent when none did. */
+    candidateSource?: "analyzer" | "hyperliquid";
+    candidateToken?: string;
     costUsdc: number;
   };
 }

@@ -178,3 +178,56 @@ export function extractHyperliquidSignal(
 
   return { available: false };
 }
+
+/** A token the Whale Intent Decoder can be asked about, and where it came from. */
+export interface DecodeCandidate {
+  token: string;
+  /** "analyzer" = Divergence Analyzer, "hyperliquid" = Hyperliquid Intelligence. */
+  source: "analyzer" | "hyperliquid";
+  chain?: string;
+  /** Analyzer only. */
+  netFlowUsd?: number;
+  /** Hyperliquid only. */
+  divergenceScore?: number;
+  smartMoneyBias?: string;
+}
+
+/**
+ * Pick the strongest Hyperliquid divergence at or above `minScore`.
+ *
+ * Mode A used to gate solely on the Divergence Analyzer, which has returned an
+ * empty `results` array on every run, so the Decoder never fired. Hyperliquid is
+ * already bought each day and does carry divergences, so it serves as a second
+ * source for the same gate.
+ *
+ * Both `divergenceScore` and `smartMoneyBias` must be present: a candidate with
+ * no direction is not a signal, and neither is inferred.
+ */
+export function selectHyperliquidCandidate(
+  data: Record<string, unknown> | undefined | null,
+  minScore: number
+): DecodeCandidate | undefined {
+  if (!data) return undefined;
+  let best: DecodeCandidate | undefined;
+
+  for (const obj of walkObjects(data)) {
+    const arr = obj["topDivergences"];
+    if (!Array.isArray(arr)) continue;
+
+    for (const item of arr) {
+      if (item === null || typeof item !== "object") continue;
+      const el = item as Record<string, unknown>;
+      const token = asString(firstKey(el, TOKEN_KEYS)?.value);
+      const divergenceScore = asNumber(el["divergenceScore"]);
+      const smartMoneyBias = asString(el["smartMoneyBias"]);
+      if (!token || divergenceScore === undefined) continue;
+      if (biasSign(smartMoneyBias) === 0) continue; // no direction → not a signal
+      if (divergenceScore < minScore) continue;
+
+      if (!best || divergenceScore > (best.divergenceScore ?? 0)) {
+        best = { token, source: "hyperliquid", divergenceScore, smartMoneyBias };
+      }
+    }
+  }
+  return best;
+}

@@ -22,12 +22,30 @@ import { saveRun } from "../store/run-store";
 import {
   extractDivergenceSignal,
   extractHyperliquidSignal,
+  selectHyperliquidCandidate,
+  type DecodeCandidate,
 } from "./signal-extract";
 import { scoreDecision, type WhaleIntentSignal } from "./scoring";
 import { appendDecision, type DecisionRecord } from "../store/decision-store";
 
 const DEFAULT_AGENT_ID = "55560";
 const WID_COST_USDC = 0.3;
+/** Hyperliquid divergences below this score never open the Decoder gate. */
+const DEFAULT_HL_DIVERGENCE_MIN_SCORE = 0.75;
+
+/** Threshold from the AA-side env; a malformed value falls back to the default. */
+function hlDivergenceMinScore(): number {
+  const raw = process.env.HL_DIVERGENCE_MIN_SCORE;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_HL_DIVERGENCE_MIN_SCORE;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    console.warn(
+      `[MODE A] HL_DIVERGENCE_MIN_SCORE="${raw}" is not a number; using ${DEFAULT_HL_DIVERGENCE_MIN_SCORE}`
+    );
+    return DEFAULT_HL_DIVERGENCE_MIN_SCORE;
+  }
+  return parsed;
+}
 
 function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -86,20 +104,58 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
   );
 
   // ── Whale Intent Decoder — direction (the only paid call in Mode A) ───────
+  //
+  // The gate used to read the Divergence Analyzer alone, and that endpoint has
+  // returned an empty `results` array on every run, so the Decoder never fired.
+  // Hyperliquid is already bought each day and does carry divergences, so it now
+  // serves as a second source for the same gate. The Analyzer still wins when it
+  // has something, so this only adds days, never changes existing ones.
+  //
+  // The gate is local and free: with no candidate nothing is POSTed and the day
+  // costs $0.
+  const analyzerCandidate: DecodeCandidate | undefined =
+    divergence.available && divergence.token
+      ? {
+          token: divergence.token,
+          source: "analyzer",
+          chain: divergence.chain,
+          netFlowUsd: divergence.netFlowUsd,
+        }
+      : undefined;
+  const candidate =
+    analyzerCandidate ??
+    selectHyperliquidCandidate(hlResult?.fullData, hlDivergenceMinScore());
+
   let whaleIntent: WhaleIntentSignal = { available: false };
   let widCost = 0;
-  if (divergence.available && divergence.token) {
+  if (candidate) {
+    console.log(
+      `[MODE A] Decode candidate: ${candidate.token} (source=${candidate.source}` +
+        (candidate.divergenceScore !== undefined
+          ? `, divergenceScore=${candidate.divergenceScore}, bias=${candidate.smartMoneyBias}`
+          : "") +
+        ")"
+    );
     try {
       const widUrl =
         process.env.WHALE_INTENT_DECODER_URL ?? "https://x402wid.vercel.app/api/decode";
+      // Each source has its own request shape; send only what that source knows.
+      const body =
+        candidate.source === "hyperliquid"
+          ? {
+              token: candidate.token,
+              divergenceScore: candidate.divergenceScore,
+              smartMoneyBias: candidate.smartMoneyBias,
+            }
+          : {
+              token: candidate.token,
+              chain: candidate.chain ?? "ethereum",
+              amount: candidate.netFlowUsd ?? 0,
+            };
       const decodeRes = await fetchWithPayment(widUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: divergence.token,
-          chain: divergence.chain ?? "ethereum",
-          amount: divergence.netFlowUsd ?? 0,
-        }),
+        body: JSON.stringify(body),
       });
       if (!decodeRes.ok) {
         const text = await decodeRes.text().catch(() => "(no body)");
@@ -134,7 +190,10 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
       console.error(`[MODE A] Whale Intent Decoder failed: ${msg}`);
     }
   } else {
-    console.log("[MODE A] No divergence token — skipping Whale Intent Decoder");
+    console.log(
+      `[MODE A] No decode candidate (analyzer empty, no Hyperliquid divergence ≥ ${hlDivergenceMinScore()})` +
+        " — skipping Whale Intent Decoder ($0)"
+    );
   }
 
   // ── Score + decide (always emits exactly one call, never exits early) ─────
@@ -179,6 +238,8 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
         intent: whaleIntent.intent,
         confidence: whaleIntent.confidence,
         source: whaleIntent.available ? "wid" : "unavailable",
+        candidateSource: candidate?.source,
+        candidateToken: candidate?.token,
         costUsdc: widCost,
       },
     },

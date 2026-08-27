@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   extractDivergenceSignal,
   extractHyperliquidSignal,
+  selectHyperliquidCandidate,
 } from "../modes/signal-extract";
 import { scoreDecision } from "../modes/scoring";
 
@@ -80,6 +81,43 @@ test("extractHyperliquidSignal defaults the target token to ETH", () => {
 test("extractHyperliquidSignal returns unavailable when nothing recognised", () => {
   assert.equal(extractHyperliquidSignal({ foo: "bar" }).available, false);
   assert.equal(extractHyperliquidSignal({ topDivergences: [] }, "ETH").available, false);
+});
+
+// ── selectHyperliquidCandidate (Decoder gate, second source) ─────────────────
+
+test("selectHyperliquidCandidate picks the highest score at or above the threshold", () => {
+  const c = selectHyperliquidCandidate(hlResponse, 0.75);
+  assert.equal(c?.token, "BTC"); // 0.97 は ETH 0.94 より強い
+  assert.equal(c?.source, "hyperliquid");
+  assert.equal(c?.divergenceScore, 0.97);
+  assert.equal(c?.smartMoneyBias, "SHORT");
+});
+
+test("selectHyperliquidCandidate treats the threshold as inclusive", () => {
+  const data = { topDivergences: [{ token: "SOL", divergenceScore: 0.75, smartMoneyBias: "LONG" }] };
+  assert.equal(selectHyperliquidCandidate(data, 0.75)?.token, "SOL");
+  assert.equal(selectHyperliquidCandidate(data, 0.76), undefined);
+});
+
+test("selectHyperliquidCandidate ignores entries without a direction", () => {
+  // 方向の無い候補はシグナルではない。推測もしない。
+  assert.equal(
+    selectHyperliquidCandidate({ topDivergences: [{ token: "ETH", divergenceScore: 0.99 }] }, 0.75),
+    undefined
+  );
+  assert.equal(
+    selectHyperliquidCandidate(
+      { topDivergences: [{ token: "ETH", divergenceScore: 0.99, smartMoneyBias: "NEUTRAL" }] },
+      0.75
+    ),
+    undefined
+  );
+});
+
+test("selectHyperliquidCandidate returns undefined when there is nothing to read", () => {
+  assert.equal(selectHyperliquidCandidate(undefined, 0.75), undefined);
+  assert.equal(selectHyperliquidCandidate({ topDivergences: [] }, 0.75), undefined);
+  assert.equal(selectHyperliquidCandidate({ foo: "bar" }, 0.75), undefined);
 });
 
 // ── scoring ──────────────────────────────────────────────────────────────────
