@@ -24,9 +24,16 @@ export const SOLANA_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const BASE_WARN_USDC = Number(process.env.BALANCE_WARN_BASE_USDC ?? "10");
 /** Warn below this many USDC on the Solana leg. */
 export const SOLANA_WARN_USDC = Number(process.env.BALANCE_WARN_SOLANA_USDC ?? "1");
+/**
+ * Warn below this many USDC on the weekly external probe's wallet (Base USDC).
+ * The probe spends ~$0.4 a week, so $5 is a couple of months of notice — the
+ * point is that this wallet is the third drain candidate and must not be left
+ * off the guard, which is how the first two failures went unnoticed for a week.
+ */
+export const PROBE_WARN_USDC = Number(process.env.BALANCE_WARN_PROBE_USDC ?? "5");
 
 export interface LegBalance {
-  leg: "base" | "solana";
+  leg: "base" | "solana" | "probe";
   address?: string;
   /** Balance in USDC. Undefined when it could not be read. */
   usdc?: number;
@@ -146,6 +153,23 @@ export async function checkBalances(solanaAddress?: string): Promise<BalanceRepo
     }
   }
   legs.push(svmLeg);
+
+  // Weekly external probe wallet (Base USDC), kept separate from production
+  // funds. Only checked once it exists — an unconfigured wallet would otherwise
+  // warn every day and train everyone to ignore the warnings.
+  const probeAddress = process.env.CIRCLE_PROBE_WALLET_ADDRESS;
+  if (probeAddress) {
+    const probeLeg: LegBalance = { leg: "probe", address: probeAddress, threshold: PROBE_WARN_USDC };
+    try {
+      probeLeg.usdc = await readBaseUsdc(
+        probeAddress,
+        process.env.BASE_RPC_URL ?? "https://mainnet.base.org"
+      );
+    } catch (err) {
+      probeLeg.error = err instanceof Error ? err.message : String(err);
+    }
+    legs.push(probeLeg);
+  }
 
   return { legs, warnings: evaluateBalances(legs) };
 }

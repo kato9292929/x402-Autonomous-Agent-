@@ -8,6 +8,7 @@ import { runModeB } from "./modes/modeB";
 import { runModeC, queueModeC } from "./modes/modeC";
 import { runModeD } from "./modes/modeD";
 import { runOsdConsumption } from "./jobs/osd-consumption";
+import { runExternalProbe } from "./jobs/external-probe";
 import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
@@ -58,9 +59,26 @@ async function main(): Promise<void> {
     }
   });
 
+  // External probe: every Monday at 09:00 JST (00:00 UTC). Off unless enabled,
+  // so it cannot start spending on third parties by merely being deployed.
+  if (process.env.PROBE_ENABLED === "true") {
+    cron.schedule("0 0 * * 1", async () => {
+      try {
+        await runExternalProbe({ mode: "sweep" });
+      } catch (err) {
+        console.error("[PROBE] Weekly sweep failed:", err);
+      }
+    });
+  }
+
   console.log("x402 Autonomous Agent started");
   console.log("  Mode A + B + D + osd:      daily   at 06:00 JST (21:00 UTC)");
   console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
+  console.log(
+    `  External probe:            Mondays at 09:00 JST (00:00 UTC) — ${
+      process.env.PROBE_ENABLED === "true" ? "enabled" : "disabled (PROBE_ENABLED)"
+    }`
+  );
 
   if (process.argv.includes("--run-now")) {
     console.log("\n[AGENT] Manual run triggered");
@@ -75,6 +93,17 @@ async function main(): Promise<void> {
   if (process.argv.includes("--run-osd")) {
     console.log("\n[AGENT] Manual osd-consumption run triggered");
     await runOsdConsumption();
+  }
+
+  // run 0: 課金ゼロ。5先の到達性・402・単価を確認するまで sweep には進まない。
+  if (process.argv.includes("--probe-run0")) {
+    console.log("\n[AGENT] External probe — run 0 (discovery only, no payments)");
+    await runExternalProbe({ mode: "discovery" });
+  }
+
+  if (process.argv.includes("--probe-sweep")) {
+    console.log("\n[AGENT] External probe — weekly sweep (paid)");
+    await runExternalProbe({ mode: "sweep" });
   }
 
   if (process.argv.includes("--run-mode-d")) {

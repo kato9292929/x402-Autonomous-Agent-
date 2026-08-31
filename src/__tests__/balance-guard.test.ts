@@ -43,6 +43,16 @@ test("アドレス未設定も不明として扱う", () => {
   assert.match(w, /Could not read/);
 });
 
+test("週次プローブ用ウォレットも残高ガードの対象になる", () => {
+  // Base/Solana に続く3個目の枯渇候補。監視外だと同じ形で静かに止まる。
+  const [w] = evaluateBalances([
+    { leg: "probe", address: "0x1234567890abcdef1234567890abcdef12345678", usdc: 1.2, threshold: 5 },
+  ]);
+  assert.match(w, /LOW BALANCE/);
+  assert.match(w, /probe/);
+  assert.match(w, /0x1234…5678/);
+});
+
 test("ちょうど閾値なら警告しない、わずかに下回れば警告する", () => {
   assert.deepEqual(evaluateBalances([{ leg: "base", usdc: 10, threshold: 10 }]), []);
   assert.equal(evaluateBalances([{ leg: "base", usdc: 9.999999, threshold: 10 }]).length, 1);
