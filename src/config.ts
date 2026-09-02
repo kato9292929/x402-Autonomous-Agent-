@@ -62,25 +62,29 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     // Mode A reuses this full response as its decision input (no re-fetch, no double charge)
     captureFullData: true,
   },
-  {
-    id: "hyperliquid-intelligence",
-    name: "Hyperliquid Intelligence",
-    url: getEnvOrDefault("HYPERLIQUID_INTELLIGENCE_URL", "https://x402-hl.vercel.app/api/hyperliquid/scan"),
-    method: "GET",
-    cost: 0.20,
-    chain: "base",
-    mode: "B",
-    // Mode A reuses this full response as its conviction input (no re-fetch, no double charge)
-    captureFullData: true,
-  },
+  // Hyperliquid Intelligence ($0.20/day) was bought only as Mode A's conviction
+  // input. Mode A now decides from the Smart Money Screener alone and nothing
+  // else read the response, so the fetch was stopped rather than left paying for
+  // data no one opens. Restore by re-adding this entry — nothing else changed.
   {
     id: "smart-money-screener",
     name: "Smart Money Screener",
-    url: getEnvOrDefault("SMART_MONEY_SCREENER_URL", "https://smartmoneyscreener.vercel.app/api/screener/smart-money"),
+    url: getEnvOrDefault(
+      "SMART_MONEY_SCREENER_URL",
+      // Base, not Solana: the screener covers both, but Nansen does not cover
+      // Solana and every run came back `tokens: [], total_scanned: 0` with a
+      // warning saying so. If `chain` turns out not to be the parameter name,
+      // set the full URL in SMART_MONEY_SCREENER_URL — the next run's log
+      // prints the rows, so a wrong name shows up as an empty response again.
+      "https://smartmoneyscreener.vercel.app/api/screener/smart-money?chain=base"
+    ),
     method: "GET",
     cost: 0.05,
     chain: "base",
     mode: "B",
+    // Mode A reuses this full response as its only candidate source
+    // (no re-fetch, no double charge)
+    captureFullData: true,
   },
   {
     id: "onchain-feed-apac",

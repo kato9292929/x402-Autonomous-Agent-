@@ -1,19 +1,24 @@
 /**
  * Mode A — daily decision loop.
  *
- * Mode A no longer gates on the (empty) Smart Money Screener and no longer
- * exits early. It runs every day, reuses the Divergence Analyzer and
- * Hyperliquid Intelligence responses that Mode B already paid for (no
- * re-fetch, no double charge), pays once for the Whale Intent Decoder to read
- * direction, scores the three signals, and records exactly one daily call
- * (BUY / SKIP + direction + size proposal) to an append-only store tied to the
- * ERC-8004 agentId.
+ * Since 2026-09 the candidate comes from the Smart Money Screener alone. It
+ * reuses the screener response Mode B already paid for (no re-fetch, no double
+ * charge), picks the strongest row that clears the thresholds, takes its
+ * direction from the sign of the 24h net flow, and records exactly one daily
+ * call (BUY / SKIP + direction + size proposal) to an append-only store tied to
+ * the ERC-8004 agentId.
+ *
+ * What was removed, and why:
+ *   - Whale Intent Decoder ($0.30/day) — it was being asked about Hyperliquid
+ *     tokens with no whale activity on any EVM chain, and answered NO_DATA.
+ *   - Hyperliquid Intelligence ($0.20/day) — it was Mode A's candidate source
+ *     and nothing else read it, so Mode B stopped buying it too.
+ * Mode A now pays nothing: every input is a response Mode B already holds.
  *
  * Scope guard: the execution endpoint (smct /api/execute) is intentionally NOT
  * wired here. Records carry executed:false — they describe what the agent
  * decided, never a fill or P&L.
  */
-import { fetchWithPayment } from "../x402";
 import { ENDPOINTS_MODE_B } from "../config";
 import { AGENT_REGISTRY_ID } from "../erc8004/contract";
 import type { RunLog, EndpointResult } from "../types";
@@ -21,30 +26,41 @@ import { logRun } from "../logger";
 import { saveRun } from "../store/run-store";
 import {
   extractDivergenceSignal,
-  extractHyperliquidSignal,
-  selectHyperliquidCandidate,
-  type DecodeCandidate,
+  extractSmartMoneyRows,
+  selectSmartMoneyCandidate,
+  describeRows,
+  type SmartMoneyThresholds,
 } from "./signal-extract";
-import { scoreDecision, type WhaleIntentSignal } from "./scoring";
+import { scoreSmartMoney } from "./scoring";
 import { appendDecision, type DecisionRecord } from "../store/decision-store";
 
 const DEFAULT_AGENT_ID = "55560";
-const WID_COST_USDC = 0.3;
-/** Hyperliquid divergences below this score never open the Decoder gate. */
-const DEFAULT_HL_DIVERGENCE_MIN_SCORE = 0.75;
 
-/** Threshold from the AA-side env; a malformed value falls back to the default. */
-function hlDivergenceMinScore(): number {
-  const raw = process.env.HL_DIVERGENCE_MIN_SCORE;
-  if (raw === undefined || raw.trim() === "") return DEFAULT_HL_DIVERGENCE_MIN_SCORE;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) {
-    console.warn(
-      `[MODE A] HL_DIVERGENCE_MIN_SCORE="${raw}" is not a number; using ${DEFAULT_HL_DIVERGENCE_MIN_SCORE}`
-    );
-    return DEFAULT_HL_DIVERGENCE_MIN_SCORE;
-  }
-  return parsed;
+/**
+ * Entry thresholds for a screener row.
+ *
+ * The defaults are deliberately permissive: the screener has only ever been
+ * observed empty (it was pointed at Solana, which Nansen does not cover), so
+ * the real scale of `score` and `netFlow24h` is not known yet. Mode A pays
+ * nothing now, so a loose threshold costs a record rather than money — and the
+ * run logs the top rows verbatim, which is what the real thresholds should be
+ * set from once a populated response exists.
+ */
+function thresholds(): SmartMoneyThresholds {
+  const num = (raw: string | undefined, fallback: number): number => {
+    if (raw === undefined || raw.trim() === "") return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) {
+      console.warn(`[MODE A] threshold "${raw}" is not a number; using ${fallback}`);
+      return fallback;
+    }
+    return n;
+  };
+  return {
+    minScore: num(process.env.SMS_MIN_SCORE, 0),
+    minNetFlowUsd: num(process.env.SMS_MIN_NET_FLOW_USD, 0),
+    minSmWallets: num(process.env.SMS_MIN_SM_WALLETS, 1),
+  };
 }
 
 function todayDate(): string {
@@ -78,136 +94,53 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
     errors: [],
   };
 
-  // ── Reuse Mode B signals (no re-fetch) ───────────────────────────────────
+  // ── Reuse Mode B responses (no re-fetch, no payment) ─────────────────────
+  const smsResult = findModeBResult(modeBLog, "smart-money-screener");
   const divResult = findModeBResult(modeBLog, "divergence-analyzer");
-  const hlResult = findModeBResult(modeBLog, "hyperliquid-intelligence");
   const divergence = extractDivergenceSignal(divResult?.fullData);
-  // Match conviction to the decision asset (the divergence origin, default ETH).
-  const hyperliquid = extractHyperliquidSignal(hlResult?.fullData, divergence.token);
 
   if (!modeBLog) {
-    log.errors.push("Mode B results not provided — divergence/hyperliquid unavailable");
-    console.warn("[MODE A] No Mode B log passed; signals unavailable");
+    log.errors.push("Mode B results not provided — Smart Money Screener unavailable");
+    console.warn("[MODE A] No Mode B log passed; no candidate source");
   }
-  console.log(
-    `[MODE A] Divergence available=${divergence.available}` +
-      (divergence.available
-        ? ` token=${divergence.token ?? "?"} netFlowUsd=${divergence.netFlowUsd}`
-        : "")
-  );
-  console.log(
-    `[MODE A] Hyperliquid available=${hyperliquid.available}` +
-      (hyperliquid.available
-        ? ` ${hyperliquid.token} conviction=${hyperliquid.bias}` +
-          ` (divergenceScore=${hyperliquid.divergenceScore}, smartMoneyBias=${hyperliquid.smartMoneyBias})`
-        : "")
-  );
 
-  // ── Whale Intent Decoder — direction (the only paid call in Mode A) ───────
-  //
-  // The gate used to read the Divergence Analyzer alone, and that endpoint has
-  // returned an empty `results` array on every run, so the Decoder never fired.
-  // Hyperliquid is already bought each day and does carry divergences, so it now
-  // serves as a second source for the same gate. The Analyzer still wins when it
-  // has something, so this only adds days, never changes existing ones.
-  //
-  // The gate is local and free: with no candidate nothing is POSTed and the day
-  // costs $0.
-  const analyzerCandidate: DecodeCandidate | undefined =
-    divergence.available && divergence.token
-      ? {
-          token: divergence.token,
-          source: "analyzer",
-          chain: divergence.chain,
-          netFlowUsd: divergence.netFlowUsd,
-        }
-      : undefined;
-  const candidate =
-    analyzerCandidate ??
-    selectHyperliquidCandidate(hlResult?.fullData, hlDivergenceMinScore());
+  const rows = extractSmartMoneyRows(smsResult?.fullData);
+  const limits = thresholds();
+  console.log(
+    `[MODE A] Smart Money Screener rows=${rows.length}` +
+      ` (thresholds: score≥${limits.minScore}, |netFlow24h|≥$${limits.minNetFlowUsd},` +
+      ` smWallets≥${limits.minSmWallets})`
+  );
+  // Print the rows verbatim: the thresholds above are provisional until someone
+  // has seen what the screener actually publishes.
+  for (const line of describeRows(rows)) console.log(`[MODE A]   ${line}`);
+  if (rows.length === 0 && smsResult) {
+    console.warn(
+      `[MODE A] Screener returned no usable rows — peek: ${smsResult.responsePeek ?? "(none)"}`
+    );
+  }
 
-  let whaleIntent: WhaleIntentSignal = { available: false };
-  let widCost = 0;
+  const candidate = selectSmartMoneyCandidate(rows, limits);
   if (candidate) {
     console.log(
-      `[MODE A] Decode candidate: ${candidate.token} (source=${candidate.source}` +
-        (candidate.divergenceScore !== undefined
-          ? `, divergenceScore=${candidate.divergenceScore}, bias=${candidate.smartMoneyBias}`
-          : "") +
-        ")"
+      `[MODE A] Candidate: ${candidate.token}${candidate.chain ? `(${candidate.chain})` : ""}` +
+        ` direction=${candidate.direction > 0 ? "long" : "short"}` +
+        ` netFlow24h=${candidate.netFlowUsd} score=${candidate.score ?? "?"}` +
+        ` (scale ${candidate.scoreScale ?? "?"}) smWallets=${candidate.smWallets ?? "?"}`
     );
-    try {
-      const widUrl =
-        process.env.WHALE_INTENT_DECODER_URL ?? "https://x402wid.vercel.app/api/decode";
-      // Each source has its own request shape; send only what that source knows.
-      const body =
-        candidate.source === "hyperliquid"
-          ? {
-              token: candidate.token,
-              divergenceScore: candidate.divergenceScore,
-              smartMoneyBias: candidate.smartMoneyBias,
-            }
-          : {
-              token: candidate.token,
-              chain: candidate.chain ?? "ethereum",
-              amount: candidate.netFlowUsd ?? 0,
-            };
-      const decodeRes = await fetchWithPayment(widUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!decodeRes.ok) {
-        const text = await decodeRes.text().catch(() => "(no body)");
-        throw new Error(`HTTP ${decodeRes.status}: ${text.slice(0, 200)}`);
-      }
-      const decoded = (await decodeRes.json()) as {
-        intent?: string;
-        confidence?: number;
-      };
-      widCost = WID_COST_USDC;
-      whaleIntent = {
-        available: true,
-        intent: decoded.intent,
-        confidence: decoded.confidence,
-      };
-      log.results.push({
-        endpoint: "/api/decode",
-        product: "Whale Intent Decoder",
-        status: "success",
-        costUsdc: WID_COST_USDC,
-        responsePeek: JSON.stringify(decoded).slice(0, 120),
-        durationMs: 0,
-      });
-      log.totalCostUsdc += WID_COST_USDC;
-      log.totalTxCount += 1;
-      console.log(
-        `[MODE A] Whale Intent — intent=${decoded.intent} confidence=${decoded.confidence}`
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.errors.push(`Whale Intent Decoder: ${msg}`);
-      console.error(`[MODE A] Whale Intent Decoder failed: ${msg}`);
-    }
   } else {
-    console.log(
-      `[MODE A] No decode candidate (analyzer empty, no Hyperliquid divergence ≥ ${hlDivergenceMinScore()})` +
-        " — skipping Whale Intent Decoder ($0)"
-    );
+    console.log("[MODE A] 閾値を満たす行なし — SKIP");
   }
 
   // ── Score + decide (always emits exactly one call, never exits early) ─────
-  const decision = scoreDecision({ divergence, hyperliquid, whaleIntent });
+  const decision = scoreSmartMoney(candidate);
 
-  const missing: string[] = [];
-  if (!divergence.available) missing.push("divergence");
-  if (!hyperliquid.available) missing.push("hyperliquid");
-  if (!whaleIntent.available) missing.push("whaleIntent");
   const rationale =
     `score=${decision.score} → ${decision.action} ${decision.direction}` +
-    ` (origin ${decision.breakdown.originComponent}, conviction ${decision.breakdown.convictionComponent},` +
-    ` direction ${decision.breakdown.directionComponent})` +
-    (missing.length > 0 ? ` | unavailable: ${missing.join(", ")}` : "");
+    ` (flow ${decision.breakdown.flowComponent}, screener score ${decision.breakdown.scoreComponent})` +
+    (candidate
+      ? ` | ${candidate.token} netFlow24h=${candidate.netFlowUsd}`
+      : " | Smart Money Screener に閾値を満たす行なし");
 
   const record: DecisionRecord = {
     date: todayDate(),
@@ -215,6 +148,18 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
     agentId,
     agentRegistry: AGENT_REGISTRY_ID,
     signals: {
+      smartMoney: {
+        available: candidate !== undefined,
+        rowCount: rows.length,
+        token: candidate?.token,
+        chain: candidate?.chain,
+        netFlowUsd: candidate?.netFlowUsd,
+        score: candidate?.score,
+        scoreScale: candidate?.scoreScale,
+        smWallets: candidate?.smWallets,
+        source: smsResult ? "mode-b-reuse" : "unavailable",
+        peek: smsResult?.responsePeek,
+      },
       divergence: {
         available: divergence.available,
         token: divergence.token,
@@ -222,25 +167,6 @@ export async function runModeA(modeBLog?: RunLog): Promise<void> {
         netFlowUsd: divergence.netFlowUsd,
         source: divergence.available ? "mode-b-reuse" : "unavailable",
         peek: divResult?.responsePeek,
-      },
-      hyperliquid: {
-        available: hyperliquid.available,
-        bias: hyperliquid.bias,
-        biasField: hyperliquid.biasField,
-        token: hyperliquid.token,
-        divergenceScore: hyperliquid.divergenceScore,
-        smartMoneyBias: hyperliquid.smartMoneyBias,
-        source: hyperliquid.available ? "mode-b-reuse" : "unavailable",
-        peek: hlResult?.responsePeek,
-      },
-      whaleIntent: {
-        available: whaleIntent.available,
-        intent: whaleIntent.intent,
-        confidence: whaleIntent.confidence,
-        source: whaleIntent.available ? "wid" : "unavailable",
-        candidateSource: candidate?.source,
-        candidateToken: candidate?.token,
-        costUsdc: widCost,
       },
     },
     score: decision.score,

@@ -1,7 +1,11 @@
 /**
- * Pure extractors that pull the decision-relevant fields out of the
- * Divergence Analyzer and Hyperliquid Intelligence responses that Mode B
- * already fetched.
+ * Pure extractors that pull the decision-relevant fields out of the responses
+ * Mode B already fetched — since 2026-09 that means the Smart Money Screener,
+ * which is now Mode A's only candidate source.
+ *
+ * (The Hyperliquid extractors lived here until the same change. Mode A stopped
+ * reading them and Mode B stopped buying the endpoint, so they were removed
+ * rather than left as an unused second opinion.)
  *
  * The live response shapes could not be confirmed from this environment
  * (network egress is blocked), so extraction is deliberately tolerant: it
@@ -15,23 +19,6 @@ export interface DivergenceSignal {
   token?: string;
   chain?: string;
   netFlowUsd?: number;
-}
-
-export interface HyperliquidSignal {
-  available: boolean;
-  /**
-   * Conviction in [-1, 1] = divergenceScore × sign(smartMoneyBias).
-   * Positive = smart money LONG, negative = SHORT.
-   */
-  bias?: number;
-  /** How the bias was derived (for audit). */
-  biasField?: string;
-  /** Token the conviction was read from (must match the decision asset). */
-  token?: string;
-  /** Raw confirmed field: divergence strength, 0..1. */
-  divergenceScore?: number;
-  /** Raw confirmed field: "LONG" | "SHORT". */
-  smartMoneyBias?: string;
 }
 
 // Field-name candidates, ordered by how closely they match the documented name.
@@ -121,113 +108,164 @@ export function extractDivergenceSignal(
   return best ?? { available: false };
 }
 
-function biasSign(smartMoneyBias: string | undefined): number {
-  if (!smartMoneyBias) return 0;
-  const up = smartMoneyBias.toUpperCase();
-  if (up === "LONG") return 1;
-  if (up === "SHORT") return -1;
-  return 0;
+// ── Smart Money Screener ────────────────────────────────────────────────────
+
+/** One screener row, as far as it can be read. */
+export interface SmartMoneyRow {
+  token: string;
+  chain?: string;
+  /** Number of smart-money wallets behind the row. */
+  smWallets?: number;
+  /** 24h net flow in USD. The sign is the direction. */
+  netFlowUsd?: number;
+  /** The screener's own score, on whatever scale it publishes. */
+  score?: number;
+  rank?: number;
 }
 
+export interface SmartMoneyCandidate extends SmartMoneyRow {
+  netFlowUsd: number;
+  /** +1 = inflow (long), -1 = outflow (short). Read from the net-flow sign only. */
+  direction: 1 | -1;
+  /** score mapped to 0..1 using `scoreScale`. Undefined when there is no score. */
+  normalizedScore?: number;
+  /** The divisor used for `normalizedScore`, recorded so the mapping is auditable. */
+  scoreScale?: number;
+}
+
+export interface SmartMoneyThresholds {
+  minScore: number;
+  minNetFlowUsd: number;
+  minSmWallets: number;
+}
+
+const SM_WALLET_KEYS = [
+  "smWallets",
+  "smartMoneyWallets",
+  "sm_wallets",
+  "smart_money_wallets",
+  "walletCount",
+  "wallets",
+];
+const SM_NETFLOW_KEYS = [
+  "netFlow24h",
+  "netFlowUsd24h",
+  "net_flow_24h",
+  "netFlowUsd",
+  "netflowUsd",
+  "net_flow_usd",
+  "netFlow",
+];
+const SM_SCORE_KEYS = ["score", "smartMoneyScore", "smart_money_score", "sm_score"];
+const SM_RANK_KEYS = ["rank", "position"];
+
 /**
- * Read the conviction signal from the Hyperliquid response.
+ * The rows of a screener response, wherever the array happens to live.
  *
- * The response shape (confirmed from Mode B logs) is:
- *   { topDivergences: [ { token, divergenceScore (0..1), smartMoneyBias: "LONG"|"SHORT", ... } ] }
- *
- * Conviction is derived from the two confirmed fields only — magnitude from
- * divergenceScore, sign from smartMoneyBias — and is matched to the decision
- * asset (`targetToken`, the divergence origin, default ETH). If that token is
- * absent or either confirmed field is unusable, the signal is unavailable and
- * contributes nothing (we never substitute another token or invent a value).
+ * The live shape has only been seen empty (`{tokens: [], total_scanned: 0}`
+ * while it was pointed at Solana), so this reads any array of objects that
+ * carries a token together with at least one of the three decision fields. It
+ * never manufactures a row.
  */
-export function extractHyperliquidSignal(
-  data: Record<string, unknown> | undefined | null,
-  targetToken = "ETH"
-): HyperliquidSignal {
-  if (!data) return { available: false };
-  const target = targetToken.toUpperCase();
+export function extractSmartMoneyRows(
+  data: Record<string, unknown> | undefined | null
+): SmartMoneyRow[] {
+  if (!data) return [];
+  const rows: SmartMoneyRow[] = [];
 
   for (const obj of walkObjects(data)) {
-    const arr = obj["topDivergences"];
-    if (!Array.isArray(arr)) continue;
+    for (const value of Object.values(obj)) {
+      if (!Array.isArray(value)) continue;
+      for (const item of value) {
+        if (item === null || typeof item !== "object" || Array.isArray(item)) continue;
+        const el = item as Record<string, unknown>;
+        const token = asString(firstKey(el, TOKEN_KEYS)?.value);
+        if (!token) continue;
 
-    for (const item of arr) {
-      if (item === null || typeof item !== "object") continue;
-      const el = item as Record<string, unknown>;
-      const token = asString(firstKey(el, TOKEN_KEYS)?.value);
-      if (!token || token.toUpperCase() !== target) continue;
-
-      const divergenceScore = asNumber(el["divergenceScore"]);
-      const smartMoneyBias = asString(el["smartMoneyBias"]);
-      const sign = biasSign(smartMoneyBias);
-      // Need both confirmed fields; don't fabricate a value or a direction.
-      if (divergenceScore === undefined || sign === 0) {
-        return { available: false };
+        const row: SmartMoneyRow = {
+          token,
+          chain: asString(firstKey(el, CHAIN_KEYS)?.value),
+          smWallets: asNumber(firstKey(el, SM_WALLET_KEYS)?.value),
+          netFlowUsd: asNumber(firstKey(el, SM_NETFLOW_KEYS)?.value),
+          score: asNumber(firstKey(el, SM_SCORE_KEYS)?.value),
+          rank: asNumber(firstKey(el, SM_RANK_KEYS)?.value),
+        };
+        // A row with none of the three decision fields is not a screener row.
+        if (row.smWallets === undefined && row.netFlowUsd === undefined && row.score === undefined) {
+          continue;
+        }
+        if (!rows.some((r) => r.token === row.token && r.chain === row.chain)) rows.push(row);
       }
-      return {
-        available: true,
-        bias: divergenceScore * sign,
-        biasField: "divergenceScore×sign(smartMoneyBias)",
-        token,
-        divergenceScore,
-        smartMoneyBias,
-      };
     }
   }
-
-  return { available: false };
-}
-
-/** A token the Whale Intent Decoder can be asked about, and where it came from. */
-export interface DecodeCandidate {
-  token: string;
-  /** "analyzer" = Divergence Analyzer, "hyperliquid" = Hyperliquid Intelligence. */
-  source: "analyzer" | "hyperliquid";
-  chain?: string;
-  /** Analyzer only. */
-  netFlowUsd?: number;
-  /** Hyperliquid only. */
-  divergenceScore?: number;
-  smartMoneyBias?: string;
+  return rows;
 }
 
 /**
- * Pick the strongest Hyperliquid divergence at or above `minScore`.
+ * Divisor that maps the screener's score onto 0..1.
  *
- * Mode A used to gate solely on the Divergence Analyzer, which has returned an
- * empty `results` array on every run, so the Decoder never fired. Hyperliquid is
- * already bought each day and does carry divergences, so it serves as a second
- * source for the same gate.
- *
- * Both `divergenceScore` and `smartMoneyBias` must be present: a candidate with
- * no direction is not a signal, and neither is inferred.
+ * The published scale is not documented anywhere we can read, so it is inferred
+ * from the rows themselves on a fixed ladder (1 / 10 / 100) rather than from the
+ * day's maximum — the latter would make the same score mean different things on
+ * different days. The chosen scale is recorded on the decision.
  */
-export function selectHyperliquidCandidate(
-  data: Record<string, unknown> | undefined | null,
-  minScore: number
-): DecodeCandidate | undefined {
-  if (!data) return undefined;
-  let best: DecodeCandidate | undefined;
+export function scoreScaleOf(rows: SmartMoneyRow[]): number | undefined {
+  const scores = rows.map((r) => r.score).filter((s): s is number => s !== undefined);
+  if (scores.length === 0) return undefined;
+  const max = Math.max(...scores);
+  if (max <= 1) return 1;
+  if (max <= 10) return 10;
+  if (max <= 100) return 100;
+  return max;
+}
 
-  for (const obj of walkObjects(data)) {
-    const arr = obj["topDivergences"];
-    if (!Array.isArray(arr)) continue;
+/**
+ * Pick the strongest row that clears every threshold.
+ *
+ * Direction comes from the sign of the 24h net flow and nothing else — a row
+ * with no net flow has no direction, and a direction is never inferred from the
+ * score. Ranking is by score, with |net flow| as the tie-break.
+ */
+export function selectSmartMoneyCandidate(
+  rows: SmartMoneyRow[],
+  thresholds: SmartMoneyThresholds
+): SmartMoneyCandidate | undefined {
+  const scale = scoreScaleOf(rows);
+  let best: SmartMoneyCandidate | undefined;
 
-    for (const item of arr) {
-      if (item === null || typeof item !== "object") continue;
-      const el = item as Record<string, unknown>;
-      const token = asString(firstKey(el, TOKEN_KEYS)?.value);
-      const divergenceScore = asNumber(el["divergenceScore"]);
-      const smartMoneyBias = asString(el["smartMoneyBias"]);
-      if (!token || divergenceScore === undefined) continue;
-      if (biasSign(smartMoneyBias) === 0) continue; // no direction → not a signal
-      if (divergenceScore < minScore) continue;
+  for (const row of rows) {
+    const { netFlowUsd, score, smWallets } = row;
+    if (netFlowUsd === undefined || netFlowUsd === 0) continue; // 方向が無い
+    if (Math.abs(netFlowUsd) < thresholds.minNetFlowUsd) continue;
+    if ((score ?? 0) < thresholds.minScore) continue;
+    if ((smWallets ?? 0) < thresholds.minSmWallets) continue;
 
-      if (!best || divergenceScore > (best.divergenceScore ?? 0)) {
-        best = { token, source: "hyperliquid", divergenceScore, smartMoneyBias };
-      }
+    const candidate: SmartMoneyCandidate = {
+      ...row,
+      netFlowUsd,
+      direction: netFlowUsd > 0 ? 1 : -1,
+      normalizedScore:
+        score !== undefined && scale !== undefined ? Math.min(score / scale, 1) : undefined,
+      scoreScale: scale,
+    };
+    if (
+      !best ||
+      (candidate.score ?? 0) > (best.score ?? 0) ||
+      ((candidate.score ?? 0) === (best.score ?? 0) &&
+        Math.abs(candidate.netFlowUsd) > Math.abs(best.netFlowUsd))
+    ) {
+      best = candidate;
     }
   }
   return best;
+}
+
+/** Compact, verbatim view of the top rows — what the thresholds should be set from. */
+export function describeRows(rows: SmartMoneyRow[], max = 5): string[] {
+  return rows.slice(0, max).map(
+    (r) =>
+      `${r.rank !== undefined ? `#${r.rank} ` : ""}${r.token}` +
+      `${r.chain ? `(${r.chain})` : ""} score=${r.score ?? "?"}` +
+      ` netFlow24h=${r.netFlowUsd ?? "?"} smWallets=${r.smWallets ?? "?"}`
+  );
 }

@@ -12,7 +12,30 @@
 import * as fs from "fs";
 import * as path from "path";
 
+/**
+ * Signals behind one decision.
+ *
+ * Shape as of 2026-09: the Smart Money Screener is the candidate source, and
+ * the Hyperliquid / Whale Intent fields are gone with the endpoints. Records
+ * written before that keep their own shape — the store is append-only and old
+ * records are never rewritten, so a reader spanning the change sees both.
+ */
 export interface DecisionSignals {
+  smartMoney: {
+    available: boolean;
+    /** How many rows the screener returned (0 is the finding, not an error). */
+    rowCount: number;
+    token?: string;
+    chain?: string;
+    /** 24h net flow, USD. Its sign is the recorded direction. */
+    netFlowUsd?: number;
+    score?: number;
+    /** Divisor used to map `score` onto 0..1, so the mapping is auditable. */
+    scoreScale?: number;
+    smWallets?: number;
+    source: "mode-b-reuse" | "unavailable";
+    peek?: string;
+  };
   divergence: {
     available: boolean;
     token?: string;
@@ -20,26 +43,6 @@ export interface DecisionSignals {
     netFlowUsd?: number;
     source: "mode-b-reuse" | "unavailable";
     peek?: string;
-  };
-  hyperliquid: {
-    available: boolean;
-    bias?: number;
-    biasField?: string;
-    token?: string;
-    divergenceScore?: number;
-    smartMoneyBias?: string;
-    source: "mode-b-reuse" | "unavailable";
-    peek?: string;
-  };
-  whaleIntent: {
-    available: boolean;
-    intent?: string;
-    confidence?: number;
-    source: "wid" | "unavailable";
-    /** Which signal opened the gate, and on which token. Absent when none did. */
-    candidateSource?: "analyzer" | "hyperliquid";
-    candidateToken?: string;
-    costUsdc: number;
   };
 }
 

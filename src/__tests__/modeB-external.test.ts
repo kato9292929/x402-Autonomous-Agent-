@@ -78,11 +78,15 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 12 endpoints (10 base + 2 JIN Solana; deleted osd routes removed)", async () => {
+test("MODE B has 11 endpoints (9 base + 2 JIN Solana; Hyperliquid の fetch 停止後)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 12, "MODE B should have exactly 12 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 11, "MODE B should have exactly 11 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
+
+  // Mode A 専用の材料だった Hyperliquid は、Mode A が SMS 起点になった時点で
+  // 読み手がいなくなったので購入も止めた。
+  assert.ok(!ids.includes("hyperliquid-intelligence"), "hyperliquid should NOT be in MODE B");
 
   // ODO 有償エンドポイント(base)が追加されている
   assert.ok(ids.includes("odo-funding-nowcast"), "odo-funding-nowcast should be in MODE B");
