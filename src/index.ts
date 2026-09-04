@@ -38,11 +38,36 @@ async function weeklyRun(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // The HTTP server (dashboard + API) is read-only and does not need the
+  // payment layer. Bring it up first and keep it up.
   startHttpServer();
-  await initX402Fetch();
+
+  // Initialising the payment layer touches the Circle API (fetches the entity
+  // public key, prepares the signers). A blip there must NOT take down the
+  // process: doing so kills the HTTP server that is already listening, Railway
+  // restart-loops, and the domain reads "server not found" — a payment problem
+  // presenting as a total outage. So a failure here is logged loudly and the
+  // service keeps serving; the day's runs then fail per-run (fetchWithPayment
+  // throws "not initialized", caught by each cron handler) instead of crashing
+  // the whole container.
+  let paymentsReady = false;
+  try {
+    await initX402Fetch();
+    paymentsReady = true;
+  } catch (err) {
+    console.error(
+      "[AGENT] x402 payment init FAILED — dashboard stays up, but paid runs " +
+        "will be skipped until the next successful deploy/restart:",
+      err
+    );
+  }
 
   // Mode A + B + osd-consumption: every day at 06:00 JST (21:00 UTC)
   cron.schedule("0 21 * * *", async () => {
+    if (!paymentsReady) {
+      console.error("[AGENT] Daily run skipped — x402 payment layer is not initialised");
+      return;
+    }
     try {
       await dailyRun();
     } catch (err) {
@@ -52,6 +77,10 @@ async function main(): Promise<void> {
 
   // Mode C: every Monday at 06:00 JST (21:00 UTC) — queues for human approval
   cron.schedule("0 21 * * 1", async () => {
+    if (!paymentsReady) {
+      console.error("[AGENT] Weekly run skipped — x402 payment layer is not initialised");
+      return;
+    }
     try {
       await weeklyRun();
     } catch (err) {
@@ -63,6 +92,10 @@ async function main(): Promise<void> {
   // so it cannot start spending on third parties by merely being deployed.
   if (process.env.PROBE_ENABLED === "true") {
     cron.schedule("0 0 * * 1", async () => {
+      if (!paymentsReady) {
+        console.error("[PROBE] Weekly sweep skipped — x402 payment layer is not initialised");
+        return;
+      }
       try {
         await runExternalProbe({ mode: "sweep" });
       } catch (err) {
@@ -80,33 +113,42 @@ async function main(): Promise<void> {
     }`
   );
 
-  if (process.argv.includes("--run-now")) {
+  // A manual paid run cannot proceed if the payment layer never initialised.
+  // Skip it with a clear message rather than throwing a "not initialized" error
+  // deep in the run.
+  const requirePayments = (flag: string): boolean => {
+    if (paymentsReady) return true;
+    console.error(`[AGENT] ${flag} skipped — x402 payment layer is not initialised`);
+    return false;
+  };
+
+  if (process.argv.includes("--run-now") && requirePayments("--run-now")) {
     console.log("\n[AGENT] Manual run triggered");
     await dailyRun();
   }
 
-  if (process.argv.includes("--run-weekly")) {
+  if (process.argv.includes("--run-weekly") && requirePayments("--run-weekly")) {
     console.log("\n[AGENT] Manual weekly run triggered (queuing for approval)");
     await weeklyRun();
   }
 
-  if (process.argv.includes("--run-osd")) {
+  if (process.argv.includes("--run-osd") && requirePayments("--run-osd")) {
     console.log("\n[AGENT] Manual osd-consumption run triggered");
     await runOsdConsumption();
   }
 
-  // run 0: 課金ゼロ。5先の到達性・402・単価を確認するまで sweep には進まない。
+  // run 0: 課金ゼロ。支払い層が無くても走れる(素の fetch のみ)。
   if (process.argv.includes("--probe-run0")) {
     console.log("\n[AGENT] External probe — run 0 (discovery only, no payments)");
     await runExternalProbe({ mode: "discovery" });
   }
 
-  if (process.argv.includes("--probe-sweep")) {
+  if (process.argv.includes("--probe-sweep") && requirePayments("--probe-sweep")) {
     console.log("\n[AGENT] External probe — weekly sweep (paid)");
     await runExternalProbe({ mode: "sweep" });
   }
 
-  if (process.argv.includes("--run-mode-d")) {
+  if (process.argv.includes("--run-mode-d") && requirePayments("--run-mode-d")) {
     console.log("\n[AGENT] Manual Mode D (osd alpha consumption) run triggered");
     await runModeD();
   }
