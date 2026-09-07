@@ -9,6 +9,7 @@ import { runModeC, queueModeC } from "./modes/modeC";
 import { runModeD } from "./modes/modeD";
 import { runOsdConsumption } from "./jobs/osd-consumption";
 import { runExternalProbe } from "./jobs/external-probe";
+import { runCatalystSweep } from "./jobs/catalyst-sweep";
 import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
@@ -104,12 +105,34 @@ async function main(): Promise<void> {
     });
   }
 
+  // Catalyst sweep: every Wednesday at 09:00 JST (00:00 UTC) — a slot that does
+  // not collide with the daily run (21:00 UTC) or Mode C / probe (Mon). Off
+  // unless enabled, so a deploy alone never starts paying ~200 sellers.
+  if (process.env.CATALYST_SWEEP_ENABLED === "true") {
+    cron.schedule("0 0 * * 3", async () => {
+      if (!paymentsReady) {
+        console.error("[CATALYST] Weekly sweep skipped — x402 payment layer is not initialised");
+        return;
+      }
+      try {
+        await runCatalystSweep({ mode: "sweep" });
+      } catch (err) {
+        console.error("[CATALYST] Weekly sweep failed:", err);
+      }
+    });
+  }
+
   console.log("x402 Autonomous Agent started");
   console.log("  Mode A + B + D + osd:      daily   at 06:00 JST (21:00 UTC)");
   console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
   console.log(
     `  External probe:            Mondays at 09:00 JST (00:00 UTC) — ${
       process.env.PROBE_ENABLED === "true" ? "enabled" : "disabled (PROBE_ENABLED)"
+    }`
+  );
+  console.log(
+    `  Catalyst sweep (Solana):   Weds    at 09:00 JST (00:00 UTC) — ${
+      process.env.CATALYST_SWEEP_ENABLED === "true" ? "enabled" : "disabled (CATALYST_SWEEP_ENABLED)"
     }`
   );
 
@@ -146,6 +169,17 @@ async function main(): Promise<void> {
   if (process.argv.includes("--probe-sweep") && requirePayments("--probe-sweep")) {
     console.log("\n[AGENT] External probe — weekly sweep (paid)");
     await runExternalProbe({ mode: "sweep" });
+  }
+
+  // 課金ゼロ。一覧取得＋402読みだけ。支払い層が無くても走れる。
+  if (process.argv.includes("--catalyst-run0")) {
+    console.log("\n[AGENT] Catalyst sweep — run 0 (discovery only, no payments)");
+    await runCatalystSweep({ mode: "discovery" });
+  }
+
+  if (process.argv.includes("--catalyst-sweep") && requirePayments("--catalyst-sweep")) {
+    console.log("\n[AGENT] Catalyst sweep — weekly (paid, Solana)");
+    await runCatalystSweep({ mode: "sweep" });
   }
 
   if (process.argv.includes("--run-mode-d") && requirePayments("--run-mode-d")) {

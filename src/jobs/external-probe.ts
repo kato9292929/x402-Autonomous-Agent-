@@ -349,7 +349,7 @@ async function runSweep(
       if (record.outcome === "paid" && record.actualUsdc !== undefined) {
         spend.run += record.actualUsdc;
         spend.week += record.actualUsdc;
-        await recordWeekSpend(record.actualUsdc, { target: target.id, path: probe.path });
+        await recordWeekSpend("probe", record.actualUsdc, { target: target.id, path: probe.path });
       }
 
       consecutiveErrors = record.outcome === "error" ? consecutiveErrors + 1 : 0;
@@ -367,7 +367,7 @@ async function runSweep(
 export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeRunReport> {
   const targets = options.targets ?? PROBE_TARGETS;
   const week = isoWeekKey();
-  const weekSpentBefore = options.weekSpentUsdc ?? (await readWeekSpend(week));
+  const weekSpentBefore = options.weekSpentUsdc ?? (await readWeekSpend("probe", week));
   const spend: ProbeSpend = { run: 0, week: weekSpentBefore };
 
   console.log(

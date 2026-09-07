@@ -84,27 +84,38 @@ export function allowsCall(
 
 // ── weekly spend persistence ────────────────────────────────────────────────
 
-const DIR = () => path.join(process.cwd(), "data", "probe");
-const SPEND_FILE = () => path.join(DIR(), "weekly-spend.jsonl");
-
-function weekRedisKey(week: string): string {
-  return `probe_spend:${week}`;
+// Weekly spend is namespaced so each caller (the external probe, the catalyst
+// sweep) keeps its own persisted total under data/<namespace>/ and its own
+// Redis key. A namespace must be a bare slug — it becomes a path segment and a
+// Redis key, so anything else is rejected rather than silently escaping the dir.
+function assertNamespace(namespace: string): void {
+  if (!/^[a-z0-9_-]+$/.test(namespace)) {
+    throw new Error(`invalid weekly-spend namespace: ${JSON.stringify(namespace)}`);
+  }
 }
 
-/** Read what this ISO week has already cost. Never throws; unknown reads as 0. */
-export async function readWeekSpend(week = isoWeekKey()): Promise<number> {
+const DIR = (namespace: string) => path.join(process.cwd(), "data", namespace);
+const SPEND_FILE = (namespace: string) => path.join(DIR(namespace), "weekly-spend.jsonl");
+
+function weekRedisKey(namespace: string, week: string): string {
+  return `${namespace}_spend:${week}`;
+}
+
+/** Read what this ISO week has already cost the namespace. Never throws; unknown reads as 0. */
+export async function readWeekSpend(namespace: string, week = isoWeekKey()): Promise<number> {
+  assertNamespace(namespace);
   if (upstashConfigured()) {
     try {
-      const raw = await upstashCommand<string | null>(["GET", weekRedisKey(week)]);
+      const raw = await upstashCommand<string | null>(["GET", weekRedisKey(namespace, week)]);
       const n = Number(raw ?? 0);
       if (Number.isFinite(n)) return n;
     } catch (err) {
-      console.warn(`[PROBE] weekly spend read failed: ${String(err)}`);
+      console.warn(`[${namespace.toUpperCase()}] weekly spend read failed: ${String(err)}`);
     }
   }
   try {
     return fs
-      .readFileSync(SPEND_FILE(), "utf-8")
+      .readFileSync(SPEND_FILE(namespace), "utf-8")
       .split("\n")
       .filter(Boolean)
       .map((l) => JSON.parse(l) as { week: string; usdc: number })
@@ -117,29 +128,31 @@ export async function readWeekSpend(week = isoWeekKey()): Promise<number> {
 
 /** Append one spend entry for the current ISO week. Append-only; never rewritten. */
 export async function recordWeekSpend(
+  namespace: string,
   usdc: number,
   meta: { target: string; path: string },
   week = isoWeekKey()
 ): Promise<void> {
+  assertNamespace(namespace);
   if (!Number.isFinite(usdc) || usdc <= 0) return;
 
   if (upstashConfigured()) {
     try {
-      await upstashCommand(["INCRBYFLOAT", weekRedisKey(week), String(usdc)]);
-      // Keep a few weeks of history, then let it go.
-      await upstashCommand(["EXPIRE", weekRedisKey(week), 60 * 60 * 24 * 60]);
+      await upstashCommand(["INCRBYFLOAT", weekRedisKey(namespace, week), String(usdc)]);
+      // Keep a couple of months of history, then let it go.
+      await upstashCommand(["EXPIRE", weekRedisKey(namespace, week), 60 * 60 * 24 * 60]);
     } catch (err) {
-      console.warn(`[PROBE] weekly spend write failed: ${String(err)}`);
+      console.warn(`[${namespace.toUpperCase()}] weekly spend write failed: ${String(err)}`);
     }
   }
   try {
-    fs.mkdirSync(DIR(), { recursive: true });
+    fs.mkdirSync(DIR(namespace), { recursive: true });
     fs.appendFileSync(
-      SPEND_FILE(),
+      SPEND_FILE(namespace),
       JSON.stringify({ at: new Date().toISOString(), week, usdc, ...meta }) + "\n",
       "utf-8"
     );
   } catch (err) {
-    console.warn(`[PROBE] weekly spend local write failed: ${String(err)}`);
+    console.warn(`[${namespace.toUpperCase()}] weekly spend local write failed: ${String(err)}`);
   }
 }
