@@ -12,19 +12,52 @@ osd（売り手）が per-call 化した `GET /api/catalyst/{ticker}`（~200社�
   AA はキーも roster も持たず、外から叩くだけ。この repo には無い。
 - **Part B（週次で全 ticker を叩いて Solana で払う）が AA=この repo。** 以下は B。
 
-## 手順
+## 手順（自走 / autopilot・推奨）
+
+人間に毎回 run をポチらせない。AA が自分で run0 → mainnet 1 ticker → 有効化まで回す。
+人が1回だけやる「資材の投入」だけ残る：
 
 ```
-1. Solana 決済レールが既に有効なことを確認（日次の osd-jin / alpha 系がこのレールで動いている）
-   SOLANA_SIGNER_BACKEND=circle + CIRCLE_SOLANA_WALLET_ID/_ADDRESS、専用 SOLANA_RPC_URL。
-   → 新しいウォレットも生鍵も足さない。既存の Circle Solana ウォレット(7PVTo…)を共用。
-2. npm run catalyst:run0    # ★無課金。一覧取得＋サンプル402読みだけ。配線確認
-3. run0 の CSV/ログで「Solana / 公式USDC mint / ちょうど100 units」で 402 が返るのを確認
-4. mainnet 1 ticker の dry-run（下記）で実決済を1本だけ通す
-5. CATALYST_SWEEP_ENABLED=true    # 毎週水 09:00 JST に sweep
+人が1回:
+  1. Solana 決済レールが有効（日次の osd-jin / alpha がこのレールで動いていれば済）
+     → catalyst は既存の Circle Solana ウォレット(7PVTo…)を共用。新規作成も入金も不要
+       (日次分で既に資金あり。catalyst は週 ~0.02 USDC)
+  2. 専用 SOLANA_RPC_URL を deploy にセット（~200件を直列で叩くため必須）
+  3. UPSTASH_REDIS_REST_*（冪等性の状態保存に必須。日次でも使用済み）
+  4. CATALYST_AUTOPILOT=true
+
+以降 AA が起動時に自走:
+  run0(無課金・一覧取得＋サンプル402確認) → 払える402なら mainnet 1 ticker 実課金
+  → 実tx が返れば live に遷移し、週次sweep(毎週水 09:00 JST)を自分でスケジュール
 ```
 
-手動 sweep は `npm run catalyst:sweep`。
+**EDINET は osd 側**。osd が EDINET を叩いて /api/catalyst で返す。AA は `EDINET_API_KEY`
+不要（AA は catalyst を叩くだけ）。
+
+### 冪等性（無人でも安全な理由）
+
+Railway は push 毎に再デプロイするので、起動時の有料ステップは放っておくと毎回再課金する。
+状態を Upstash に永続して防ぐ：
+
+- `unstarted → smoking → live` の3状態を `catalyst_autopilot:state` に保存。
+- **払う前に `smoking` を書く**。次のブートで `smoking` を見たら「前回未確認」＝**それ以上払わず停止**。
+  crash ループでも課金は高々1回。Solscan で確認し、`live`（決済済み）か `unstarted`（やり直し）に
+  人がリセットすれば再開。
+- 一度 `live` になれば以降のブートは smoke を飛ばして週次スケジュールだけ。二度払わない。
+- Upstash 未設定なら有料 smoke を**拒否**（再デプロイ再課金を防ぐ）。run0 までは走る。
+
+### 手動ゲート（自走を使わない場合）
+
+配線を人が確認してから週次だけ回したいとき：
+
+```
+npm run catalyst:run0     # 無課金。一覧取得＋サンプル402読み
+# 1 ticker の実課金確認（下記 dry-run）
+CATALYST_SWEEP_ENABLED=true   # 毎週水 09:00 JST に sweep(autopilot は使わない)
+```
+
+`CATALYST_AUTOPILOT` と `CATALYST_SWEEP_ENABLED` を両方 true にしても、autopilot を優先して
+二重スケジュールはしない。手動 sweep は `npm run catalyst:sweep`。
 
 ## 決済（既存レールに載せる）
 

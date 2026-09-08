@@ -31,6 +31,12 @@ export interface CatalystCallRecord {
   txHash?: string;
   summary?: string;
   reason?: string;
+  /**
+   * Whether the 402 offered a requirement we would pay (Solana / USDC / exact
+   * PRICE_UNITS). In-memory only — the autopilot reads it to pick a smoke-test
+   * ticker without parsing the Japanese `reason` string. Not a CSV column.
+   */
+  payable?: boolean;
 }
 
 export const CSV_HEADER = [

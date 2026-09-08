@@ -10,6 +10,7 @@ import { runModeD } from "./modes/modeD";
 import { runOsdConsumption } from "./jobs/osd-consumption";
 import { runExternalProbe } from "./jobs/external-probe";
 import { runCatalystSweep } from "./jobs/catalyst-sweep";
+import { runCatalystAutopilot } from "./jobs/catalyst-autopilot";
 import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
@@ -106,9 +107,13 @@ async function main(): Promise<void> {
   }
 
   // Catalyst sweep: every Wednesday at 09:00 JST (00:00 UTC) — a slot that does
-  // not collide with the daily run (21:00 UTC) or Mode C / probe (Mon). Off
-  // unless enabled, so a deploy alone never starts paying ~200 sellers.
-  if (process.env.CATALYST_SWEEP_ENABLED === "true") {
+  // not collide with the daily run (21:00 UTC) or Mode C / probe (Mon).
+  // Scheduled at most once, by whichever path enabled it (autopilot on success,
+  // or the manual CATALYST_SWEEP_ENABLED flag).
+  let catalystScheduled = false;
+  const scheduleCatalystWeekly = (): void => {
+    if (catalystScheduled) return;
+    catalystScheduled = true;
     cron.schedule("0 0 * * 3", async () => {
       if (!paymentsReady) {
         console.error("[CATALYST] Weekly sweep skipped — x402 payment layer is not initialised");
@@ -120,6 +125,21 @@ async function main(): Promise<void> {
         console.error("[CATALYST] Weekly sweep failed:", err);
       }
     });
+    console.log("[CATALYST] Weekly sweep scheduled — Weds 09:00 JST (00:00 UTC)");
+  };
+
+  // Autopilot: the agent onboards itself (run0 → 1-ticker mainnet smoke → live)
+  // and schedules the weekly sweep on success. Off unless CATALYST_AUTOPILOT=true
+  // and payments initialised, so a deploy alone never starts paying. Runs in the
+  // background so a slow/paid onboarding never blocks the HTTP server or crons.
+  if (process.env.CATALYST_AUTOPILOT === "true" && paymentsReady) {
+    console.log("[CATALYST-AUTOPILOT] armed — self-onboarding in the background");
+    void runCatalystAutopilot({ onLive: scheduleCatalystWeekly }).catch((err) =>
+      console.error("[CATALYST-AUTOPILOT] failed:", err)
+    );
+  } else if (process.env.CATALYST_SWEEP_ENABLED === "true") {
+    // Manual gate: a human confirmed the wiring and just wants the schedule.
+    scheduleCatalystWeekly();
   }
 
   console.log("x402 Autonomous Agent started");
@@ -132,7 +152,11 @@ async function main(): Promise<void> {
   );
   console.log(
     `  Catalyst sweep (Solana):   Weds    at 09:00 JST (00:00 UTC) — ${
-      process.env.CATALYST_SWEEP_ENABLED === "true" ? "enabled" : "disabled (CATALYST_SWEEP_ENABLED)"
+      process.env.CATALYST_AUTOPILOT === "true"
+        ? "autopilot (self-onboarding)"
+        : process.env.CATALYST_SWEEP_ENABLED === "true"
+          ? "enabled (manual)"
+          : "disabled (CATALYST_AUTOPILOT / CATALYST_SWEEP_ENABLED)"
     }`
   );
 

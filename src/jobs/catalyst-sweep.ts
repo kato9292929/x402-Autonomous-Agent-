@@ -147,6 +147,7 @@ async function discoverTicker(
       return {
         ...base,
         outcome: "skipped",
+        payable: challenge.payable,
         quotedUnits: challenge.quotedUnits,
         offeredNetworks: challenge.offeredNetworks,
         reason: challenge.payable
