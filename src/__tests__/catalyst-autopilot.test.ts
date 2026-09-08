@@ -4,7 +4,17 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runCatalystAutopilot, type AutopilotState, type AutopilotDeps } from "../jobs/catalyst-autopilot";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import {
+  runCatalystAutopilot,
+  readAutopilotState,
+  resetAutopilotState,
+  writeAutopilotState,
+  type AutopilotState,
+  type AutopilotDeps,
+} from "../jobs/catalyst-autopilot";
 import type { CatalystRunReport } from "../jobs/catalyst-sweep";
 import type { CatalystCallRecord } from "../catalyst/record";
 
@@ -121,12 +131,52 @@ test("durable store が無ければ有料 smoke を拒否(再デプロイ再課�
   assert.equal(result.stage, "unstarted");
 });
 
-test("smoke が決済しなかったら smoking のまま止める(silent 再課金を防ぐ)", async () => {
+test("smoke が error(曖昧/決済したかも)なら smoking のまま halt", async () => {
   const { deps, calls } = makeDeps({
     smoke: () => report([rec({ ticker: "AAPL", outcome: "error", reason: "HTTP 500" })]),
   });
   const result = await runCatalystAutopilot(deps);
   assert.equal(calls.smoke, 1);
   assert.equal(calls.onLive, 0);
-  assert.equal(result.stage, "smoking", "確認できるまで人が見る");
+  assert.equal(result.stage, "smoking", "資金移動したかもしれない時だけ人が見る");
+});
+
+test("smoke が skipped(クリーンな402・資金未移動)なら unstarted に自動ロールバック", async () => {
+  const { deps, calls, state } = makeDeps({
+    smoke: () => report([rec({ ticker: "AAPL", outcome: "skipped", reason: "期待外の支払要件" })]),
+  });
+  const result = await runCatalystAutopilot(deps);
+  assert.equal(calls.smoke, 1);
+  assert.equal(calls.onLive, 0);
+  assert.equal(result.stage, "unstarted", "署名前に弾かれた=資金未移動→次ブートで再挑戦");
+  // smoking を書いた後、unstarted に戻す
+  assert.deepEqual(calls.writes.map((w) => w.stage), ["smoking", "unstarted"]);
+  assert.equal(state().stage, "unstarted");
+});
+
+test("smoke が free(402なし・未課金)でも unstarted に自動ロールバック", async () => {
+  const { deps, state } = makeDeps({
+    smoke: () => report([rec({ ticker: "AAPL", outcome: "free", reason: "無課金で200" })]),
+  });
+  const result = await runCatalystAutopilot(deps);
+  assert.equal(result.stage, "unstarted");
+  assert.equal(state().stage, "unstarted");
+});
+
+test("resetAutopilotState: stuck な smoking を unstarted に戻す(1コマンド相当)", async () => {
+  // 永続層(ローカルフォールバック)へ実際に書くので一時ディレクトリで走らせる。
+  const original = process.cwd();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aa-catreset-"));
+  process.chdir(tmp);
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  try {
+    await writeAutopilotState({ stage: "smoking", ticker: "AAPL" });
+    const before = await resetAutopilotState();
+    assert.equal(before.stage, "smoking", "戻す前の状態を返す");
+    assert.equal((await readAutopilotState()).stage, "unstarted");
+  } finally {
+    process.chdir(original);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });

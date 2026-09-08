@@ -16,6 +16,7 @@
     "probe:sweep": "node dist/index.js --probe-sweep",
     "catalyst:run0": "node dist/index.js --catalyst-run0",
     "catalyst:sweep": "node dist/index.js --catalyst-sweep",
+    "catalyst:reset": "node dist/scripts/catalyst-reset.js",
     "arc:record-reputation": "node dist/scripts/arc-record-reputation.js",
     "arc:run-validation": "node dist/scripts/arc-run-validation.js",
     "test": "npm run build && node --test dist/__tests__/**/*.test.js"

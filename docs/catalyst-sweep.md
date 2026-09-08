@@ -40,11 +40,26 @@ Railway は push 毎に再デプロイするので、起動時の有料ステッ
 状態を Upstash に永続して防ぐ：
 
 - `unstarted → smoking → live` の3状態を `catalyst_autopilot:state` に保存。
-- **払う前に `smoking` を書く**。次のブートで `smoking` を見たら「前回未確認」＝**それ以上払わず停止**。
-  crash ループでも課金は高々1回。Solscan で確認し、`live`（決済済み）か `unstarted`（やり直し）に
-  人がリセットすれば再開。
+- **払う前に `smoking` を書く**。
+- **クリーンな未決済（資金未移動）は自動ロールバック**：smoke が `skipped`（ポリシーが署名前に
+  弾いた＝クリーンな402）や `free`（402なし）で終わったら、資金は動いていないので状態を
+  `smoking` に残さず `unstarted` に戻す。次ブートで自動再挑戦、人手不要。
+- **曖昧な時だけ halt**：smoke が `error`（決済したかもしれない／タイムアウト）で終わった、
+  または smoke 途中で crash した場合だけ `smoking` のまま停止。二度払わないための保険。
+  Solscan で確認して `npm run catalyst:reset`（下記）で再開。
 - 一度 `live` になれば以降のブートは smoke を飛ばして週次スケジュールだけ。二度払わない。
 - Upstash 未設定なら有料 smoke を**拒否**（再デプロイ再課金を防ぐ）。run0 までは走る。
+
+### stuck した時のリセット（1コマンド）
+
+`smoking` で止まったら、Solscan で直近 tx（`7PVTo→…` の 0.0001）を確認してから：
+
+```
+npm run catalyst:reset    # catalyst_autopilot:state を {"stage":"unstarted"} に戻す
+```
+
+Railway シェルから1コマンド。Upstash（本番の状態保存先）と local 両方に書く。次のデプロイ/
+再起動で run0 からやり直す。決済済みだと分かった場合は state を `live` にすれば smoke を飛ばす。
 
 ### 手動ゲート（自走を使わない場合）
 

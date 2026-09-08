@@ -78,6 +78,17 @@ export async function writeAutopilotState(state: AutopilotState): Promise<void> 
   }
 }
 
+/**
+ * Reset the marker to "unstarted" so the next boot re-onboards from scratch.
+ * Used by `npm run catalyst:reset` to clear a stuck "smoking" after a human has
+ * checked Solscan. Returns the state that was there before.
+ */
+export async function resetAutopilotState(): Promise<AutopilotState> {
+  const before = await readAutopilotState();
+  await writeAutopilotState({ stage: "unstarted", at: new Date().toISOString() });
+  return before;
+}
+
 export interface AutopilotDeps {
   readState: () => Promise<AutopilotState>;
   writeState: (s: AutopilotState) => Promise<void>;
@@ -123,11 +134,13 @@ export async function runCatalystAutopilot(
   }
 
   if (state.stage === "smoking") {
-    // A prior boot paid (or was about to) and never confirmed. Do not pay again.
+    // A prior boot crashed mid-smoke (a clean no-funds outcome would have rolled
+    // itself back to "unstarted"). A payment may have settled, so do not pay
+    // again — halt until a human confirms.
     console.error(
       "[CATALYST-AUTOPILOT] previous smoke test is unconfirmed (stage=smoking). " +
-        "HALTING to avoid a repeated payment — check Solscan for the last tx and " +
-        `reset ${REDIS_KEY} to {\"stage\":\"unstarted\"} (or \"live\" if it settled) to continue.`
+        "HALTING to avoid a repeated payment — check Solscan for the last tx, then " +
+        "`npm run catalyst:reset` to retry (or set the marker to live if it settled)."
     );
     return state;
   }
@@ -164,10 +177,25 @@ export async function runCatalystAutopilot(
   const paid = smoke.records.find((r) => r.outcome === "paid" && r.txHash);
   if (!paid) {
     const rec = smoke.records[0];
+    // "skipped" means the policy filtered every requirement, so nothing was ever
+    // signed; "free" means no 402 at all. Both are provably no-funds-moved, so we
+    // can roll the marker back and let the next boot retry — no human needed.
+    // An "error" (or no record) is ambiguous: a payment MAY have settled and the
+    // response been lost, so we keep "smoking" and halt, guarding against a silent
+    // double-pay.
+    const noFundsMoved = rec !== undefined && (rec.outcome === "skipped" || rec.outcome === "free");
+    if (noFundsMoved) {
+      await deps.writeState({ stage: "unstarted", at: new Date().toISOString() });
+      console.warn(
+        `[CATALYST-AUTOPILOT] smoke did not settle but no funds moved (outcome=${rec.outcome}, ` +
+          `reason=${rec.reason ?? "?"}). Rolled back to unstarted — will retry on the next boot.`
+      );
+      return { stage: "unstarted" };
+    }
     console.error(
-      `[CATALYST-AUTOPILOT] smoke did NOT settle (outcome=${rec?.outcome ?? "?"}, ` +
-        `reason=${rec?.reason ?? "?"}). Left at stage=smoking — a human must check ` +
-        "before it will continue (guards against silent re-payment)."
+      `[CATALYST-AUTOPILOT] smoke ambiguous (outcome=${rec?.outcome ?? "none"}, ` +
+        `reason=${rec?.reason ?? "?"}) — a payment may have settled. Left at stage=smoking. ` +
+        "Check Solscan, then `npm run catalyst:reset` to retry (or set state to live if it settled)."
     );
     return { stage: "smoking", ticker: payable.ticker };
   }
