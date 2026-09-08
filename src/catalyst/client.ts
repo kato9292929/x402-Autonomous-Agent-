@@ -24,8 +24,13 @@ import { createKeyPairSignerFromBytes, type TransactionPartialSigner } from "@so
 import { base58 } from "@scure/base";
 import { allowsCall } from "../probe/budget";
 
-/** 0.0001 USDC = 100 base units (USDC is 6-decimal). */
-export const PRICE_UNITS = BigInt(process.env.CATALYST_PRICE_UNITS ?? "100");
+/**
+ * Per-call price in base units (USDC is 6-decimal). Default 1000 = 0.001 USDC —
+ * osd repriced /api/catalyst from 100 to 1000 units; the buyer's exact-price
+ * safety valve has to match or every 402 is refused as "not exact price".
+ * Overridable via CATALYST_PRICE_UNITS if the seller reprices again.
+ */
+export const PRICE_UNITS = BigInt(process.env.CATALYST_PRICE_UNITS ?? "1000");
 /** Official Solana USDC mint. Overridable only for a devnet smoke test. */
 export const USDC_MINT =
   process.env.CATALYST_USDC_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";

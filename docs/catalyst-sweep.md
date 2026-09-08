@@ -1,7 +1,7 @@
 # 週次 catalyst sweep（買い手・Solana mainnet）
 
 osd（売り手）が per-call 化した `GET /api/catalyst/{ticker}`（~200社）を、AA 買い手が
-週1回ループで叩き、1コール **0.0001 USDC = 100 base units** を Solana で払う。目的は
+週1回ループで叩き、1コール **0.001 USDC = 1000 base units** を Solana で払う。目的は
 「毎週 N 社 per-call 決済している」証跡であって、データ判断ではない（`executed` には触れない）。
 
 これは元の runbook の**訂正版で canonical**。元 runbook には実害のある誤りがあった（下記「訂正点」）。
@@ -21,7 +21,7 @@ osd（売り手）が per-call 化した `GET /api/catalyst/{ticker}`（~200社�
 人が1回:
   1. Solana 決済レールが有効（日次の osd-jin / alpha がこのレールで動いていれば済）
      → catalyst は既存の Circle Solana ウォレット(7PVTo…)を共用。新規作成も入金も不要
-       (日次分で既に資金あり。catalyst は週 ~0.02 USDC)
+       (日次分で既に資金あり。catalyst は週 ~0.2 USDC=約200件×0.001)
   2. 専用 SOLANA_RPC_URL を deploy にセット（~200件を直列で叩くため必須）
   3. UPSTASH_REDIS_REST_*（冪等性の状態保存に必須。日次でも使用済み）
   4. CATALYST_AUTOPILOT=true
@@ -52,7 +52,7 @@ Railway は push 毎に再デプロイするので、起動時の有料ステッ
 
 ### stuck した時のリセット（1コマンド）
 
-`smoking` で止まったら、Solscan で直近 tx（`7PVTo→…` の 0.0001）を確認してから：
+`smoking` で止まったら、Solscan で直近 tx（`7PVTo→…` の 0.001）を確認してから：
 
 ```
 npm run catalyst:reset    # catalyst_autopilot:state を {"stage":"unstarted"} に戻す
@@ -92,7 +92,7 @@ tx ハッシュは `PAYMENT-RESPONSE` ヘッダから既存コードが拾う。
 
 - `network` が Solana（`solana` または `solana:<genesis>`）
 - `asset` が公式 USDC mint（`CATALYST_USDC_MINT`、既定 `EPjF…Dt1v`）
-- 金額が**ちょうど** `CATALYST_PRICE_UNITS`（既定 100 units）。上限ではなく `==`
+- 金額が**ちょうど** `CATALYST_PRICE_UNITS`（既定 1000 units＝0.001 USDC。osd の価格に一致）。上限ではなく `==`
 - `scheme` が `exact`
 
 > **訂正点**: 元 runbook 手順4「payTo=自社受取か」は**逆**。買い手が払う相手（payTo）は
@@ -101,9 +101,9 @@ tx ハッシュは `PAYMENT-RESPONSE` ヘッダから既存コードが拾う。
 
 ## 上限（作り直さない）
 
-- **1コール上限**は上の `==100 units` ポリシーが実質そのもの。
-- **週上限**は `CATALYST_WEEKLY_CAP_USD`（既定 $0.50）。~200社 全課金でも約 $0.02 なので、
-  これは暴走ループの歯止め。算術は既存の `checkBudget`（gas 予算）を再利用。
+- **1コール上限**は上の `==CATALYST_PRICE_UNITS` ポリシーが実質そのもの。
+- **週上限**は `CATALYST_WEEKLY_CAP_USD`（既定 $0.50）。~200社 全課金でも約 $0.2（200×0.001）
+  なので、これは暴走ループの歯止め。算術は既存の `checkBudget`（gas 予算）を再利用。
 - 週の消費額は **Upstash 永続**（`catalyst_spend:{ISO週}`）。Railway はデプロイでディスクが
   消えるので、メモリカウンタは上限にならない（probe と同じ教訓）。probe とは別 namespace。
 
@@ -125,7 +125,7 @@ CATALYST_RUN0_SAMPLE を使わず、手で1 ticker を叩く例:
   node -e "require('./dist/jobs/catalyst-sweep').runCatalystSweep({mode:'sweep', tickers:['AAPL']})"
 ```
 
-100 units = 0.0001 USDC の実 tx が Solscan で確認できれば配線 OK。
+1000 units = 0.001 USDC の実 tx が Solscan で確認できれば配線 OK。
 
 ## 記録
 

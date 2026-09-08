@@ -58,11 +58,11 @@ function challenge402(accepts: PaymentRequirements[]): Response {
 
 // ── 安全弁: 期待する支払要件だけを払う ───────────────────────────────────────
 
-test("isExpectedRequirement: Solana / 公式USDC mint / ちょうど100 units / exact のみ通す", () => {
+test("isExpectedRequirement: Solana / 公式USDC mint / ちょうど PRICE_UNITS / exact のみ通す", () => {
   assert.equal(isExpectedRequirement(req()), true);
   // 金額が違えば拒否(==、上限ではない)
-  assert.equal(isExpectedRequirement(req({ amount: "101" })), false);
-  assert.equal(isExpectedRequirement(req({ amount: "99" })), false);
+  assert.equal(isExpectedRequirement(req({ amount: (PRICE_UNITS + 1n).toString() })), false);
+  assert.equal(isExpectedRequirement(req({ amount: (PRICE_UNITS - 1n).toString() })), false);
   // 別 mint は拒否
   assert.equal(isExpectedRequirement(req({ asset: "So11111111111111111111111111111111111111112" })), false);
   // 別チェーンは拒否(payTo=自社ではなく、これが正しい安全弁)
@@ -93,7 +93,7 @@ test("observe: 期待要件が1つでもあれば payable、Solana の額を ver
     accepts: [req(), req({ network: "eip155:8453", asset: "0xusdc" })],
   });
   assert.equal(o.payable, true);
-  assert.deepEqual(o.quotedUnits, ["100"]);
+  assert.deepEqual(o.quotedUnits, [PRICE_UNITS.toString()]);
   assert.deepEqual(o.offeredNetworks, ["solana", "eip155:8453"]);
 });
 
@@ -131,7 +131,7 @@ test("run 0: 一覧取得＋402の期待要件一致を確認し、1円も払わ
   assert.equal(seen[0], "https://osd.x402jp.com/api/catalyst");
   assert.equal(report.records.length, 3);
   assert.ok(report.records.every((r) => r.outcome === "skipped"));
-  assert.deepEqual(report.records[0].quotedUnits, ["100"]);
+  assert.deepEqual(report.records[0].quotedUnits, [PRICE_UNITS.toString()]);
   assert.match(report.records[0].reason ?? "", /期待要件.*一致/);
   assert.equal(report.runSpentUsdc, 0);
 });
@@ -184,16 +184,16 @@ test("sweep: 200＋決済ヘッダで課金・tx を記録、実費は決済側�
     mode: "sweep",
     tickers: ["AAPL"],
     client: payClient(() =>
-      paidResponse({ headline: "Q3 earnings beat" }, { success: true, transaction: "3Lthrqi25tx", network: "solana", amount: "100" })
+      paidResponse({ headline: "Q3 earnings beat" }, { success: true, transaction: "3Lthrqi25tx", network: "solana", amount: "1000" })
     ),
     weekSpentUsdc: 0,
     write: false,
   });
   const [r] = report.records;
   assert.equal(r.outcome, "paid");
-  assert.equal(r.actualUsdc, 0.0001);
+  assert.equal(r.actualUsdc, 0.001);
   assert.equal(r.txHash, "3Lthrqi25tx");
-  assert.equal(report.weekSpentUsdc, 0.0001);
+  assert.equal(report.weekSpentUsdc, 0.001);
   assert.equal(report.summary.sampleTx, "3Lthrqi25tx");
 });
 
