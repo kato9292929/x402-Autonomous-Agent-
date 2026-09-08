@@ -17,6 +17,9 @@
     "catalyst:run0": "node dist/index.js --catalyst-run0",
     "catalyst:sweep": "node dist/index.js --catalyst-sweep",
     "catalyst:reset": "node dist/scripts/catalyst-reset.js",
+    "edinet:run0": "node dist/index.js --edinet-run0",
+    "edinet:sweep": "node dist/index.js --edinet-sweep",
+    "edinet:reset": "node dist/scripts/edinet-reset.js",
     "arc:record-reputation": "node dist/scripts/arc-record-reputation.js",
     "arc:run-validation": "node dist/scripts/arc-run-validation.js",
     "test": "npm run build && node --test dist/__tests__/**/*.test.js"

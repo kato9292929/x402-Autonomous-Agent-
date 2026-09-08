@@ -77,8 +77,9 @@ export function toCsvRow(r: CatalystCallRecord): string {
     .join(",");
 }
 
-export function csvPath(): string {
-  return path.join(process.cwd(), "data", "catalyst", "catalyst-calls.csv");
+/** Per-surface CSV path: data/<surface>/<surface>-calls.csv. */
+export function csvPath(surface = "catalyst"): string {
+  return path.join(process.cwd(), "data", surface, `${surface}-calls.csv`);
 }
 
 export function appendCsv(records: CatalystCallRecord[], file = csvPath()): void {

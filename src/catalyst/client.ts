@@ -1,5 +1,7 @@
 /**
- * Payment client for the weekly catalyst sweep (Solana mainnet, exact SVM).
+ * Payment client for the weekly per-call sweeps (Solana mainnet, exact SVM).
+ * Shared by every paycall surface (catalyst, EDINET) — the surface only changes
+ * the price / mint / cap, not how the payment is made.
  *
  * This does NOT hand-build a USDC transfer. x402's exact SVM scheme constructs
  * the specific transaction the facilitator settles; a raw SPL transfer would not
@@ -9,9 +11,9 @@
  * signer — the key stays in Circle, the deployment holds only a wallet id.
  *
  * The safety valve lives in the selection policy, so it runs BEFORE signing:
- * a requirement is paid only when it is Solana, denominated in the official USDC
- * mint, and priced at exactly PRICE_UNITS. Anything else is filtered out, the
- * library finds nothing to select, and the payment aborts unsigned. (Note the
+ * a requirement is paid only when it is Solana, denominated in the surface's USDC
+ * mint, and priced at exactly the surface's price. Anything else is filtered out,
+ * the library finds nothing to select, and the payment aborts unsigned. (Note the
  * runbook's "payTo == our address" check was backwards — payTo is the seller we
  * pay, so it is not verified here; the amount, asset and network are.)
  */
@@ -23,25 +25,14 @@ import { getCircleSolanaSignerFromEnv, resolveSolanaBackend } from "../circle/so
 import { createKeyPairSignerFromBytes, type TransactionPartialSigner } from "@solana/kit";
 import { base58 } from "@scure/base";
 import { allowsCall } from "../probe/budget";
+import { CATALYST_SURFACE, type PaycallSurface } from "../paycall/surface";
 
-/**
- * Per-call price in base units (USDC is 6-decimal). Default 1000 = 0.001 USDC —
- * osd repriced /api/catalyst from 100 to 1000 units; the buyer's exact-price
- * safety valve has to match or every 402 is refused as "not exact price".
- * Overridable via CATALYST_PRICE_UNITS if the seller reprices again.
- */
-export const PRICE_UNITS = BigInt(process.env.CATALYST_PRICE_UNITS ?? "1000");
-/** Official Solana USDC mint. Overridable only for a devnet smoke test. */
-export const USDC_MINT =
-  process.env.CATALYST_USDC_MINT ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-/** The exact price, in USDC, that a catalyst call must quote. */
-export const PRICE_USDC = Number(PRICE_UNITS) / 1e6;
-/**
- * Weekly spend ceiling for the sweep (SPEND_CAP_WEEK). Catalyst-specific — not
- * the probe's $4 — since a full ~200-ticker sweep costs about $0.02 and this
- * bounds a runaway loop, not routine spend.
- */
-export const WEEKLY_CAP_USD = Number(process.env.CATALYST_WEEKLY_CAP_USD ?? "0.50");
+// Catalyst-bound constants, kept so existing catalyst callers/tests read the
+// same names. New code should read the surface directly.
+export const PRICE_UNITS = CATALYST_SURFACE.priceUnits;
+export const USDC_MINT = CATALYST_SURFACE.usdcMint;
+export const PRICE_USDC = CATALYST_SURFACE.priceUsd;
+export const WEEKLY_CAP_USD = CATALYST_SURFACE.weeklyCapUsd;
 
 export interface CatalystSpend {
   /** USDC spent so far in this sweep. */
@@ -53,7 +44,7 @@ export interface CatalystSpend {
 export interface ObservedChallenge {
   x402Version: number;
   offeredNetworks: string[];
-  /** Whether at least one requirement matched all three safety checks. */
+  /** Whether at least one requirement matched all the safety checks. */
   payable: boolean;
   /** Amounts quoted on Solana requirements, in base units, for the record. */
   quotedUnits: string[];
@@ -90,25 +81,31 @@ export function amountUnits(r: PaymentRequirements): bigint | undefined {
 }
 
 /**
- * The safety valve: pay only Solana, official-USDC-mint, exactly-PRICE_UNITS
- * requirements. Exact (==), not a ceiling — a catalyst call has one price and
- * anything else means the offer is not the one we agreed to.
+ * The safety valve: pay only Solana, surface-USDC-mint, exactly-price requirements.
+ * Exact (==), not a ceiling — a call has one price and anything else means the
+ * offer is not the one we agreed to.
  */
-export function isExpectedRequirement(r: PaymentRequirements): boolean {
+export function isExpectedRequirement(
+  r: PaymentRequirements,
+  surface: PaycallSurface = CATALYST_SURFACE
+): boolean {
   return (
     isSolana(networkOf(r)) &&
-    assetOf(r) === USDC_MINT &&
-    amountUnits(r) === PRICE_UNITS &&
+    assetOf(r) === surface.usdcMint &&
+    amountUnits(r) === surface.priceUnits &&
     String((r as { scheme?: unknown }).scheme ?? "") === "exact"
   );
 }
 
-export function observe(paymentRequired: PaymentRequired): ObservedChallenge {
+export function observe(
+  paymentRequired: PaymentRequired,
+  surface: PaycallSurface = CATALYST_SURFACE
+): ObservedChallenge {
   const accepts = paymentRequired.accepts ?? [];
   return {
     x402Version: paymentRequired.x402Version,
     offeredNetworks: [...new Set(accepts.map(networkOf))],
-    payable: accepts.some(isExpectedRequirement),
+    payable: accepts.some((r) => isExpectedRequirement(r, surface)),
     quotedUnits: accepts
       .filter((r) => isSolana(networkOf(r)))
       .map((r) => amountUnits(r))
@@ -131,13 +128,15 @@ async function solanaSigner(): Promise<TransactionPartialSigner | undefined> {
 }
 
 /**
- * Build the sweep's paying fetch, or null when no Solana signer is configured.
- *
- * Uses the same wallet as the daily run (no new key, no new wallet) but its own
- * client so the exact-price policy is scoped to catalyst and does not tighten
- * the daily run's other Solana payments.
+ * Build the sweep's paying fetch for a surface, or null when no Solana signer is
+ * configured. Uses the same wallet as the daily run (no new key, no new wallet)
+ * but its own client so the exact-price policy is scoped to this surface and does
+ * not tighten the daily run's other Solana payments.
  */
-export async function buildCatalystClient(spend: CatalystSpend): Promise<CatalystClient | null> {
+export async function buildPaycallClient(
+  surface: PaycallSurface,
+  spend: CatalystSpend
+): Promise<CatalystClient | null> {
   const signer = await solanaSigner();
   if (!signer) return null;
 
@@ -145,10 +144,10 @@ export async function buildCatalystClient(spend: CatalystSpend): Promise<Catalys
     (_version: number, reqs: PaymentRequirements[]) =>
       reqs.filter(
         (r) =>
-          isExpectedRequirement(r) &&
-          allowsCall(PRICE_USDC, spend.run, spend.week, {
-            perRun: WEEKLY_CAP_USD,
-            perWeek: WEEKLY_CAP_USD,
+          isExpectedRequirement(r, surface) &&
+          allowsCall(surface.priceUsd, spend.run, spend.week, {
+            perRun: surface.weeklyCapUsd,
+            perWeek: surface.weeklyCapUsd,
           }).allowed
       )
   );
@@ -161,14 +160,14 @@ export async function buildCatalystClient(spend: CatalystSpend): Promise<Catalys
     client.register("solana:*", new ExactSvmScheme(signer, { rpcUrl }));
   } else {
     console.warn(
-      "[CATALYST] SOLANA_RPC_URL not set — sweeping ~200 tickers through the public " +
-        "api.mainnet-beta.solana.com endpoint will likely rate-limit"
+      `[${surface.id.toUpperCase()}] SOLANA_RPC_URL not set — sweeping ~200 items through the ` +
+        "public api.mainnet-beta.solana.com endpoint will likely rate-limit"
     );
   }
 
   let last: ObservedChallenge | undefined;
   const http = new x402HTTPClient(client).onPaymentRequired(async (ctx) => {
-    last = observe(ctx.paymentRequired);
+    last = observe(ctx.paymentRequired, surface);
     // No headers returned → proceed to the normal payment path.
   });
 
@@ -183,6 +182,11 @@ export async function buildCatalystClient(spend: CatalystSpend): Promise<Catalys
   };
 }
 
-export function priceSummary(): string {
-  return `${PRICE_USDC} USDC (${PRICE_UNITS} units) / mint ${USDC_MINT.slice(0, 6)}…`;
+/** Catalyst-bound builder, kept for existing callers. */
+export function buildCatalystClient(spend: CatalystSpend): Promise<CatalystClient | null> {
+  return buildPaycallClient(CATALYST_SURFACE, spend);
+}
+
+export function priceSummary(surface: PaycallSurface = CATALYST_SURFACE): string {
+  return `${surface.priceUsd} USDC (${surface.priceUnits} units) / mint ${surface.usdcMint.slice(0, 6)}…`;
 }

@@ -1,12 +1,14 @@
 /**
- * Catalyst self-onboarding ("autopilot").
+ * Per-call self-onboarding ("autopilot"). Shared engine for every paycall
+ * surface (catalyst, EDINET) — the surface only changes the state key, the spend
+ * namespace (via the sweep) and the log tag.
  *
  * The point of the sweep is that the agent runs it — not that a human clicks
- * dry-run, then mainnet, then flips a flag. When CATALYST_AUTOPILOT=true the
+ * dry-run, then mainnet, then flips a flag. When {SURFACE}_AUTOPILOT=true the
  * agent drives that sequence itself at boot:
  *
- *   unstarted → run0 (unpaid; confirm the 402 is Solana / USDC / exactly 100
- *               units) → pay ONE mainnet ticker (confirm a real Solscan tx)
+ *   unstarted → run0 (unpaid; confirm the 402 is Solana / USDC / exact price)
+ *             → pay ONE mainnet item (confirm a real Solscan tx)
  *             → live → schedule the weekly sweep.
  *
  * Idempotency is the whole safety story, because Railway redeploys on every
@@ -14,19 +16,17 @@
  *
  *   - State is persisted (Upstash; local file only as a dev fallback). Once
  *     "live", later boots skip straight to scheduling — no second smoke payment.
- *   - The paid smoke writes "smoking" BEFORE it pays. If a boot finds "smoking",
- *     the previous attempt did not confirm — the agent HALTS rather than paying
- *     again, so a crash loop cannot pay on every boot. A human glance at Solscan
- *     resolves it (reset the marker). This trades a little autonomy for the
- *     guarantee that unattended really is safe.
+ *   - The paid smoke writes "smoking" BEFORE it pays. A boot that finds "smoking"
+ *     HALTS rather than paying again (a payment may have settled), unless a clean
+ *     no-funds smoke already rolled it back to "unstarted".
  *
  * All the guards from the sweep still apply underneath: the exact-requirement
- * safety valve and the weekly cap run before signing, so even a bug here cannot
- * pay the wrong amount or blow the cap.
+ * safety valve and the weekly cap run before signing.
  */
 import { upstashConfigured, upstashCommand } from "../store/upstash-rest";
-import { runCatalystSweep, type CatalystRunReport } from "./catalyst-sweep";
+import { runSweep, type CatalystRunReport } from "./catalyst-sweep";
 import { priceSummary } from "../catalyst/client";
+import { CATALYST_SURFACE, EDINET_SURFACE, type PaycallSurface } from "../paycall/surface";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -34,58 +34,67 @@ export type AutopilotStage = "unstarted" | "smoking" | "live";
 
 export interface AutopilotState {
   stage: AutopilotStage;
-  /** Ticker the smoke test paid. */
+  /** Item the smoke test paid. */
   ticker?: string;
   /** Settlement tx of the smoke payment (Solscan). */
   smokeTx?: string;
   at?: string;
 }
 
-const REDIS_KEY = "catalyst_autopilot:state";
-const localFile = () => path.join(process.cwd(), "data", "catalyst", "autopilot-state.json");
+const redisKey = (surface: PaycallSurface) => `${surface.id}_autopilot:state`;
+const localFile = (surface: PaycallSurface) =>
+  path.join(process.cwd(), "data", surface.id, "autopilot-state.json");
+const tag = (surface: PaycallSurface) => `${surface.id.toUpperCase()}-AUTOPILOT`;
 
-export async function readAutopilotState(): Promise<AutopilotState> {
+export async function readAutopilotState(
+  surface: PaycallSurface = CATALYST_SURFACE
+): Promise<AutopilotState> {
   if (upstashConfigured()) {
     try {
-      const raw = await upstashCommand<string | null>(["GET", REDIS_KEY]);
+      const raw = await upstashCommand<string | null>(["GET", redisKey(surface)]);
       if (raw) return JSON.parse(raw) as AutopilotState;
       return { stage: "unstarted" };
     } catch (err) {
-      console.warn(`[CATALYST-AUTOPILOT] state read failed: ${String(err)}`);
+      console.warn(`[${tag(surface)}] state read failed: ${String(err)}`);
     }
   }
   try {
-    return JSON.parse(fs.readFileSync(localFile(), "utf-8")) as AutopilotState;
+    return JSON.parse(fs.readFileSync(localFile(surface), "utf-8")) as AutopilotState;
   } catch {
     return { stage: "unstarted" };
   }
 }
 
-export async function writeAutopilotState(state: AutopilotState): Promise<void> {
+export async function writeAutopilotState(
+  state: AutopilotState,
+  surface: PaycallSurface = CATALYST_SURFACE
+): Promise<void> {
   const value = JSON.stringify(state);
   if (upstashConfigured()) {
     try {
-      await upstashCommand(["SET", REDIS_KEY, value]);
+      await upstashCommand(["SET", redisKey(surface), value]);
     } catch (err) {
-      console.warn(`[CATALYST-AUTOPILOT] state write failed: ${String(err)}`);
+      console.warn(`[${tag(surface)}] state write failed: ${String(err)}`);
     }
   }
   try {
-    fs.mkdirSync(path.dirname(localFile()), { recursive: true });
-    fs.writeFileSync(localFile(), value, "utf-8");
+    fs.mkdirSync(path.dirname(localFile(surface)), { recursive: true });
+    fs.writeFileSync(localFile(surface), value, "utf-8");
   } catch (err) {
-    console.warn(`[CATALYST-AUTOPILOT] local state write failed: ${String(err)}`);
+    console.warn(`[${tag(surface)}] local state write failed: ${String(err)}`);
   }
 }
 
 /**
  * Reset the marker to "unstarted" so the next boot re-onboards from scratch.
- * Used by `npm run catalyst:reset` to clear a stuck "smoking" after a human has
+ * Used by `npm run <surface>:reset` to clear a stuck "smoking" after a human has
  * checked Solscan. Returns the state that was there before.
  */
-export async function resetAutopilotState(): Promise<AutopilotState> {
-  const before = await readAutopilotState();
-  await writeAutopilotState({ stage: "unstarted", at: new Date().toISOString() });
+export async function resetAutopilotState(
+  surface: PaycallSurface = CATALYST_SURFACE
+): Promise<AutopilotState> {
+  const before = await readAutopilotState(surface);
+  await writeAutopilotState({ stage: "unstarted", at: new Date().toISOString() }, surface);
   return before;
 }
 
@@ -94,7 +103,7 @@ export interface AutopilotDeps {
   writeState: (s: AutopilotState) => Promise<void>;
   /** Unpaid discovery. */
   runDiscovery: () => Promise<CatalystRunReport>;
-  /** Paid smoke of exactly the given tickers. */
+  /** Paid smoke of exactly the given items. */
   runSmoke: (tickers: string[]) => Promise<CatalystRunReport>;
   /** Whether the durable store is available; the paid smoke needs it. */
   durable: boolean;
@@ -102,70 +111,70 @@ export interface AutopilotDeps {
   onLive: () => void;
 }
 
-function defaultDeps(onLive: () => void): AutopilotDeps {
+function defaultDeps(surface: PaycallSurface, onLive: () => void): AutopilotDeps {
   return {
-    readState: readAutopilotState,
-    writeState: writeAutopilotState,
-    runDiscovery: () => runCatalystSweep({ mode: "discovery" }),
-    runSmoke: (tickers) => runCatalystSweep({ mode: "sweep", tickers }),
+    readState: () => readAutopilotState(surface),
+    writeState: (s) => writeAutopilotState(s, surface),
+    runDiscovery: () => runSweep(surface, { mode: "discovery" }),
+    runSmoke: (tickers) => runSweep(surface, { mode: "sweep", tickers }),
     durable: upstashConfigured(),
     onLive,
   };
 }
 
 /**
- * Drive the onboarding one step per boot. Returns the resulting state. Never
- * throws for an expected failure (unreachable seller, no payable 402) — those
- * leave the state unchanged so the next boot retries; only the paid smoke can
- * advance it.
+ * Drive the onboarding one step per boot for a surface. Returns the resulting
+ * state. Never throws for an expected failure (unreachable seller, no payable
+ * 402) — those leave the state unchanged so the next boot retries; only the paid
+ * smoke can advance it.
  */
-export async function runCatalystAutopilot(
+export async function runAutopilot(
+  surface: PaycallSurface,
   arg: AutopilotDeps | { onLive: () => void }
 ): Promise<AutopilotState> {
-  const deps: AutopilotDeps = "readState" in arg ? arg : defaultDeps(arg.onLive);
+  const t = tag(surface);
+  const resetCmd = `npm run ${surface.id}:reset`;
+  const deps: AutopilotDeps = "readState" in arg ? arg : defaultDeps(surface, arg.onLive);
   const state = await deps.readState();
 
   if (state.stage === "live") {
     console.log(
-      `[CATALYST-AUTOPILOT] already live (smoke tx ${state.smokeTx ?? "?"} on ${state.ticker ?? "?"}) — scheduling weekly sweep`
+      `[${t}] already live (smoke tx ${state.smokeTx ?? "?"} on ${state.ticker ?? "?"}) — scheduling weekly sweep`
     );
     deps.onLive();
     return state;
   }
 
   if (state.stage === "smoking") {
-    // A prior boot crashed mid-smoke (a clean no-funds outcome would have rolled
-    // itself back to "unstarted"). A payment may have settled, so do not pay
-    // again — halt until a human confirms.
     console.error(
-      "[CATALYST-AUTOPILOT] previous smoke test is unconfirmed (stage=smoking). " +
+      `[${t}] previous smoke test is unconfirmed (stage=smoking). ` +
         "HALTING to avoid a repeated payment — check Solscan for the last tx, then " +
-        "`npm run catalyst:reset` to retry (or set the marker to live if it settled)."
+        `\`${resetCmd}\` to retry (or set the marker to live if it settled).`
     );
     return state;
   }
 
   // stage === "unstarted": confirm the wiring with an unpaid run 0 first.
-  console.log(`[CATALYST-AUTOPILOT] onboarding — run 0 (unpaid) / price ${priceSummary()}`);
+  console.log(`[${t}] onboarding — run 0 (unpaid) / price ${priceSummary(surface)}`);
   const disc = await deps.runDiscovery();
   const payable = disc.records.find((r) => r.payable === true);
   if (!payable) {
     console.warn(
-      "[CATALYST-AUTOPILOT] run 0 found no payable 402 " +
+      `[${t}] run 0 found no payable 402 ` +
         "(seller unreachable, or the 402 is not Solana / USDC / exact price). " +
         "Not paying; will retry on the next boot."
     );
     return state;
   }
   console.log(
-    `[CATALYST-AUTOPILOT] run 0 OK — ${payable.ticker} offered a payable 402 ` +
-      `(units ${payable.quotedUnits?.join(" ") ?? "?"}). Proceeding to a 1-ticker mainnet smoke.`
+    `[${t}] run 0 OK — ${payable.ticker} offered a payable 402 ` +
+      `(units ${payable.quotedUnits?.join(" ") ?? "?"}). Proceeding to a 1-item mainnet smoke.`
   );
 
   if (!deps.durable) {
     console.error(
-      "[CATALYST-AUTOPILOT] refusing the paid smoke: no durable state store (Upstash) " +
-        "configured, so a redeploy could re-pay. Set UPSTASH_REDIS_REST_* and retry."
+      `[${t}] refusing the paid smoke: no durable state store (Upstash) configured, ` +
+        "so a redeploy could re-pay. Set UPSTASH_REDIS_REST_* and retry."
     );
     return state;
   }
@@ -177,25 +186,22 @@ export async function runCatalystAutopilot(
   const paid = smoke.records.find((r) => r.outcome === "paid" && r.txHash);
   if (!paid) {
     const rec = smoke.records[0];
-    // "skipped" means the policy filtered every requirement, so nothing was ever
-    // signed; "free" means no 402 at all. Both are provably no-funds-moved, so we
-    // can roll the marker back and let the next boot retry — no human needed.
-    // An "error" (or no record) is ambiguous: a payment MAY have settled and the
-    // response been lost, so we keep "smoking" and halt, guarding against a silent
-    // double-pay.
+    // "skipped" (policy filtered every requirement, nothing signed) and "free"
+    // (no 402) are provably no-funds-moved, so roll back and retry next boot. An
+    // "error" (or no record) is ambiguous — a payment MAY have settled — so keep
+    // "smoking" and halt, guarding against a silent double-pay.
     const noFundsMoved = rec !== undefined && (rec.outcome === "skipped" || rec.outcome === "free");
     if (noFundsMoved) {
       await deps.writeState({ stage: "unstarted", at: new Date().toISOString() });
       console.warn(
-        `[CATALYST-AUTOPILOT] smoke did not settle but no funds moved (outcome=${rec.outcome}, ` +
+        `[${t}] smoke did not settle but no funds moved (outcome=${rec.outcome}, ` +
           `reason=${rec.reason ?? "?"}). Rolled back to unstarted — will retry on the next boot.`
       );
       return { stage: "unstarted" };
     }
     console.error(
-      `[CATALYST-AUTOPILOT] smoke ambiguous (outcome=${rec?.outcome ?? "none"}, ` +
-        `reason=${rec?.reason ?? "?"}) — a payment may have settled. Left at stage=smoking. ` +
-        "Check Solscan, then `npm run catalyst:reset` to retry (or set state to live if it settled)."
+      `[${t}] smoke ambiguous (outcome=${rec?.outcome ?? "none"}, reason=${rec?.reason ?? "?"}) — ` +
+        `a payment may have settled. Left at stage=smoking. Check Solscan, then \`${resetCmd}\`.`
     );
     return { stage: "smoking", ticker: payable.ticker };
   }
@@ -208,10 +214,23 @@ export async function runCatalystAutopilot(
   };
   await deps.writeState(live);
   console.log(
-    `[CATALYST-AUTOPILOT] LIVE — smoke settled: ticker=${paid.ticker} ` +
-      `tx=${paid.txHash} ($${paid.actualUsdc}) sample=${paid.summary ?? "(none)"}. ` +
-      "Scheduling the weekly sweep; the agent now self-drives."
+    `[${t}] LIVE — smoke settled: item=${paid.ticker} tx=${paid.txHash} ($${paid.actualUsdc}) ` +
+      `sample=${paid.summary ?? "(none)"}. Scheduling the weekly sweep; the agent now self-drives.`
   );
   deps.onLive();
   return live;
+}
+
+/** Catalyst-bound entry, kept for existing callers/tests. */
+export function runCatalystAutopilot(
+  arg: AutopilotDeps | { onLive: () => void }
+): Promise<AutopilotState> {
+  return runAutopilot(CATALYST_SURFACE, arg);
+}
+
+/** EDINET-bound entry. */
+export function runEdinetAutopilot(
+  arg: AutopilotDeps | { onLive: () => void }
+): Promise<AutopilotState> {
+  return runAutopilot(EDINET_SURFACE, arg);
 }

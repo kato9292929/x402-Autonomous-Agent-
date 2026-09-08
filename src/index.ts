@@ -9,8 +9,8 @@ import { runModeC, queueModeC } from "./modes/modeC";
 import { runModeD } from "./modes/modeD";
 import { runOsdConsumption } from "./jobs/osd-consumption";
 import { runExternalProbe } from "./jobs/external-probe";
-import { runCatalystSweep } from "./jobs/catalyst-sweep";
-import { runCatalystAutopilot } from "./jobs/catalyst-autopilot";
+import { runCatalystSweep, runEdinetSweep } from "./jobs/catalyst-sweep";
+import { runCatalystAutopilot, runEdinetAutopilot } from "./jobs/catalyst-autopilot";
 import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
@@ -142,6 +142,35 @@ async function main(): Promise<void> {
     scheduleCatalystWeekly();
   }
 
+  // EDINET sweep: every Thursday at 09:00 JST (00:00 UTC) — its own slot, clear
+  // of catalyst (Weds). Same autopilot / manual-gate shape as catalyst.
+  let edinetScheduled = false;
+  const scheduleEdinetWeekly = (): void => {
+    if (edinetScheduled) return;
+    edinetScheduled = true;
+    cron.schedule("0 0 * * 4", async () => {
+      if (!paymentsReady) {
+        console.error("[EDINET] Weekly sweep skipped — x402 payment layer is not initialised");
+        return;
+      }
+      try {
+        await runEdinetSweep({ mode: "sweep" });
+      } catch (err) {
+        console.error("[EDINET] Weekly sweep failed:", err);
+      }
+    });
+    console.log("[EDINET] Weekly sweep scheduled — Thu 09:00 JST (00:00 UTC)");
+  };
+
+  if (process.env.EDINET_AUTOPILOT === "true" && paymentsReady) {
+    console.log("[EDINET-AUTOPILOT] armed — self-onboarding in the background");
+    void runEdinetAutopilot({ onLive: scheduleEdinetWeekly }).catch((err) =>
+      console.error("[EDINET-AUTOPILOT] failed:", err)
+    );
+  } else if (process.env.EDINET_SWEEP_ENABLED === "true") {
+    scheduleEdinetWeekly();
+  }
+
   console.log("x402 Autonomous Agent started");
   console.log("  Mode A + B + D + osd:      daily   at 06:00 JST (21:00 UTC)");
   console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
@@ -157,6 +186,15 @@ async function main(): Promise<void> {
         : process.env.CATALYST_SWEEP_ENABLED === "true"
           ? "enabled (manual)"
           : "disabled (CATALYST_AUTOPILOT / CATALYST_SWEEP_ENABLED)"
+    }`
+  );
+  console.log(
+    `  EDINET sweep (Solana):     Thu     at 09:00 JST (00:00 UTC) — ${
+      process.env.EDINET_AUTOPILOT === "true"
+        ? "autopilot (self-onboarding)"
+        : process.env.EDINET_SWEEP_ENABLED === "true"
+          ? "enabled (manual)"
+          : "disabled (EDINET_AUTOPILOT / EDINET_SWEEP_ENABLED)"
     }`
   );
 
@@ -204,6 +242,17 @@ async function main(): Promise<void> {
   if (process.argv.includes("--catalyst-sweep") && requirePayments("--catalyst-sweep")) {
     console.log("\n[AGENT] Catalyst sweep — weekly (paid, Solana)");
     await runCatalystSweep({ mode: "sweep" });
+  }
+
+  // 課金ゼロ。一覧取得＋402読みだけ。
+  if (process.argv.includes("--edinet-run0")) {
+    console.log("\n[AGENT] EDINET sweep — run 0 (discovery only, no payments)");
+    await runEdinetSweep({ mode: "discovery" });
+  }
+
+  if (process.argv.includes("--edinet-sweep") && requirePayments("--edinet-sweep")) {
+    console.log("\n[AGENT] EDINET sweep — weekly (paid, Solana)");
+    await runEdinetSweep({ mode: "sweep" });
   }
 
   if (process.argv.includes("--run-mode-d") && requirePayments("--run-mode-d")) {
