@@ -15,8 +15,15 @@ export const OFFICIAL_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 export interface PaycallSurface {
   /** Short id — used in logs, the spend namespace, and the autopilot state key. */
   id: string;
-  /** Free list route and per-item route prefix, e.g. "/api/catalyst". */
+  /** Per-item route prefix, e.g. "/api/catalyst" → items at "/api/catalyst/{item}". */
   listPath: string;
+  /**
+   * Where the free item roster comes from. Usually the same as listPath, but a
+   * surface whose own base returns only a descriptor (EDINET) borrows another
+   * surface's roster — EDINET pays /api/edinet/{code} for the same 197 codes
+   * that /api/catalyst lists.
+   */
+  rosterPath: string;
   /** Exact per-call price, in base units (USDC is 6-decimal). */
   priceUnits: bigint;
   /** The same price in USDC. */
@@ -43,12 +50,19 @@ function num(raw: string | undefined, fallback: number): number {
 /**
  * Build a surface, reading `${prefix}_PRICE_UNITS` etc. from env with shared
  * defaults (1000 units = 0.001 USDC, official mint, $0.50/week, sample 3).
+ * `rosterPath` defaults to `listPath` and is overridable via `${prefix}_ROSTER_PATH`.
  */
-export function loadSurface(id: string, listPath: string, prefix: string): PaycallSurface {
+export function loadSurface(
+  id: string,
+  listPath: string,
+  prefix: string,
+  rosterPath: string = listPath
+): PaycallSurface {
   const priceUnits = BigInt(process.env[`${prefix}_PRICE_UNITS`] ?? "1000");
   return {
     id,
     listPath,
+    rosterPath: process.env[`${prefix}_ROSTER_PATH`] ?? rosterPath,
     priceUnits,
     priceUsd: Number(priceUnits) / 1e6,
     usdcMint: process.env[`${prefix}_USDC_MINT`] ?? OFFICIAL_USDC_MINT,
@@ -58,4 +72,12 @@ export function loadSurface(id: string, listPath: string, prefix: string): Payca
 }
 
 export const CATALYST_SURFACE: PaycallSurface = loadSurface("catalyst", "/api/catalyst", "CATALYST");
-export const EDINET_SURFACE: PaycallSurface = loadSurface("edinet", "/api/edinet", "EDINET");
+// EDINET pays /api/edinet/{code} but its own base returns only a descriptor, so
+// it borrows catalyst's roster (the same 197 codes; /api/edinet accepts the
+// 4-digit ticker as the code, no transform).
+export const EDINET_SURFACE: PaycallSurface = loadSurface(
+  "edinet",
+  "/api/edinet",
+  "EDINET",
+  "/api/catalyst"
+);

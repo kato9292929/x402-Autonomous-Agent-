@@ -12,7 +12,8 @@ catalyst と EDINET は**同じエンジンの2つの surface 設定**（`src/pa
 
 | | catalyst | edinet |
 |---|---|---|
-| base path | `/api/catalyst` | `/api/edinet` |
+| 本体 path | `/api/catalyst/{ticker}` | `/api/edinet/{ticker}` |
+| 名簿(一覧) | `/api/catalyst` | `/api/catalyst`（下記） |
 | 状態キー | `catalyst_autopilot:state` | `edinet_autopilot:state` |
 | spend namespace | `catalyst` | `edinet` |
 | CSV | `data/catalyst/…` | `data/edinet/…` |
@@ -44,5 +45,12 @@ AA の価格デフォルトも 1000）。catalyst で潰した dust/価格不一
 ## EDINET は買い手側だけ
 
 EDINET API 本体（EDINET_API_KEY で金融庁の開示書類を取る）は **osd（売り手）側**。AA は
-`/api/edinet/{code}` を x402 で買うだけで、`EDINET_API_KEY` は持たない。対象コード一覧も
-osd の `GET /api/edinet` から取得する（catalyst と同じく捏造しない）。
+`/api/edinet/{ticker}` を x402 で買うだけで、`EDINET_API_KEY` は持たない。
+
+## 名簿は /api/catalyst から取る
+
+`/api/edinet` 自体は価格のディスクリプタのみで会社リストを返さない（叩くと discovery が 0 件）。
+EDINET は catalyst と同じ197社が対象なので、**名簿は `GET /api/catalyst` の197 ticker から**取り、
+各 ticker で `/api/edinet/{ticker}` を叩く（`/api/edinet` は4桁 ticker をそのまま code に受け付ける
+ので変換不要）。この分離は surface の `rosterPath`（既定 `/api/catalyst`、`EDINET_ROSTER_PATH`
+で上書き可）で表現。run0 ログに `items (roster /api/catalyst)` と出れば名簿が取れている。

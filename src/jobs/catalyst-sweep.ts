@@ -113,7 +113,9 @@ export async function fetchTickerList(
   surface: PaycallSurface,
   doFetch: typeof globalThis.fetch
 ): Promise<string[]> {
-  const res = await doFetch(`${osdBase()}${surface.listPath}`, {
+  // The roster may live at a different path than the paid items (EDINET borrows
+  // catalyst's list — its own /api/edinet returns only a descriptor).
+  const res = await doFetch(`${osdBase()}${surface.rosterPath}`, {
     signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`item list HTTP ${res.status}`);
@@ -265,8 +267,9 @@ export async function runSweep(
       tickers = [];
     }
   }
+  const rosterNote = surface.rosterPath !== surface.listPath ? ` (roster ${surface.rosterPath})` : "";
   console.log(
-    `[${tag}] ${options.mode} — ${tickers.length} items / ${week} / 消費済み $${weekSpentBefore.toFixed(4)} / 単価 ${priceSummary(surface)} / 週上限 $${surface.weeklyCapUsd}`
+    `[${tag}] ${options.mode} — ${tickers.length} items${rosterNote} / ${week} / 消費済み $${weekSpentBefore.toFixed(4)} / 単価 ${priceSummary(surface)} / 週上限 $${surface.weeklyCapUsd}`
   );
 
   const records: CatalystCallRecord[] = [];

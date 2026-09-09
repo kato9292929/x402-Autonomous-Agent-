@@ -80,7 +80,11 @@ test("EDINET autopilot は edinet_autopilot:state を使う(catalyst と別キ�
   assert.equal((await readAutopilotState(EDINET_SURFACE)).ticker, "E7203");
 });
 
-test("EDINET run0 は /api/edinet を叩き、無課金で 402 を読む", async () => {
+test("EDINET: 名簿は /api/catalyst から、本体は /api/edinet/{code} を叩く", async () => {
+  // EDINET_SURFACE.rosterPath が catalyst を指すことをまず固定。
+  assert.equal(EDINET_SURFACE.rosterPath, "/api/catalyst");
+  assert.equal(EDINET_SURFACE.listPath, "/api/edinet");
+
   const b64 = (o: unknown) => Buffer.from(JSON.stringify(o), "utf8").toString("base64");
   const seen: string[] = [];
   const report = await runEdinetSweep({
@@ -88,7 +92,8 @@ test("EDINET run0 は /api/edinet を叩き、無課金で 402 を読む", async
     fetchImpl: (async (input: RequestInfo | URL) => {
       const u = String(input);
       seen.push(u);
-      if (u.endsWith("/api/edinet")) return new Response(JSON.stringify(["E7203", "E6758"]), { status: 200 });
+      // 名簿は catalyst のロースターから(EDINET 自身の base は会社リストを返さない)。
+      if (u.endsWith("/api/catalyst")) return new Response(JSON.stringify(["7203", "6758"]), { status: 200 });
       return new Response("{}", {
         status: 402,
         headers: {
@@ -102,8 +107,9 @@ test("EDINET run0 は /api/edinet を叩き、無課金で 402 を読む", async
     weekSpentUsdc: 0,
     write: false,
   });
-  assert.equal(seen[0], "https://osd.x402jp.com/api/edinet");
-  assert.ok(seen[1].startsWith("https://osd.x402jp.com/api/edinet/"));
+  assert.equal(seen[0], "https://osd.x402jp.com/api/catalyst", "名簿は catalyst から取る");
+  assert.ok(seen[1].startsWith("https://osd.x402jp.com/api/edinet/"), "本体は /api/edinet/{code}");
+  assert.equal(report.tickers.length, 2, "0件ではない(名簿が取れている)");
   assert.equal(report.records[0].payable, true);
   assert.equal(report.runSpentUsdc, 0);
 });
