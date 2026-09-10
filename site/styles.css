@@ -464,11 +464,12 @@ h1, h2, h3, p { margin: 0; }
   position: relative;
   z-index: 5;                 /* above the fixed bg-video */
   color: #000;
-  background: rgba(244, 246, 248, 0.55);
-  -webkit-backdrop-filter: blur(30px) saturate(1.2);
-  backdrop-filter: blur(30px) saturate(1.2);
+  /* Barely-there tint like the hero glass — the video shows through, blurred. */
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  backdrop-filter: blur(40px) saturate(1.4);
   /* a soft glass edge catching light, not a hard rule */
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.55), inset 0 16px 28px -14px rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.5), inset 0 16px 30px -16px rgba(255, 255, 255, 0.4);
   padding: 3.5rem 1.25rem 5rem;
 }
 @media (min-width: 768px) { .sweep { padding: 4.5rem 3rem 6rem; } }
@@ -488,13 +489,13 @@ h1, h2, h3, p { margin: 0; }
 .sweep__list {
   list-style: none; margin: 0; padding: 0;
   display: grid; grid-template-columns: 1fr; gap: 1px;
-  background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 12px; overflow: hidden;
 }
 @media (min-width: 640px) { .sweep__list { grid-template-columns: 1fr 1fr; } }
 .sweep__item {
   display: flex; align-items: baseline; gap: 0.625rem;
-  padding: 0.5rem 0.75rem; background: rgba(255, 255, 255, 0.4);
+  padding: 0.5rem 0.75rem; background: rgba(255, 255, 255, 0.22);
   font-variant-numeric: tabular-nums;
 }
 .sweep__idx { font-size: 0.625rem; color: rgba(0, 0, 0, 0.35); min-width: 2.25rem; }
