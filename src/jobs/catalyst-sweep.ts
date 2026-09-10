@@ -31,6 +31,7 @@ import {
 } from "../catalyst/client";
 import { allowsCall, isoWeekKey, readWeekSpend, recordWeekSpend } from "../probe/budget";
 import { saveSweepSummary } from "../store/sweep-summary";
+import { saveSweepItems, type SweepItem } from "../store/sweep-items";
 import { CATALYST_SURFACE, EDINET_SURFACE, osdBase, type PaycallSurface } from "../paycall/surface";
 import {
   appendCsv,
@@ -318,8 +319,9 @@ export async function runSweep(
   const summary = summarize(records);
   if (options.write !== false) appendCsv(records, csvPath(surface.id));
 
-  // Record the sweep for the dashboard headline (paid runs only — a run0/empty
-  // sweep is not the weekly evidence).
+  // Record the sweep for the dashboard (paid runs only — a run0/empty sweep is
+  // not the weekly evidence). Both the headline summary and the full per-company
+  // settlement list, so every settled company is visible with its own tx.
   if (options.mode === "sweep" && summary.paid > 0 && options.write !== false) {
     await saveSweepSummary({
       surface: surface.id,
@@ -329,6 +331,10 @@ export async function runSweep(
       totalUsdc: summary.totalUsdc,
       sampleTx: summary.sampleTx,
     });
+    const items: SweepItem[] = records
+      .filter((r) => r.outcome === "paid" && r.txHash)
+      .map((r) => ({ ticker: r.ticker, amountUsdc: r.actualUsdc ?? surface.priceUsd, tx: r.txHash, at: r.at }));
+    await saveSweepItems(surface.id, week, items);
   }
 
   console.log(

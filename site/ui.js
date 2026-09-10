@@ -266,6 +266,79 @@ async function loadRun() {
 loadRun();
 setInterval(loadRun, 60000);
 
+/* ── Weekly sweep detail (below the hero) ───────────────────────────────────
+   Every company settled in the latest sweep, one row per per-call payment with
+   its own tx. Paged so hundreds→thousands of rows stay light. */
+const sweepState = { surface: null, week: null, offset: 0, total: 0, summaries: [] };
+
+function selectSweep(surface) {
+  const s = sweepState.summaries.find((x) => x.surface === surface);
+  if (!s) return;
+  sweepState.surface = surface;
+  sweepState.week = s.week;
+  sweepState.offset = 0;
+  sweepState.total = s.settlements;
+  document.querySelectorAll('#sweep-tabs .sweep__tab').forEach((b) =>
+    b.setAttribute('aria-selected', b.dataset.surface === surface ? 'true' : 'false'));
+  const name = surface === 'edinet' ? 'EDINET 週次' : surface === 'catalyst' ? 'Catalyst 週次' : surface;
+  document.getElementById('sweep-title').textContent = name;
+  document.getElementById('sweep-sub').textContent =
+    `${s.week} · ${s.settlements}件 · ${money(s.totalUsdc)} · 社ごとに per-call 決済`;
+  document.getElementById('sweep-list').innerHTML = '';
+  loadSweepPage(true);
+}
+
+async function loadSweepPage(reset) {
+  const list = document.getElementById('sweep-list');
+  const more = document.getElementById('sweep-more');
+  if (reset) sweepState.offset = 0;
+  try {
+    const url = `/api/sweeps/${encodeURIComponent(sweepState.surface)}/${encodeURIComponent(sweepState.week)}/items?offset=${sweepState.offset}&limit=50`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const page = await res.json();
+    const start = page.offset || 0;
+    const items = page.items || [];
+    list.insertAdjacentHTML('beforeend', items.map((it, i) => {
+      const idx = start + i + 1;
+      const tx = it.tx
+        ? `<a class="sweep__txlink" href="${txUrl(it.tx)}" target="_blank" rel="noopener">${esc(shortTx(it.tx))}</a>`
+        : '<span class="sweep__txlink sweep__txlink--none">no tx</span>';
+      const label = it.name ? `${esc(it.name)} (${esc(it.ticker)})` : (it.ticker ? esc(it.ticker) : '—');
+      return `<li class="sweep__item"><span class="sweep__idx">#${idx}</span>` +
+        `<span class="sweep__ticker">${label}</span>` +
+        `<span class="sweep__amt">${money(it.amountUsdc)}</span>${tx}</li>`;
+    }).join(''));
+    sweepState.offset = start + items.length;
+    sweepState.total = page.total || 0;
+    if (more) more.hidden = sweepState.offset >= sweepState.total;
+  } catch { if (more) more.hidden = true; }
+}
+
+async function loadSweepDetail() {
+  const section = document.getElementById('sweep');
+  if (!section) return;
+  try {
+    const res = await fetch('/api/sweeps');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const sweeps = (await res.json()).sweeps || [];
+    if (!sweeps.length) { section.hidden = true; return; }
+    section.hidden = false;
+    sweepState.summaries = sweeps;
+    const tabs = document.getElementById('sweep-tabs');
+    tabs.innerHTML = sweeps.map((s) => {
+      const label = s.surface === 'edinet' ? 'EDINET' : s.surface === 'catalyst' ? 'Catalyst' : s.surface;
+      return `<button class="sweep__tab" role="tab" data-surface="${esc(s.surface)}">${esc(label)}</button>`;
+    }).join('');
+    tabs.querySelectorAll('.sweep__tab').forEach((b) =>
+      b.addEventListener('click', () => selectSweep(b.dataset.surface)));
+    selectSweep(sweeps[0].surface);   // newest sweep first
+  } catch { section.hidden = true; }
+}
+
+document.getElementById('sweep-more')?.addEventListener('click', () => loadSweepPage(false));
+loadSweepDetail();
+
 /* ── Menu ───────────────────────────────────────────────────────────────── */
 const menu = document.getElementById('menu');
 const openBtn = document.getElementById('menu-open');

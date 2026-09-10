@@ -159,6 +159,25 @@
     </div>
   </main>
 
+  <!-- ── Weekly sweep detail ────────────────────────────────────────────────
+       Below the hero: every company settled in the latest weekly sweep, one
+       row per per-call payment with its own Solscan tx. Scroll down to reach it. -->
+  <section class="sweep" id="sweep" aria-label="Weekly sweep settlements" hidden>
+    <div class="sweep__inner">
+      <header class="sweep__head">
+        <div>
+          <h2 class="sweep__title" id="sweep-title">Weekly sweep</h2>
+          <p class="sweep__sub" id="sweep-sub"></p>
+        </div>
+        <div class="sweep__tabs" id="sweep-tabs" role="tablist"></div>
+      </header>
+      <ol class="sweep__list" id="sweep-list"></ol>
+      <div class="sweep__foot">
+        <button class="sweep__more" id="sweep-more" type="button" hidden>もっと見る</button>
+      </div>
+    </div>
+  </section>
+
   <!-- ── Endpoints overlay ─────────────────────────────────────────────────
        The hero itself never scrolls; the catalog lives in an overlay that
        scrolls internally. -->

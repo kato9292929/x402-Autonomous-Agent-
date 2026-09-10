@@ -6,12 +6,12 @@
 
 html, body {
   width: 100%;
-  height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  /* The hero is the first screen (100dvh); the weekly-sweep list flows below it,
+     so the page scrolls vertically. Horizontal scroll stays locked. */
   overflow-x: hidden;
-  /* pre-load fallback behind the video only; the page never scrolls */
+  overflow-y: auto;
   background: #c2ccd3;
   color: #000;
   font-family: 'Helvetica Neue Light', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -456,6 +456,59 @@ h1, h2, h3, p { margin: 0; }
   font-size: 0.625rem; line-height: 1.5; color: #8a5300;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* ── Weekly sweep detail (below the hero) ─────────────────────────────────── */
+.sweep {
+  position: relative;
+  z-index: 5;                 /* above the fixed bg-video */
+  background: #eef1f3;
+  color: #000;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 3rem 1.25rem 4rem;
+}
+@media (min-width: 768px) { .sweep { padding: 4rem 3rem 5rem; } }
+.sweep__inner { max-width: 60rem; margin: 0 auto; }
+.sweep__head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
+}
+.sweep__title { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.025em; margin: 0; }
+.sweep__sub { margin: 0.25rem 0 0; font-size: 0.8125rem; color: rgba(0, 0, 0, 0.55); }
+.sweep__tabs { display: flex; gap: 0.5rem; }
+.sweep__tab {
+  font-size: 0.75rem; padding: 0.3125rem 0.75rem; border-radius: 9999px; cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.15); background: transparent; color: rgba(0, 0, 0, 0.6);
+}
+.sweep__tab[aria-selected="true"] { background: #000; color: #fff; border-color: #000; }
+.sweep__list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: 1fr; gap: 1px;
+  background: rgba(0, 0, 0, 0.06); border: 1px solid rgba(0, 0, 0, 0.06); border-radius: 10px;
+  overflow: hidden;
+}
+@media (min-width: 640px) { .sweep__list { grid-template-columns: 1fr 1fr; } }
+.sweep__item {
+  display: flex; align-items: baseline; gap: 0.625rem;
+  padding: 0.5rem 0.75rem; background: #f8fafb; font-variant-numeric: tabular-nums;
+}
+.sweep__idx { font-size: 0.625rem; color: rgba(0, 0, 0, 0.35); min-width: 2.25rem; }
+.sweep__ticker {
+  font-size: 0.8125rem; color: rgba(0, 0, 0, 0.8); font-weight: 500; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sweep__amt { font-size: 0.6875rem; color: rgba(0, 0, 0, 0.45); }
+.sweep__txlink {
+  font-size: 0.6875rem; color: rgba(0, 0, 0, 0.7); text-decoration: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2); font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.sweep__txlink:hover { color: #000; }
+.sweep__txlink--none { color: rgba(0, 0, 0, 0.3); border-bottom-color: transparent; }
+.sweep__foot { margin-top: 1.25rem; text-align: center; }
+.sweep__more {
+  font-size: 0.8125rem; padding: 0.5rem 1.25rem; border-radius: 9999px; cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.2); background: transparent; color: rgba(0, 0, 0, 0.7);
+}
+.sweep__more:hover { border-color: #000; color: #000; }
+
 /* Weekly sweep rows lead the list — the per-call settlement evidence. */
 .settle__row--sweep { padding-bottom: 0.625rem; border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
 .settle__row--sweep .settle__name { color: rgba(0, 0, 0, 0.85); font-weight: 500; }

@@ -13,6 +13,7 @@ import { loadRuns } from "./store/run-store";
 import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { loadSweepSummaries } from "./store/sweep-summary";
+import { loadSweepItems } from "./store/sweep-items";
 import { buildDashboardPage } from "./dashboard";
 import type { WorldIdVerifyResponse } from "./world-id/types";
 import type { IDKitResult } from "@worldcoin/idkit-core";
@@ -529,6 +530,27 @@ export function startHttpServer(): void {
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/sweeps error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // Full per-company settlement list of one sweep (paged):
+    //   GET /api/sweeps/{surface}/{week}/items?offset=&limit=
+    if (req.method === "GET" && /^\/api\/sweeps\/[^/]+\/[^/]+\/items$/.test(urlPath)) {
+      const parts = urlPath.split("/"); // ["", "api", "sweeps", surface, week, "items"]
+      const surface = decodeURIComponent(parts[3]);
+      const week = decodeURIComponent(parts[4]);
+      const qp = new URL(req.url ?? "/", "http://localhost").searchParams;
+      const offset = Math.max(0, parseInt(qp.get("offset") ?? "0", 10) || 0);
+      const limit = Math.min(500, Math.max(1, parseInt(qp.get("limit") ?? "50", 10) || 50));
+      loadSweepItems(surface, week, offset, limit)
+        .then((page) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { surface, week, ...page });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/sweeps items error:", err);
           if (!res.headersSent) sendJson(res, 500, { error: String(err) });
         });
       return;

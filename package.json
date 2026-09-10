@@ -21,6 +21,7 @@
     "edinet:sweep": "node dist/index.js --edinet-sweep",
     "edinet:reset": "node dist/scripts/edinet-reset.js",
     "seed:edinet-sweep": "node dist/scripts/seed-edinet-sweep.js",
+    "backfill:edinet-items": "node dist/scripts/backfill-edinet-items.js",
     "arc:record-reputation": "node dist/scripts/arc-record-reputation.js",
     "arc:run-validation": "node dist/scripts/arc-run-validation.js",
     "test": "npm run build && node --test dist/__tests__/**/*.test.js"
