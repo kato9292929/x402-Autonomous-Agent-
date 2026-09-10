@@ -284,6 +284,26 @@ function selectSweep(surface) {
   document.getElementById('sweep-title').textContent = name;
   document.getElementById('sweep-sub').textContent =
     `${s.week} · ${s.settlements}件 · ${money(s.totalUsdc)} · 社ごとに per-call 決済`;
+
+  // Scope caveat (this week's settlements are an excerpt of the full universe)
+  // and what each per-call actually returns, with the data source.
+  const scope = document.getElementById('sweep-scope');
+  const desc = document.getElementById('sweep-desc');
+  if (surface === 'edinet') {
+    scope.innerHTML = `EDINET の全提出者 約4,000社を <code>/api/edinet/{code}</code> で per-call 取得可能。` +
+      `下記は今週 AA が実決済した ${s.settlements}社 ＝その抜粋。`;
+    desc.innerHTML = `各 per-call は <code>/api/edinet/{code}</code> で EDINET の開示` +
+      `（有報／四半期／決算短信の主要財務・書類種別・提出日）を1社ぶん返す。出典：金融庁 EDINET。`;
+  } else if (surface === 'catalyst') {
+    scope.innerHTML = `自社リサーチの約${s.settlements}社を <code>/api/catalyst/{ticker}</code> で per-call 取得。` +
+      `下記は今週 AA が実決済した全社。`;
+    desc.innerHTML = `各 per-call は <code>/api/catalyst/{ticker}</code> で自社リサーチのカタリスト` +
+      `（事業・財務・成立条件・出典）を1社ぶん返す。`;
+  } else {
+    scope.textContent = '';
+    desc.textContent = '';
+  }
+
   document.getElementById('sweep-list').innerHTML = '';
   loadSweepPage(true);
 }
