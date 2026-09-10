@@ -49,6 +49,7 @@ import {
   type TargetSummary,
 } from "../probe/record";
 import { priceOf } from "../payment-guard";
+import { parseAdvertisedRoutes, saveRawMetadata, type DiscoveredRoute } from "../probe/discover-routes";
 
 /** Consecutive failures from one seller before it is dropped for the day (§2). */
 const MAX_CONSECUTIVE_ERRORS = 3;
@@ -110,13 +111,19 @@ function url(target: ProbeTarget, p: string): string {
 
 // ── discovery (run 0) ───────────────────────────────────────────────────────
 
+interface DiscoverResult {
+  record: ProbeCallRecord;
+  /** The response body, so a metadata doc can be parsed without a second fetch. */
+  payload: unknown;
+}
+
 async function discoverPath(
   target: ProbeTarget,
   p: string,
   method: "GET" | "POST",
   body: Record<string, unknown> | undefined,
   doFetch: typeof globalThis.fetch
-): Promise<ProbeCallRecord> {
+): Promise<DiscoverResult> {
   const at = new Date().toISOString();
   const startMs = Date.now();
   const base: ProbeCallRecord = {
@@ -141,7 +148,7 @@ async function discoverPath(
     if (res.status === 402) {
       const challenge = readChallenge(res, payload);
       if (!challenge) {
-        return { ...base, outcome: "error", reason: "402 だが PAYMENT-REQUIRED を読めない" };
+        return { record: { ...base, outcome: "error", reason: "402 だが PAYMENT-REQUIRED を読めない" }, payload };
       }
       const quoted = challenge.quotedUsdc;
       const verdict = quoted !== undefined ? allowsCall(quoted, 0, 0) : undefined;
@@ -152,29 +159,22 @@ async function discoverPath(
             ? "run0: 402 読み取り成功・予算内(無課金)"
             : `run0: 単価が上限超過のため本番でも叩かない — ${verdict?.reason}`;
       return {
-        ...base,
-        outcome: "skipped",
-        quotedUsdc: quoted,
-        offeredNetworks: challenge.offeredNetworks,
-        reason,
+        record: { ...base, outcome: "skipped", quotedUsdc: quoted, offeredNetworks: challenge.offeredNetworks, reason },
+        payload,
       };
     }
 
     if (res.ok) {
-      return { ...base, outcome: "free", summary: summarizeBody(payload), reason: "無課金で 200" };
+      return { record: { ...base, outcome: "free", summary: summarizeBody(payload), reason: "無課金で 200" }, payload };
     }
     return {
-      ...base,
-      outcome: "error",
-      reason: `HTTP ${res.status}`,
-      summary: summarizeBody(payload),
+      record: { ...base, outcome: "error", reason: `HTTP ${res.status}`, summary: summarizeBody(payload) },
+      payload,
     };
   } catch (err) {
     return {
-      ...base,
-      latencyMs: Date.now() - startMs,
-      outcome: "error",
-      reason: err instanceof Error ? err.message : String(err),
+      record: { ...base, latencyMs: Date.now() - startMs, outcome: "error", reason: err instanceof Error ? err.message : String(err) },
+      payload: undefined,
     };
   }
 }
@@ -186,16 +186,36 @@ async function runDiscovery(
   const records: ProbeCallRecord[] = [];
   for (const target of targets) {
     console.log(`[PROBE] run0 ${target.name} (${target.host})`);
+
+    // Read the metadata docs and pull the advertised paid routes out of them,
+    // parsing the same body the reachability check already read.
+    const discovered: DiscoveredRoute[] = [];
     for (const meta of target.metadata) {
-      records.push(await discoverPath(target, meta, "GET", undefined, doFetch));
+      const { record, payload } = await discoverPath(target, meta, "GET", undefined, doFetch);
+      records.push(record);
+      if (record.outcome === "free") {
+        saveRawMetadata(target.id, meta, payload);
+        discovered.push(...parseAdvertisedRoutes(payload, meta));
+      }
     }
     for (const probe of target.probes) {
       if (isExecutionPath(probe.path)) continue; // 執行系は discovery でも叩かない
-      records.push(await discoverPath(target, probe.path, probe.method, probe.body, doFetch));
+      records.push((await discoverPath(target, probe.path, probe.method, probe.body, doFetch)).record);
     }
-    if (target.probes.length === 0) {
+
+    // Report what the metadata advertised, read-only routes only.
+    const paidRoutes = discovered.filter((r) => !isExecutionPath(r.path));
+    if (paidRoutes.length > 0) {
+      console.log(`[PROBE] ${target.name}: metadata から ${paidRoutes.length} ルート検出`);
+      for (const r of paidRoutes.slice(0, 20)) {
+        const price = r.priceUsd !== undefined ? `$${r.priceUsd}` : "price?";
+        const net = r.networks?.join("/") ?? "net?";
+        console.log(`[PROBE]   ${r.method ?? "GET"} ${r.path} — ${price} (${net}) [${r.from}]`);
+      }
+    } else if (target.probes.length === 0) {
       console.log(
-        `[PROBE] ${target.name}: 有料ルート未確定 — metadata の結果からルートを決めてから sweep 対象にする`
+        `[PROBE] ${target.name}: 有料ルート未確定 — metadata を解析できず。` +
+          `data/probe/metadata/${target.id}__*.json に生データを保存(貼れば手当てします)`
       );
     }
   }

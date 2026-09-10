@@ -39,7 +39,92 @@ async function weeklyRun(): Promise<void> {
   await queueModeC();
 }
 
+/**
+ * CLI flags that make the process a one-shot command rather than the long-running
+ * agent. When any is present we run just that command and exit — no HTTP server,
+ * no cron, no autopilots. Running them inside the full agent would bind :8080
+ * alongside the deployed service (EADDRINUSE) and arm a second set of schedulers.
+ */
+const ONE_SHOT_FLAGS = [
+  "--run-now",
+  "--run-weekly",
+  "--run-osd",
+  "--run-mode-d",
+  "--probe-run0",
+  "--probe-sweep",
+  "--catalyst-run0",
+  "--catalyst-sweep",
+  "--edinet-run0",
+  "--edinet-sweep",
+];
+
+/** Dispatch the requested one-shot command(s). Paid ones need paymentsReady. */
+async function runOneShots(paymentsReady: boolean): Promise<void> {
+  const requirePayments = (flag: string): boolean => {
+    if (paymentsReady) return true;
+    console.error(`[AGENT] ${flag} skipped — x402 payment layer is not initialised`);
+    return false;
+  };
+
+  if (process.argv.includes("--run-now") && requirePayments("--run-now")) {
+    console.log("\n[AGENT] Manual run triggered");
+    await dailyRun();
+  }
+  if (process.argv.includes("--run-weekly") && requirePayments("--run-weekly")) {
+    console.log("\n[AGENT] Manual weekly run triggered (queuing for approval)");
+    await weeklyRun();
+  }
+  if (process.argv.includes("--run-osd") && requirePayments("--run-osd")) {
+    console.log("\n[AGENT] Manual osd-consumption run triggered");
+    await runOsdConsumption();
+  }
+  // run 0: 課金ゼロ。支払い層が無くても走れる(素の fetch のみ)。
+  if (process.argv.includes("--probe-run0")) {
+    console.log("\n[AGENT] External probe — run 0 (discovery only, no payments)");
+    await runExternalProbe({ mode: "discovery" });
+  }
+  if (process.argv.includes("--probe-sweep") && requirePayments("--probe-sweep")) {
+    console.log("\n[AGENT] External probe — weekly sweep (paid)");
+    await runExternalProbe({ mode: "sweep" });
+  }
+  if (process.argv.includes("--catalyst-run0")) {
+    console.log("\n[AGENT] Catalyst sweep — run 0 (discovery only, no payments)");
+    await runCatalystSweep({ mode: "discovery" });
+  }
+  if (process.argv.includes("--catalyst-sweep") && requirePayments("--catalyst-sweep")) {
+    console.log("\n[AGENT] Catalyst sweep — weekly (paid, Solana)");
+    await runCatalystSweep({ mode: "sweep" });
+  }
+  if (process.argv.includes("--edinet-run0")) {
+    console.log("\n[AGENT] EDINET sweep — run 0 (discovery only, no payments)");
+    await runEdinetSweep({ mode: "discovery" });
+  }
+  if (process.argv.includes("--edinet-sweep") && requirePayments("--edinet-sweep")) {
+    console.log("\n[AGENT] EDINET sweep — weekly (paid, Solana)");
+    await runEdinetSweep({ mode: "sweep" });
+  }
+  if (process.argv.includes("--run-mode-d") && requirePayments("--run-mode-d")) {
+    console.log("\n[AGENT] Manual Mode D (osd alpha consumption) run triggered");
+    await runModeD();
+  }
+}
+
 async function main(): Promise<void> {
+  // One-shot CLI invocation: run the command and exit. Do NOT start the HTTP
+  // server, cron, or autopilots — those belong only to the deployed service, and
+  // starting them here would collide with it (EADDRINUSE on :8080).
+  if (ONE_SHOT_FLAGS.some((f) => process.argv.includes(f))) {
+    let ready = false;
+    try {
+      await initX402Fetch();
+      ready = true;
+    } catch (err) {
+      console.error("[AGENT] x402 payment init failed (unpaid commands still run):", err);
+    }
+    await runOneShots(ready);
+    return;
+  }
+
   // The HTTP server (dashboard + API) is read-only and does not need the
   // payment layer. Bring it up first and keep it up.
   startHttpServer();
@@ -198,67 +283,6 @@ async function main(): Promise<void> {
     }`
   );
 
-  // A manual paid run cannot proceed if the payment layer never initialised.
-  // Skip it with a clear message rather than throwing a "not initialized" error
-  // deep in the run.
-  const requirePayments = (flag: string): boolean => {
-    if (paymentsReady) return true;
-    console.error(`[AGENT] ${flag} skipped — x402 payment layer is not initialised`);
-    return false;
-  };
-
-  if (process.argv.includes("--run-now") && requirePayments("--run-now")) {
-    console.log("\n[AGENT] Manual run triggered");
-    await dailyRun();
-  }
-
-  if (process.argv.includes("--run-weekly") && requirePayments("--run-weekly")) {
-    console.log("\n[AGENT] Manual weekly run triggered (queuing for approval)");
-    await weeklyRun();
-  }
-
-  if (process.argv.includes("--run-osd") && requirePayments("--run-osd")) {
-    console.log("\n[AGENT] Manual osd-consumption run triggered");
-    await runOsdConsumption();
-  }
-
-  // run 0: 課金ゼロ。支払い層が無くても走れる(素の fetch のみ)。
-  if (process.argv.includes("--probe-run0")) {
-    console.log("\n[AGENT] External probe — run 0 (discovery only, no payments)");
-    await runExternalProbe({ mode: "discovery" });
-  }
-
-  if (process.argv.includes("--probe-sweep") && requirePayments("--probe-sweep")) {
-    console.log("\n[AGENT] External probe — weekly sweep (paid)");
-    await runExternalProbe({ mode: "sweep" });
-  }
-
-  // 課金ゼロ。一覧取得＋402読みだけ。支払い層が無くても走れる。
-  if (process.argv.includes("--catalyst-run0")) {
-    console.log("\n[AGENT] Catalyst sweep — run 0 (discovery only, no payments)");
-    await runCatalystSweep({ mode: "discovery" });
-  }
-
-  if (process.argv.includes("--catalyst-sweep") && requirePayments("--catalyst-sweep")) {
-    console.log("\n[AGENT] Catalyst sweep — weekly (paid, Solana)");
-    await runCatalystSweep({ mode: "sweep" });
-  }
-
-  // 課金ゼロ。一覧取得＋402読みだけ。
-  if (process.argv.includes("--edinet-run0")) {
-    console.log("\n[AGENT] EDINET sweep — run 0 (discovery only, no payments)");
-    await runEdinetSweep({ mode: "discovery" });
-  }
-
-  if (process.argv.includes("--edinet-sweep") && requirePayments("--edinet-sweep")) {
-    console.log("\n[AGENT] EDINET sweep — weekly (paid, Solana)");
-    await runEdinetSweep({ mode: "sweep" });
-  }
-
-  if (process.argv.includes("--run-mode-d") && requirePayments("--run-mode-d")) {
-    console.log("\n[AGENT] Manual Mode D (osd alpha consumption) run triggered");
-    await runModeD();
-  }
 }
 
 main().catch((err) => {
