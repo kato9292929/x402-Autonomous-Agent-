@@ -12,6 +12,7 @@ import { runModeC } from "./modes/modeC";
 import { loadRuns } from "./store/run-store";
 import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
+import { loadSweepSummaries } from "./store/sweep-summary";
 import { buildDashboardPage } from "./dashboard";
 import type { WorldIdVerifyResponse } from "./world-id/types";
 import type { IDKitResult } from "@worldcoin/idkit-core";
@@ -513,6 +514,21 @@ export function startHttpServer(): void {
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/runs error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // Latest weekly sweep per surface (catalyst / EDINET), newest first —
+    // the "毎週N社 per-call 決済" evidence shown at the top of the card.
+    if (urlPath === "/api/sweeps" && req.method === "GET") {
+      loadSweepSummaries()
+        .then((sweeps) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { sweeps });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/sweeps error:", err);
           if (!res.headersSent) sendJson(res, 500, { error: String(err) });
         });
       return;

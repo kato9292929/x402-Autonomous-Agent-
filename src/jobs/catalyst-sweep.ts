@@ -30,6 +30,7 @@ import {
   type ObservedChallenge,
 } from "../catalyst/client";
 import { allowsCall, isoWeekKey, readWeekSpend, recordWeekSpend } from "../probe/budget";
+import { saveSweepSummary } from "../store/sweep-summary";
 import { CATALYST_SURFACE, EDINET_SURFACE, osdBase, type PaycallSurface } from "../paycall/surface";
 import {
   appendCsv,
@@ -316,6 +317,19 @@ export async function runSweep(
 
   const summary = summarize(records);
   if (options.write !== false) appendCsv(records, csvPath(surface.id));
+
+  // Record the sweep for the dashboard headline (paid runs only — a run0/empty
+  // sweep is not the weekly evidence).
+  if (options.mode === "sweep" && summary.paid > 0 && options.write !== false) {
+    await saveSweepSummary({
+      surface: surface.id,
+      at: new Date().toISOString(),
+      week,
+      settlements: summary.paid,
+      totalUsdc: summary.totalUsdc,
+      sampleTx: summary.sampleTx,
+    });
+  }
 
   console.log(
     `[${tag}] 完了 — ${summary.tickers} 件 (paid ${summary.paid}, free ${summary.free}, ` +

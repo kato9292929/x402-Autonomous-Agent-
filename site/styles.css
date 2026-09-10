@@ -456,6 +456,10 @@ h1, h2, h3, p { margin: 0; }
   font-size: 0.625rem; line-height: 1.5; color: #8a5300;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Weekly sweep rows lead the list — the per-call settlement evidence. */
+.settle__row--sweep { padding-bottom: 0.625rem; border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
+.settle__row--sweep .settle__name { color: rgba(0, 0, 0, 0.85); font-weight: 500; }
+.settle__badge--sweep { background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.6); }
 .settle__empty { font-size: 0.75rem; color: rgba(0, 0, 0, 0.45); }
 .settle__more { font-size: 0.6875rem; }
 .settle__more a { color: rgba(0, 0, 0, 0.5); text-decoration: none; }
