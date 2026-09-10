@@ -6,6 +6,14 @@ import { logRun } from "../logger";
 import { saveRun } from "../store/run-store";
 import { sendWebhookSummary } from "../notify";
 import { summarizeYield } from "./yield-observe";
+import {
+  loadCooldown,
+  saveCooldown,
+  decideCall,
+  nextState,
+  cooldownReason,
+  type CallOutcome,
+} from "./fallback-cooldown";
 import type { EndpointResult, RunLog } from "../types";
 
 const FAILURE_ALERT_THRESHOLD = 3;
@@ -97,8 +105,40 @@ export async function runModeB(): Promise<RunLog> {
   const endpointIdByUrl = new Map(ENDPOINTS_MODE_B.map((ep) => [ep.url, ep.id]));
 
   for (const ep of ENDPOINTS_MODE_B) {
+    // Skip an endpoint stuck serving fallback data — don't pay for degraded data
+    // every day. A low-frequency probe still buys it to detect a return to live.
+    const cd = await loadCooldown(ep.id);
+    const plan = decideCall(cd, date);
+    if (!plan.call) {
+      log.results.push({
+        endpoint: ep.url,
+        product: ep.name,
+        status: "degraded",
+        costUsdc: 0,
+        responsePeek: "",
+        degradedReason: cooldownReason(cd),
+        durationMs: 0,
+      });
+      console.log(`[MODE B] ⏸ ${ep.name} — cooldown, skipped (saved $${ep.cost.toFixed(2)})`);
+      continue;
+    }
+
     const result = await callEndpoint(ep);
     log.results.push(result);
+
+    // Fold this outcome into the endpoint's cooldown state: a degraded result is
+    // fallback, a success is live (and clears any cooldown). A probe that comes
+    // back live resumes normal daily buying.
+    const outcome: CallOutcome =
+      result.status === "success" ? "live" : result.status === "degraded" ? "fallback" : "error";
+    const wasCooled = cd.inCooldown;
+    const ns = nextState(cd, date, outcome, plan.probe);
+    await saveCooldown(ns);
+    if (!wasCooled && ns.inCooldown) {
+      console.warn(`[MODE B] ⏸ ${ep.name} — entered cooldown (${ns.consecutiveFallback} degraded days)`);
+    } else if (wasCooled && !ns.inCooldown) {
+      console.log(`[MODE B] ▶ ${ep.name} — recovered to live, cooldown cleared`);
+    }
 
     // Yield のレスポンス実値を観測ログに出す(判断には使わない)
     if (ep.id === "yield-intelligence") {

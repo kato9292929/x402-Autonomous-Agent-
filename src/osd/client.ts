@@ -103,11 +103,19 @@ export interface ScoreResponse {
   [k: string]: unknown;
 }
 
-/** Returns null when the catalyst id is unknown (404). */
+/**
+ * Returns null when the catalyst id is unknown (404).
+ *
+ * osd turned the score endpoint into a paid one (it now answers 402), so this
+ * goes through fetchWithPayment rather than plain fetch — the x402 client signs
+ * the Solana leg from the 402 challenge, the same wallet the alpha endpoints use
+ * (~$0.01/poll). Before this it was a plain fetch and every poll threw on the
+ * 402, so scores were never read.
+ */
 export async function getCatalystScore(catalystId: string): Promise<ScoreResponse | null> {
   const url = `${osdBase()}/api/alpha/catalyst/${encodeURIComponent(catalystId)}/score`;
   return withTimeout(async (signal) => {
-    const res = await fetch(url, { signal });
+    const res = await fetchWithPayment(url, { signal });
     if (res.status === 404) return null;
     if (!res.ok) {
       const text = await res.text().catch(() => "(no body)");

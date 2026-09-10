@@ -178,10 +178,15 @@ async function loadRun() {
 
     document.getElementById('run-when').textContent =
       new Date(today[today.length - 1].timestamp).toLocaleDateString('ja-JP');
+    // A cooled-down endpoint was intentionally not bought — don't count it as a
+    // failed call in the OK ratio (it is neither success nor a real attempt).
+    const isCooldown = (r) => r.status === 'degraded' && /^cooldown/.test(r.degradedReason || '');
+    const attempted = results.filter((r) => !isCooldown(r));
+
     document.getElementById('stat-spend').textContent = money(spend);
     document.getElementById('stat-tx').textContent = paid.length;
     document.getElementById('stat-ok').textContent =
-      results.filter((r) => r.status === 'success').length + '/' + results.length;
+      attempted.filter((r) => r.status === 'success').length + '/' + attempted.length;
 
     if (settle) {
       // Figures the agent actually received, keyed by path, so each row can show
@@ -201,8 +206,9 @@ async function loadRun() {
       // the "N/M OK" count is legible instead of one row silently missing.
       const shown = results.filter((r) => r.txHash || r.status === 'degraded' || r.status === 'error');
       settle.innerHTML = shown.map((r) => {
+        const cooldown = isCooldown(r);
         const bad = r.status === 'degraded' || r.status === 'error';
-        const badge = r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : '';
+        const badge = cooldown ? '休止' : r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : '';
         const reason = r.status === 'degraded'
           ? (r.degradedReason || 'fallback data')
           : r.status === 'error' ? (r.error || 'failed') : '';
