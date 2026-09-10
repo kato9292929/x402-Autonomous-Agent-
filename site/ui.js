@@ -196,17 +196,30 @@ async function loadRun() {
         }
       } catch { /* highlights are additive — the list still renders without them */ }
 
-      settle.innerHTML = paid.map((r) => {
+      // Show everything the day touched: settled rows, plus any that came back
+      // degraded (paid but fallback/stub data) or errored — with the reason — so
+      // the "N/M OK" count is legible instead of one row silently missing.
+      const shown = results.filter((r) => r.txHash || r.status === 'degraded' || r.status === 'error');
+      settle.innerHTML = shown.map((r) => {
+        const bad = r.status === 'degraded' || r.status === 'error';
+        const badge = r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : '';
+        const reason = r.status === 'degraded'
+          ? (r.degradedReason || 'fallback data')
+          : r.status === 'error' ? (r.error || 'failed') : '';
         const facts = factsByPath.get(pathOf(r.endpoint || '')) || [];
-        const line = facts.length
-          ? `<div class="settle__facts">${facts.map((f) => `<span>${esc(f)}</span>`).join('')}</div>`
-          : (r.responsePeek ? `<div class="settle__facts settle__facts--raw">${esc(String(r.responsePeek).slice(0, 70))}</div>` : '');
+        const line = bad
+          ? `<div class="settle__reason">${esc(String(reason).slice(0, 90))}</div>`
+          : (facts.length
+              ? `<div class="settle__facts">${facts.map((f) => `<span>${esc(f)}</span>`).join('')}</div>`
+              : (r.responsePeek ? `<div class="settle__facts settle__facts--raw">${esc(String(r.responsePeek).slice(0, 70))}</div>` : ''));
         return `
-        <li class="settle__row">
+        <li class="settle__row${bad ? ' settle__row--bad' : ''}">
           <div class="settle__head">
-            <span class="settle__name">${esc(r.product || r.endpoint)}</span>
+            <span class="settle__name">${esc(r.product || r.endpoint)}${badge ? ` <span class="settle__badge">${badge}</span>` : ''}</span>
             <span class="settle__cost">${money(r.costUsdc)}</span>
-            <a class="settle__tx" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>
+            ${r.txHash
+              ? `<a class="settle__tx" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>`
+              : '<span class="settle__tx settle__tx--none">no tx</span>'}
           </div>
           ${line}
         </li>`;
