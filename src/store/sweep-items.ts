@@ -22,6 +22,18 @@ export interface SweepItem {
   /** Settlement tx (Solscan). */
   tx?: string;
   at: string;
+
+  // ── 財務ハイライトの差し替え口 (osd #51 EDINET 実財務スキーマ) ────────────────
+  // 表示単位は百万円に統一。EDINET は生JPY を jpyToMillions() で ÷1e6 して入れ、
+  // catalyst は既に百万円なのでそのまま入れる(単位整合)。
+  // 区分A ではインターフェースのみ用意し、値は埋めない(区分B の実 inspect 後に配線)。
+  // 実値未確認の間に表示するダミーには必ず「未検証」ラベルを付ける(禁止事項: ラベル運用)。
+  /** 売上高 (百万円)。null=取得不可、undefined=未取り込み。 */
+  salesM?: number | null;
+  /** 営業利益 (百万円)。 */
+  operatingIncomeM?: number | null;
+  /** false = 書類は特定できたが財務未取得(空を財務に見せない)。 */
+  financialsAvailable?: boolean;
 }
 
 const redisKey = (surface: string, week: string) => `sweep_items:${surface}:${week}`;

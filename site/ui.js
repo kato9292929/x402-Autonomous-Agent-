@@ -142,6 +142,8 @@ async function loadSamples() {
 
 /* ── Live "latest run" card ─────────────────────────────────────────────── */
 const money = (n) => '$' + (Number(n) || 0).toFixed(3);
+/** 百万円の表示。null/未取得は「—」(0で埋めない)。 */
+const fmtM = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : Number(n).toLocaleString('ja-JP'));
 const shortTx = (t) => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
 const txUrl = (t) => (t && t.startsWith('0x') ? 'https://basescan.org/tx/' + t : 'https://solscan.io/tx/' + t);
 /** Path of a called URL, to match a settlement against its captured sample. */
@@ -292,8 +294,13 @@ function selectSweep(surface) {
   if (surface === 'edinet') {
     scope.innerHTML = `EDINET の全提出者 約4,000社を <code>/api/edinet/{code}</code> で per-call 取得可能。` +
       `下記は今週 AA が実決済した ${s.settlements}社 ＝その抜粋。`;
-    desc.innerHTML = `各 per-call は <code>/api/edinet/{code}</code> で EDINET の開示` +
-      `（有報／四半期／決算短信の主要財務・書類種別・提出日）を1社ぶん返す。出典：金融庁 EDINET。`;
+    // osd #51 の実スキーマに明記(曖昧な「主要財務」は廃止)。
+    desc.innerHTML = `各 per-call は <code>/api/edinet/{code}</code> で、その社の最新の有報／四半期報告書から` +
+      `実財務を1社ぶん返す：<code>sales</code>（売上高）・<code>operating_income</code>（営業利益）・` +
+      `<code>net_income</code>（純利益）＝いずれも生JPY、<code>period</code>（会計期間）・` +
+      `<code>doc_id</code>（EDINET書類ID）・<code>financials_available</code>。` +
+      `株価・時価総額などの相場データは含まない。` +
+      `<code>financials_available:false</code> の社は「書類は特定・財務は未取得」と表示する。出典：金融庁 EDINET。`;
   } else if (surface === 'catalyst') {
     scope.innerHTML = `自社リサーチの約${s.settlements}社を <code>/api/catalyst/{ticker}</code> で per-call 取得。` +
       `下記は今週 AA が実決済した全社。`;
@@ -325,9 +332,17 @@ async function loadSweepPage(reset) {
         ? `<a class="sweep__txlink" href="${txUrl(it.tx)}" target="_blank" rel="noopener">${esc(shortTx(it.tx))}</a>`
         : '<span class="sweep__txlink sweep__txlink--none">no tx</span>';
       const label = it.name ? `${esc(it.name)} (${esc(it.ticker)})` : (it.ticker ? esc(it.ticker) : '—');
+      // 財務ハイライト(百万円)。区分B で SweepItem に実値が乗ると自動で出る。値が来るまでは
+      // 何も出さない(ダミーを実データのふりで出さない)。financials_available:false は正直表示。
+      const hasFin = it.salesM != null || it.operatingIncomeM != null;
+      const fin = hasFin
+        ? `<div class="sweep__fin">売上 ${fmtM(it.salesM)} · 営利 ${fmtM(it.operatingIncomeM)} <span class="sweep__unit">百万円</span></div>`
+        : (it.financialsAvailable === false
+            ? `<div class="sweep__fin sweep__fin--none">書類は特定・財務は未取得</div>`
+            : '');
       return `<li class="sweep__item"><span class="sweep__idx">#${idx}</span>` +
         `<span class="sweep__ticker">${label}</span>` +
-        `<span class="sweep__amt">${money(it.amountUsdc)}</span>${tx}</li>`;
+        `<span class="sweep__amt">${money(it.amountUsdc)}</span>${tx}${fin}</li>`;
     }).join(''));
     sweepState.offset = start + items.length;
     sweepState.total = page.total || 0;

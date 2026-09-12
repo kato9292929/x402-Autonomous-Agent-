@@ -151,6 +151,48 @@ npm start                 # start the scheduler
 
 ---
 
+## EDINET financial schema (osd #51)
+
+`/api/edinet/{code}` (osd, the seller) returns a company's real financials from
+its latest 有報／四半期報告書 — not document metadata. The field names are the
+single source of truth in `src/edinet/schema.ts` (`EDINET_FINANCIAL_FIELDS`),
+referenced by the UI, the sweep, and the consumption side:
+
+| field | meaning |
+|---|---|
+| `sales` / `operating_income` / `net_income` | 当期・連結・**raw JPY**, or `null` |
+| `period` | accounting period |
+| `doc_id` | source EDINET document id |
+| `submit_datetime` | filing datetime |
+| `financials_available` | `true` = extracted; `false` = document found but financials not extracted |
+| `source` | `出典：金融庁 EDINET` |
+
+- **Unit discipline:** EDINET values are raw JPY; the display unit is **百万円**,
+  so the consumption side converts via `jpyToMillions()` (÷1e6). Catalyst's
+  financial column is already 百万円 and is used as-is. The unit label (百万円)
+  is always shown, so digits never misalign.
+- **No market data:** price / market cap are not returned.
+- **Fail loud:** `parseEdinetFinancials()` throws when `financials_available` is
+  missing (a legacy type=2/14-day-window response, or an unexpected shape) rather
+  than swallowing it. Non-numeric financial values become `null`, never a guess.
+- **`financials_available:false`** renders honestly ("書類は特定・財務は未取得"),
+  never as if a figure were present.
+
+### 区分A (done here) vs 区分B (Railway, real values)
+
+- **区分A (this repo, sandbox):** schema constant + `parseEdinetFinancials` +
+  `jpyToMillions`; the hero sweep section's EDINET copy names the real fields and
+  the honest `false` display; `SweepItem` carries a financial slot
+  (`salesM` / `operatingIncomeM` / `financialsAvailable`, 百万円) that the row UI
+  renders when present. **Real values are not populated here.**
+- **区分B (Railway, keys + egress):** `npm run edinet:inspect -- 7203 6501 6758`
+  confirms the real JSON; the next weekly sweep wires the parsed
+  `sales`/`operating_income` into `SweepItem` (via `jpyToMillions`). Until then
+  the rows show ticker · tx only — no synthetic financials are shown, and any
+  placeholder must carry a "未検証" label (see `src/store/sweep-items.ts`).
+- **Article** ("日本株の財務データ on Solana") is written only after 区分B/M1
+  confirms 7203's real values — not before (捏造回避).
+
 ## Scope & honesty notes
 
 - The agent **pays and decides**; it does **not** execute trades (`executed: false`) and makes no performance claims.

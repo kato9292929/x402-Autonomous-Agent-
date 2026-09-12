@@ -517,6 +517,14 @@ h1, h2, h3, p { margin: 0; }
 }
 .sweep__txlink:hover { color: #000; }
 .sweep__txlink--none { color: rgba(0, 0, 0, 0.3); border-bottom-color: transparent; }
+/* Financial highlights per row (百万円). Wraps to a full-width second line. */
+.sweep__fin {
+  flex-basis: 100%; margin-top: 0.125rem;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.625rem; color: rgba(0, 0, 0, 0.6); font-variant-numeric: tabular-nums;
+}
+.sweep__fin--none { color: rgba(0, 0, 0, 0.35); font-style: italic; }
+.sweep__unit { color: rgba(0, 0, 0, 0.4); }
 .sweep__foot { margin-top: 1.25rem; text-align: center; }
 .sweep__more {
   font-size: 0.8125rem; padding: 0.5rem 1.25rem; border-radius: 9999px; cursor: pointer;
