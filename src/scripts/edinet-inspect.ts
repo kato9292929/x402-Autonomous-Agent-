@@ -28,7 +28,11 @@ async function main(): Promise<void> {
   console.log(`[EDINET-INSPECT] ${CODES.length} codes via ${BASE}${ROUTE}/{code}\n`);
 
   for (const code of CODES) {
-    const url = `${BASE}${ROUTE}/${encodeURIComponent(code)}`;
+    // A code arg may carry a query string (e.g. "7203?debug=elements"). Encode
+    // only the path segment; keep the query raw, or the "?" gets percent-encoded
+    // into the path and never reaches osd as a query.
+    const [rawCode, qs] = String(code).split("?");
+    const url = `${BASE}${ROUTE}/${encodeURIComponent(rawCode)}${qs ? `?${qs}` : ""}`;
     console.log(`\n===== ${code} — ${url} =====`);
     try {
       const res = await fetchWithPayment(url, { method: "GET" });
