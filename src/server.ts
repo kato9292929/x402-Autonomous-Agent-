@@ -49,12 +49,7 @@ function buildAgentCard(): Record<string, unknown> {
     type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
     name: "x402 Autonomous Agent",
     description:
-      "オンチェーンID（ERC-8004）を持つ自律エージェント。毎朝06:00 JSTにデータをper-callで購入し、" +
-      "その日の判断を追記専用で記録します。決済はSolana/BaseのUSDCで1コールごとにオンチェーン完結し、" +
-      "署名はCircleのDeveloper-Controlled Walletが担います。\n\n" +
-      "自社エンドポイントを自社エージェントが消費する構成で、決済スタックが毎日end-to-endで動くことを実証中です。" +
-      "売買執行は接続せず、週次の高額データ購入の前にはWorld IDによる人間の承認を必須とするなど、" +
-      "委任範囲を人間が管理する設計も実装しています。",
+      "Autonomous agent that consumes paid data endpoints daily via the x402 payment protocol on Base (EVM) and Solana.",
     services: [
       { name: "web", endpoint: baseUrl },
     ],
