@@ -53,6 +53,21 @@ test("entity secret も TEST 未設定なら停止(LIVE へフォールバック
   );
 });
 
+test("mainnet: CIRCLE_API_KEY を読み、TEST があってもフォールバックしない", () => {
+  withEnv(
+    { ARC_NETWORK: "mainnet", CIRCLE_API_KEY: "LIVE_API_KEY:live", CIRCLE_API_KEY_TEST: "TEST_API_KEY:should-not-be-used" },
+    () => {
+      assert.equal(getRequiredArcTestApiKey(), "LIVE_API_KEY:live");
+    }
+  );
+});
+
+test("mainnet: CIRCLE_API_KEY 未設定なら TEST があっても停止(取り違えを大きく失敗)", () => {
+  withEnv({ ARC_NETWORK: "mainnet", CIRCLE_API_KEY: undefined, CIRCLE_API_KEY_TEST: "TEST_API_KEY:x" }, () => {
+    assert.throws(() => getRequiredArcTestApiKey(), /CIRCLE_API_KEY is required for Arc mainnet/);
+  });
+});
+
 async function withEnvAsync(
   vars: Record<string, string | undefined>,
   fn: () => Promise<void>
