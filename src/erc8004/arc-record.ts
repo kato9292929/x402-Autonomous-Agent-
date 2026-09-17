@@ -11,7 +11,7 @@ import * as path from "path";
 import { upstashConfigured, upstashCommand } from "../store/upstash-rest";
 
 export interface ArcRegistration {
-  chain: "ARC-TESTNET";
+  chain: "ARC" | "ARC-TESTNET"; // mainnet=ARC / testnet=ARC-TESTNET。登録時の実ネットワークを正しく記録する
   arc_agent_id: string; // Arc 上の agentId(Base の 55560 とは別物)
   tx_hash: string;
   identity_registry: string;

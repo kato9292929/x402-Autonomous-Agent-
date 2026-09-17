@@ -24,28 +24,37 @@ import {
   getRequiredArcTestApiKey,
   buildArcTestEntitySecretCiphertext,
 } from "../circle/arc-test-client";
-import { ARC_CIRCLE_BLOCKCHAIN, ARC_FAUCET } from "../erc8004/arc-contract";
+import {
+  ARC_CIRCLE_BLOCKCHAIN,
+  ARC_FAUCET,
+  ARC_NETWORK,
+  assertArcRegistrable,
+} from "../erc8004/arc-contract";
+
+const MAINNET = ARC_NETWORK === "mainnet";
+/** ネットワークに応じた wallet set 環境変数名(mainnet=LIVE / testnet=TEST)。相互に混同しない。 */
+const WALLET_SET_ENV = MAINNET ? "CIRCLE_WALLET_SET_ID" : "CIRCLE_WALLET_SET_ID_TEST";
 
 /**
- * TEST 環境の wallet set ID を解決する。CIRCLE_WALLET_SET_ID_TEST があればそれを使い、
- * 無ければ TEST 認証(TEST キー)で wallet set を新規作成して ID を返す。
- * LIVE の CIRCLE_WALLET_SET_ID は参照しない(TEST キーからは見えず 156005 になるため)。
+ * ネットワークに応じた wallet set ID を解決する。既定の env(mainnet=CIRCLE_WALLET_SET_ID /
+ * testnet=CIRCLE_WALLET_SET_ID_TEST)があればそれを使い、無ければ同ネットワークの認証で新規作成する。
+ * 相互(LIVE↔TEST)の wallet set は参照しない(TEST キーで LIVE set を見ると 156005)。
  */
-async function resolveTestWalletSetId(apiKey: string): Promise<string> {
-  const existing = process.env.CIRCLE_WALLET_SET_ID_TEST;
+async function resolveWalletSetId(apiKey: string): Promise<string> {
+  const existing = process.env[WALLET_SET_ENV];
   if (existing) {
-    console.log(`Using CIRCLE_WALLET_SET_ID_TEST=${existing}`);
+    console.log(`Using ${WALLET_SET_ENV}=${existing}`);
     return existing;
   }
 
-  console.log("CIRCLE_WALLET_SET_ID_TEST 未設定 → TEST 環境で wallet set を新規作成します...");
+  console.log(`${WALLET_SET_ENV} 未設定 → ${ARC_NETWORK} 環境で wallet set を新規作成します...`);
   const entitySecretCiphertext = await buildArcTestEntitySecretCiphertext(apiKey);
   const res = await fetch(`${CIRCLE_API}/developer/walletSets`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       idempotencyKey: crypto.randomUUID(),
-      name: "aa-arc-testnet",
+      name: `aa-arc-${ARC_NETWORK}`,
       entitySecretCiphertext,
     }),
   });
@@ -69,15 +78,17 @@ async function resolveTestWalletSetId(apiKey: string): Promise<string> {
     console.error(text);
     process.exit(1);
   }
-  console.log("\n=== TEST wallet set 作成 ===");
-  console.log(`CIRCLE_WALLET_SET_ID_TEST=${id}`);
+  console.log(`\n=== ${ARC_NETWORK} wallet set 作成 ===`);
+  console.log(`${WALLET_SET_ENV}=${id}`);
   console.log("この値を env に控えると、次回以降は再作成しません。\n");
   return id;
 }
 
 async function main(): Promise<void> {
+  // mainnet は前提(Circle DCW の ARC 対応・ERC-8004 mainnet アドレス)未達なら実行前に停止。
+  assertArcRegistrable();
   const apiKey = getRequiredArcTestApiKey();
-  const walletSetId = await resolveTestWalletSetId(apiKey);
+  const walletSetId = await resolveWalletSetId(apiKey);
 
   const entitySecretCiphertext = await buildArcTestEntitySecretCiphertext(apiKey);
   console.log(

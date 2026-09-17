@@ -29,6 +29,7 @@ import {
   ARC_TESTNET_RPC,
   TRANSFER_TOPIC,
   ZERO_TOPIC,
+  assertArcRegistrable,
 } from "./arc-contract";
 
 export interface RpcLog {
@@ -142,6 +143,9 @@ export interface ArcRegistrationResult {
 /** IdentityRegistry.register(metadataURI) を owner ウォレットで実行し agentId を取得する。 */
 export async function registerArcAgent(metadataURI: string): Promise<ArcRegistrationResult> {
   if (!metadataURI || metadataURI.length < 1) throw new Error("metadataURI is required");
+  // mainnet は前提未達なら実 gas を使う前にここで停止(testnet は素通り)。
+  assertArcRegistrable();
+  if (!ARC_IDENTITY_REGISTRY) throw new Error("ARC_IDENTITY_REGISTRY is not set");
 
   const txId = await submitArcExecution(ARC_REGISTER_ABI_SIGNATURE, [metadataURI]);
   console.log(`[ARC] contractExecution submitted: ${txId}`);

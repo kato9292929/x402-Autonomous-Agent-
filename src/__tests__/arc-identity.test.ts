@@ -6,6 +6,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import * as path from "node:path";
 import { extractAgentIdFromLogs } from "../erc8004/arc-executor";
 import { saveArcRegistration, loadArcRegistration } from "../erc8004/arc-record";
 import {
@@ -36,6 +38,40 @@ test("metadataURI: 既定は ipfs:// の例 URI、ARC_METADATA_URI で上書き"
     if (orig === undefined) delete process.env.ARC_METADATA_URI;
     else process.env.ARC_METADATA_URI = orig;
   }
+});
+
+// assertArcRegistrable は module load 時の ARC_NETWORK を読むため、子プロセスで検証する。
+const CONTRACT_JS = path.join(__dirname, "..", "erc8004", "arc-contract.js");
+function runGate(env: Record<string, string>): string {
+  const script =
+    `const m=require(${JSON.stringify(CONTRACT_JS)});` +
+    `try{m.assertArcRegistrable();console.log("OK");}catch(e){console.log("THROW:"+e.message);}`;
+  return execFileSync(process.execPath, ["-e", script], {
+    env: { ...process.env, ...env },
+    encoding: "utf-8",
+  });
+}
+
+test("assertArcRegistrable: testnet(既定)は素通り", () => {
+  const out = runGate({ ARC_NETWORK: "testnet" });
+  assert.match(out, /OK/);
+});
+
+test("assertArcRegistrable: mainnet で ARC_IDENTITY_REGISTRY 未設定なら停止(実 gas 前に fail loud)", () => {
+  const out = runGate({ ARC_NETWORK: "mainnet", ARC_IDENTITY_REGISTRY: "", ARC_CIRCLE_BLOCKCHAIN: "" });
+  assert.match(out, /THROW/);
+  assert.match(out, /ARC_IDENTITY_REGISTRY/);
+});
+
+test("assertArcRegistrable: mainnet で ARC_CIRCLE_BLOCKCHAIN が ARC でなければ停止", () => {
+  const out = runGate({ ARC_NETWORK: "mainnet", ARC_IDENTITY_REGISTRY: "0xabc", ARC_CIRCLE_BLOCKCHAIN: "ARC-TESTNET" });
+  assert.match(out, /THROW/);
+  assert.match(out, /ARC_CIRCLE_BLOCKCHAIN/);
+});
+
+test("assertArcRegistrable: mainnet でも前提が揃えば通過(確定アドレス + ARC blockchain)", () => {
+  const out = runGate({ ARC_NETWORK: "mainnet", ARC_IDENTITY_REGISTRY: "0xabc", ARC_CIRCLE_BLOCKCHAIN: "ARC" });
+  assert.match(out, /OK/);
 });
 
 const tokenIdTopic = (n: number): string => "0x" + n.toString(16).padStart(64, "0");

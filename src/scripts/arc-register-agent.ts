@@ -18,20 +18,23 @@ import { saveArcRegistration } from "../erc8004/arc-record";
 import {
   ARC_IDENTITY_REGISTRY,
   ARC_EXPLORER,
+  ARC_CIRCLE_BLOCKCHAIN,
+  ARC_NETWORK,
   arcTxUrl,
   resolveMetadataURI,
 } from "../erc8004/arc-contract";
 
 async function main(): Promise<void> {
   const metadataURI = resolveMetadataURI();
-  console.log(`[ARC] register-your-first-ai-agent`);
+  console.log(`[ARC] register-your-first-ai-agent (network=${ARC_NETWORK})`);
   console.log(`[ARC] IdentityRegistry=${ARC_IDENTITY_REGISTRY}`);
   console.log(`[ARC] metadataURI=${metadataURI}`);
 
+  // mainnet で前提未達なら registerArcAgent 内の assertArcRegistrable() が実 gas 前に停止する。
   const { agentId, txHash } = await registerArcAgent(metadataURI);
 
   await saveArcRegistration({
-    chain: "ARC-TESTNET",
+    chain: ARC_CIRCLE_BLOCKCHAIN === "ARC" ? "ARC" : "ARC-TESTNET",
     arc_agent_id: agentId, // Base の 55560 とは別物
     tx_hash: txHash,
     identity_registry: ARC_IDENTITY_REGISTRY,

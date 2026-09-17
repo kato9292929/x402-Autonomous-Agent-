@@ -39,16 +39,58 @@ export const ARC_CIRCLE_BLOCKCHAIN =
   process.env.ARC_CIRCLE_BLOCKCHAIN ?? (MAINNET ? "ARC" : "ARC-TESTNET");
 
 /**
- * ERC-8004 コントラクト。ERC-8004 リファレンス実装は決定的(CREATE2)アドレスなので mainnet も
- * 同一の可能性が高いが、Arc の contract-addresses ページで必ず確認し、違えば env で上書きする。
- * 既定値は Arc Testnet の確認済みアドレス。
+ * ERC-8004 コントラクトのアドレス。
+ *
+ * 既定値は Arc **Testnet** の確認済みアドレス(testnet vanity 0x8004A818… / 0x8004B663…)。
+ * mainnet は既定を持たせない(空文字)。理由(2026-09-17 一次確認):
+ *  - ERC-8004 公式 curated リポ(erc-8004/erc-8004-contracts)の deployment 表に **Arc mainnet の
+ *    行は無い**。mainnet vanity 0x8004A169… / 0x8004BAa1… は Ethereum / Base 等のもので、
+ *    Arc mainnet の ERC-8004 は未デプロイ(mainnet の vanity プロキシは MinimalUUPS placeholder で
+ *    register() 未実装との報告あり)。
+ * したがって testnet アドレスを mainnet に流用してはならない(誤登録・実 gas の浪費になる)。
+ * Arc mainnet に ERC-8004 が正式デプロイされ確定アドレスが公表されたら、ARC_IDENTITY_REGISTRY 等を
+ * env で与えること。未設定のまま mainnet 登録を試みると assertArcRegistrable() が停止させる。
  */
 export const ARC_IDENTITY_REGISTRY =
-  process.env.ARC_IDENTITY_REGISTRY ?? "0x8004A818BFB912233c491871b3d84c89A494BD9e";
+  process.env.ARC_IDENTITY_REGISTRY ?? (MAINNET ? "" : "0x8004A818BFB912233c491871b3d84c89A494BD9e");
 export const ARC_REPUTATION_REGISTRY =
-  process.env.ARC_REPUTATION_REGISTRY ?? "0x8004B663056A597Dffe9eCcC1965A193B7388713";
+  process.env.ARC_REPUTATION_REGISTRY ?? (MAINNET ? "" : "0x8004B663056A597Dffe9eCcC1965A193B7388713");
 export const ARC_VALIDATION_REGISTRY =
-  process.env.ARC_VALIDATION_REGISTRY ?? "0x8004Cb1BF31DAf7788923b405b754f57acEB4272";
+  process.env.ARC_VALIDATION_REGISTRY ?? (MAINNET ? "" : "0x8004Cb1BF31DAf7788923b405b754f57acEB4272");
+
+/**
+ * Arc mainnet で実際に登録可能かを検査する門番。前提が未達なら throw(実 gas を無駄にしないため)。
+ * testnet は常に通過する。register / create-wallets の実行経路の先頭で呼ぶ。
+ *
+ * 2026-09-17 時点で mainnet 登録を阻む外部要因(いずれも「出遅れ」ではなく相手側の未対応):
+ *  1. Arc mainnet に ERC-8004 IdentityRegistry の確定アドレスが未公表(未デプロイ / placeholder)。
+ *  2. Circle DCW の mainnet 対応チェーン一覧に ARC が無い(ARC-TESTNET のみ)→ 署名用ウォレット未作成。
+ * これらが解消され env(ARC_IDENTITY_REGISTRY / ARC_CIRCLE_BLOCKCHAIN=ARC)が揃えば通過する。
+ */
+export function assertArcRegistrable(): void {
+  if (!MAINNET) return;
+  const problems: string[] = [];
+  if (!process.env.ARC_IDENTITY_REGISTRY) {
+    problems.push(
+      "ARC_IDENTITY_REGISTRY 未設定: Arc mainnet の ERC-8004 IdentityRegistry 確定アドレスを設定してください" +
+        "(testnet の 0x8004A818… を mainnet に流用しない。ERC-8004 公式 deployment 表に Arc mainnet 行は未掲載)。"
+    );
+  }
+  if (ARC_CIRCLE_BLOCKCHAIN !== "ARC") {
+    problems.push(
+      `ARC_CIRCLE_BLOCKCHAIN が "ARC" ではありません(=${ARC_CIRCLE_BLOCKCHAIN})。` +
+        "Circle DCW が ARC(mainnet)ウォレット作成に対応してから設定してください。"
+    );
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      "[ARC] Arc mainnet 登録の前提が未達のため停止します(実 gas を無駄にしないための門番):\n - " +
+        problems.join("\n - ") +
+        "\n解消条件: (1) Arc mainnet に ERC-8004 が正式デプロイされ確定アドレスが公表される、" +
+        "(2) Circle DCW が ARC(mainnet)ウォレット作成に対応する。両方揃えば ARC_NETWORK=mainnet で登録可能。"
+    );
+  }
+}
 
 /** ERC-721 Transfer(topic0) — 標準・chain 非依存。Base 用と同一。 */
 export const TRANSFER_TOPIC =
