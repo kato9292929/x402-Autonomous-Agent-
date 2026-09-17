@@ -1,12 +1,13 @@
 # x402 Autonomous Agent
 
-An autonomous trading intelligence agent that traverses x402 Inc.'s API stack daily,
-detecting smart money signals and executing trades via x402 micropayments.
+An autonomous trading-intelligence agent that traverses x402 Inc.'s API stack daily,
+detects smart-money signals, and records a bounded daily decision using x402
+micropayments. It does not place live trades.
 Runs daily at 06:00 JST via node-cron on Railway.
 
-自律型トレーディングインテリジェンスエージェント。毎朝6時JSTにx402 Inc.のAPIスタックを横断し、スマートマネーシグナルを検出してx402マイクロペイメントでトレードを実行します。
+自律型トレーディングインテリジェンスエージェント。毎朝6時JSTにx402 Inc.のAPIスタックを横断し、スマートマネーシグナルを検出してx402マイクロペイメントでデータを取得し、判断を追記記録します。実売買は行いません。
 
-![Node.js](https://img.shields.io/badge/Node.js-20-green) ![Railway](https://img.shields.io/badge/Railway-deployed-blueviolet) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Node.js](https://img.shields.io/badge/Node.js-20-green) ![Railway](https://img.shields.io/badge/Railway-deployed-blueviolet)
 
 ---
 
@@ -205,10 +206,11 @@ npm start           # Start cron scheduler
 |---|---|
 | No signals found (early exit) | ~$0.05 |
 | Signals found, intent check only | ~$0.50 |
-| Full run with execution | ~$1.60–$2.10 |
+| Full decision run (no trade execution) | ~$1.60–$2.10 |
 
 ---
 
 ## License
 
-MIT
+No open-source license has been published for this repository yet. Reuse is
+not granted until a license file is added.
