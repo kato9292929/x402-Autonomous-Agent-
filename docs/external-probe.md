@@ -15,10 +15,10 @@
 
 Cluster Protocol はデプロイ基盤でデータ API ではないため対象外。
 
-定義は `src/probe/targets.ts`。**指示書が名前を挙げているルートだけ**が入っている。
-2s / GoCreative / BlockRun の有料ルートは空のまま — run 0 が `/.well-known/x402` と
-`/openapi.json` を読んで実際に何を売っているかを報告し、そこからルートを足す。
-推測でパスを書くと 404 が返り、死んだ売り手と区別がつかなくなる。
+定義は `src/probe/targets.ts`。2026-09-18 に各売り手の公開メタデータ・OpenAPI を確認し、
+実ルートへの無課金リクエストが 402 を返した読み取り専用の7ルートを設定した。
+OneSource は block-number、2s は NVDA の SEC filings、Otto AI は既存の3ルート、
+GoCreative は FRED GDP、BlockRun は web search を呼ぶ。単価は各回の 402 で再確認する。
 
 ## 手順
 
@@ -26,15 +26,14 @@ Cluster Protocol はデプロイ基盤でデータ API ではないため対象�
 1. npm run build && npm run probe:create-wallet   # Circle DCW に probe 専用ウォレットを作る
 2. Railway Variables に CIRCLE_PROBE_WALLET_ID / _ADDRESS を設定
 3. そのアドレスに Base USDC $20 を入金（残高ガードが自動で監視対象に加える）
-4. npm run probe:run0                              # ★課金ゼロ。到達性・402・単価を確認
-5. run 0 の CSV を見て、未確定の先の有料ルートを targets.ts に追記
+4. npm run probe:run0                              # ★課金ゼロ。7ルートの402を再確認
+5. npm run probe:sweep                             # 直ちに7ルートを有料で試す
 6. PROBE_ENABLED=true                              # 毎週月 09:00 JST に sweep
 ```
 
-**4 を通すまで 5 以降に進まない**（指示書 §3）。run 0 は支払いクライアントを構築すらせず、
+run 0 は支払いクライアントを構築すらせず、
 素の `fetch` しか使わない。課金が起きる余地がコード上に無い。
-
-手動 sweep は `npm run probe:sweep`。
+402 はその都度変わりうるので、手動 sweep でも支払い直前に価格・対応チェーンを確認する。
 
 ## 上限
 
@@ -82,7 +81,7 @@ offered_networks, chain, tx, summary, reason, quality
 
 ## 費用
 
-想定 ~50 コール/回で 1回 $0.41、年 $21 程度。週上限 $4 があるので、想定が外れても年 $200 は超えない。
+初期設定は7コール/回。実費は決済結果から記録する。予算上限は上記の値を適用する。
 
 ## 指示書からの逸脱
 

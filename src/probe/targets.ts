@@ -5,11 +5,9 @@
  * economy. Call counts are not the point — §9 of the worksheet is explicit that
  * this is not a ranking exercise.
  *
- * Paths: only routes the worksheet actually names are listed here. For the
- * sellers whose routes are unconfirmed (2s / GoCreative / BlockRun), `probes` is
- * empty on purpose — run 0 reads `/.well-known/x402` and `/openapi.json` and
- * reports what those hosts advertise, and the routes get added from that report
- * rather than guessed. A guessed path returns 404 and looks like a dead seller.
+ * Each configured paid route was advertised by the seller and returned 402 in
+ * an unpaid request on 2026-09-18. Required parameters are taken from OpenAPI.
+ * The paying client still checks the live 402 before signing.
  *
  * Cluster Protocol is deliberately absent: it is deployment infrastructure, not
  * a data API.
@@ -36,7 +34,7 @@ export interface ProbeTarget {
   weeklyCallBudget: number;
   /** Free, unpaid routes read during run 0 to discover what the seller offers. */
   metadata: string[];
-  /** Routes the sweep pays for. Empty until run 0 confirms what exists. */
+  /** Seller-advertised, read-only routes the sweep may pay for. */
   probes: ProbePath[];
   /** What we are trying to learn from this seller. */
   question: string;
@@ -74,11 +72,11 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     name: "OneSource",
     host: "https://api.onesource.io",
     listedPerCallUsd: 0.004,
-    listedChains: ["ethereum", "sepolia", "robinhood-chain"],
+    listedChains: ["base"],
     weeklyCallBudget: 20,
     metadata: ["/.well-known/x402", "/openapi.json", "/api/pricing", "/api/networks"],
-    probes: [],
-    question: "Robinhood Chain のオンチェーン検証が osd に効くか",
+    probes: [{ path: "/api/chain/block-number", method: "GET" }],
+    question: "Ethereum の最新ブロック情報の品質・応答時間を測る",
   },
   {
     id: "2s",
@@ -88,8 +86,8 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     listedChains: ["base", "solana", "ethereum"],
     weeklyCallBudget: 10,
     metadata: ["/.well-known/x402", "/openapi.json"],
-    probes: [],
-    question: "SEC EDGAR・連邦データの粒度。Watchers(署名付きコールバック)の転用可否",
+    probes: [{ path: "/api/finance/sec-filings?ticker=NVDA&limit=5", method: "GET" }],
+    question: "NVDA の SEC filings データの粒度と鮮度を測る",
   },
   {
     id: "otto",
@@ -110,13 +108,13 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     id: "gocreative",
     name: "GoCreative",
     host: "https://api.gocreativeai.com",
-    // 掲載は中央値 $0.05。単価も機能も未確認なので run 0 の discovery で埋める。
+    // 掲載は中央値 $0.05。実際の請求額は決済レスポンスで測る。
     listedPerCallUsd: 0.05,
-    listedChains: [],
+    listedChains: ["base"],
     weeklyCallBudget: 5,
     metadata: ["/.well-known/x402", "/openapi.json"],
-    probes: [],
-    question: "規制・コンプラデータの中身と対応地域。単価が予算内に収まるか",
+    probes: [{ path: "/v1/fred/series/GDP", method: "GET" }],
+    question: "FRED GDP データの内容と鮮度を測る",
   },
   {
     id: "blockrun",
@@ -126,8 +124,8 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     listedChains: ["base", "solana"],
     weeklyCallBudget: 5,
     metadata: ["/.well-known/x402", "/openapi.json"],
-    probes: [],
-    question: "モデル/RPC/検索の調達価格。原価+5% と単一障害点(ロックイン)の評価",
+    probes: [{ path: "/api/v1/search", method: "POST", body: { query: "US inflation data", sources: ["web"], max_results: 3 } }],
+    question: "Web 検索の返り値と実費を測る",
   },
 ];
 

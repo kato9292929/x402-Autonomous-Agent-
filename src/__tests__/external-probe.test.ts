@@ -512,7 +512,7 @@ test("toCsvRow: 未確定の値は空欄。0 で埋めない", () => {
   assert.equal(cells[6], "", "actual_usdc は空");
 });
 
-test("plannedCallCount: 有料ルートが確定していない先は 0 本として数える", () => {
+test("plannedCallCount: 402 を確認した読み取り専用ルートを数える", () => {
   assert.equal(plannedCallCount([target({ probes: [] })]), 0);
-  assert.equal(plannedCallCount(PROBE_TARGETS), 3); // 現時点で確定しているのは Otto AI の3本
+  assert.equal(plannedCallCount(PROBE_TARGETS), 7); // 5先、Otto AI は3本
 });
