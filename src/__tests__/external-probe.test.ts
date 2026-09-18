@@ -28,7 +28,7 @@ import {
   type ProbeTarget,
 } from "../probe/targets";
 import { allowsCall, isoWeekKey, perCallMicroUsdc } from "../probe/budget";
-import { observe } from "../probe/client";
+import { observe, resolveProbeWallet } from "../probe/client";
 import { appendCsv, CSV_HEADER, summarize, toCsvRow, type ProbeCallRecord } from "../probe/record";
 import { runExternalProbe } from "../jobs/external-probe";
 import type { ProbeClient } from "../probe/client";
@@ -177,6 +177,21 @@ test("observe: 対応チェーンが無ければ見積りは undefined(掲載価
     accepts: [{ ...baseRequirement("10000"), network: "solana:mainnet" } as never],
   });
   assert.equal(o.quotedUsdc, undefined);
+});
+
+test("probe 支払いウォレット: 専用を優先し、無ければ Circle Base にフォールバック", () => {
+  const base = {
+    SIGNER_BACKEND: "circle",
+    CIRCLE_EVM_WALLET_ID: "daily-id",
+    CIRCLE_EVM_WALLET_ADDRESS: "0xdaily",
+  };
+  assert.deepEqual(resolveProbeWallet(base), { id: "daily-id", address: "0xdaily", source: "base" });
+  assert.deepEqual(
+    resolveProbeWallet({ ...base, CIRCLE_PROBE_WALLET_ID: "probe-id", CIRCLE_PROBE_WALLET_ADDRESS: "0xprobe" }),
+    { id: "probe-id", address: "0xprobe", source: "probe" }
+  );
+  assert.throws(() => resolveProbeWallet({ ...base, CIRCLE_PROBE_WALLET_ID: "probe-id" }), /両方設定/);
+  assert.equal(resolveProbeWallet({ ...base, SIGNER_BACKEND: "privatekey" }), null);
 });
 
 // ── run 0(課金ゼロ) ─────────────────────────────────────────────────────────
