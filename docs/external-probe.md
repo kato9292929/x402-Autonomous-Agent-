@@ -26,17 +26,18 @@ GoCreative は FRED GDP、BlockRun は web search を呼ぶ。単価は各回の
 ## 手順
 
 ```
-1. npm run build && npm run probe:create-wallet   # Circle DCW に probe 専用ウォレットを作る
-2. Railway Variables に CIRCLE_PROBE_WALLET_ID / _ADDRESS を設定
-3. そのアドレスに Base USDC $20 を入金（残高ガードが自動で監視対象に加える）
-4. npm run probe:run0                              # ★課金ゼロ。7ルートの402を再確認
-5. npm run probe:sweep                             # 直ちに7ルートを有料で試す
-6. PROBE_ENABLED=true                              # 毎週月 09:00 JST に sweep
+1. npm run build && npm run probe:run0              # ★課金ゼロ。7ルートの402を再確認
+2. npm run probe:sweep                             # 直ちに7ルートを有料で試す
+3. PROBE_ENABLED=true                              # 毎週月 09:00 JST に sweep
 ```
 
 run 0 は支払いクライアントを構築すらせず、
 素の `fetch` しか使わない。課金が起きる余地がコード上に無い。
 402 はその都度変わりうるので、手動 sweep でも支払い直前に価格・対応チェーンを確認する。
+`SIGNER_BACKEND=circle` と `CIRCLE_EVM_WALLET_ID` / `CIRCLE_EVM_WALLET_ADDRESS` が
+設定済みなら、probe はその既存 Base ウォレットで支払える。専用ウォレットを分けたい場合は
+`npm run probe:create-wallet` で作成し、`CIRCLE_PROBE_WALLET_ID` / `_ADDRESS` を両方設定して
+Base USDC を入金する。専用ウォレットがあれば常にそちらを優先する。片方だけの設定はエラーにする。
 
 ## 上限
 

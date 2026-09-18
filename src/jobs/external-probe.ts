@@ -402,8 +402,8 @@ export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeR
     const client = options.client !== undefined ? options.client : buildProbeClient(spend);
     if (!client) {
       throw new Error(
-        "probe ウォレット未設定: CIRCLE_PROBE_WALLET_ID と CIRCLE_PROBE_WALLET_ADDRESS が必要 " +
-          "(鍵は Circle DCW が保持。生鍵は env に置かない)"
+        "支払いウォレット未設定: CIRCLE_PROBE_WALLET_ID / CIRCLE_PROBE_WALLET_ADDRESS、" +
+          "または SIGNER_BACKEND=circle と CIRCLE_EVM_WALLET_ID / CIRCLE_EVM_WALLET_ADDRESS が必要"
       );
     }
     console.log(`[PROBE] paying wallet: ${client.walletAddress} (networks: ${PROBE_NETWORKS.join(", ")})`);
