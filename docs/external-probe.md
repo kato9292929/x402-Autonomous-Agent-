@@ -5,13 +5,16 @@
 
 ## 対象（5先）
 
-| # | 先 | host | 掲載 per-call | チェーン | 週の上限本数 |
+| # | 先 | 選定した有料ルート | 2026-09-18 の402提示額 | 支払い可能と確認したチェーン | 週の上限本数 |
 |---|---|---|---|---|---|
-| 1 | OneSource | api.onesource.io | ~$0.004 | ETH / Sepolia / RH Chain | 20 |
-| 2 | 2s | 2s.io | $0.0025+ | Base / Solana / ETH | 10 |
-| 3 | Otto AI | x402.ottoai.services | $0.001+ | Base / Polygon / Solana | 10 |
-| 4 | GoCreative | api.gocreativeai.com | 中央 $0.05（未確認） | 未確認 | 5 |
-| 5 | BlockRun | blockrun.ai | 原価+5% | Base / Solana | 5 |
+| 1 | OneSource | `GET /api/chain/block-number` | $0.001 | Base | 20 |
+| 2 | 2s | `GET /api/finance/sec-filings?ticker=NVDA&limit=5` | $0.009 | Base | 10 |
+| 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | Base | 10 |
+| 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | Base | 5 |
+| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | Base | 5 |
+
+この金額は**無課金リクエストに対する402提示額**。決済済みの実費ではない。
+実費は有料 sweep の `PAYMENT-RESPONSE` から別途記録する。価格と対応チェーンは実行時に再確認する。
 
 Cluster Protocol はデプロイ基盤でデータ API ではないため対象外。
 
