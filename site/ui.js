@@ -190,32 +190,6 @@ async function loadRun() {
     document.getElementById('stat-ok').textContent =
       attempted.filter((r) => r.status === 'success').length + '/' + attempted.length;
 
-    // Weekly per-call sweeps (EDINET / catalyst) lead the card — the "毎週N社
-    // per-call 決済" evidence. Newest first, above the daily settlements.
-    let sweepHtml = '';
-    try {
-      const swres = await fetch('/api/sweeps');
-      if (swres.ok) {
-        const sweeps = (await swres.json()).sweeps || [];
-        sweepHtml = sweeps.map((s) => {
-          const name = s.surface === 'edinet' ? 'EDINET 週次' : s.surface === 'catalyst' ? 'Catalyst 週次' : s.surface;
-          const when = s.at ? new Date(s.at).toLocaleDateString('ja-JP') : '';
-          const tx = s.sampleTx
-            ? `<a class="settle__tx" href="${txUrl(s.sampleTx)}" target="_blank" rel="noopener">${esc(shortTx(s.sampleTx))}</a>`
-            : '';
-          return `
-          <li class="settle__row settle__row--sweep">
-            <div class="settle__head">
-              <span class="settle__name">${esc(name)} <span class="settle__badge settle__badge--sweep">${s.settlements}件</span></span>
-              <span class="settle__cost">${money(s.totalUsdc)}</span>
-              ${tx}
-            </div>
-            <div class="settle__facts"><span>${s.settlements} settlements</span><span>${esc(when)}</span></div>
-          </li>`;
-        }).join('');
-      }
-    } catch { /* the sweep strip is additive — the list renders without it */ }
-
     if (settle) {
       // Figures the agent actually received, keyed by path, so each row can show
       // what was bought instead of only that something was.
@@ -258,8 +232,9 @@ async function loadRun() {
           ${line}
         </li>`;
       }).join('');
-      // Sweeps first, then the day's endpoint settlements.
-      settle.innerHTML = (sweepHtml + dailyHtml) || '<li class="settle__empty">No settlements yet.</li>';
+      // The weekly Catalyst and EDINET sweeps have their own section below.
+      // Keep this card aligned with its daily date, spend and call counters.
+      settle.innerHTML = dailyHtml || '<li class="settle__empty">No settlements yet.</li>';
     }
   } catch (e) {
     if (settle) settle.innerHTML = `<li class="settle__empty">Could not load run data (${esc(String(e))}).</li>`;
