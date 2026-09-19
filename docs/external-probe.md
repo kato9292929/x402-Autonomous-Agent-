@@ -25,19 +25,22 @@ GoCreative は FRED GDP、BlockRun は web search を呼ぶ。単価は各回の
 
 ## 手順
 
-**有料実行の前提:** `--probe-sweep` は `CIRCLE_PROBE_WALLET_ID` と
-`CIRCLE_PROBE_WALLET_ADDRESS` の両方がないと、支払い前に停止する。
-日次決済の `CIRCLE_EVM_WALLET_ID` / `_ADDRESS` は自動では使わない。
-専用ウォレット作成・Base USDC 入金・Railway Variables 設定は運用者の作業で、
-コードのデプロイだけでは完了しない。`--probe-run0` はこの設定なしで無課金実行できる。
+**有料実行の前提:** `SIGNER_BACKEND=circle` と既存の
+`CIRCLE_EVM_WALLET_ID` / `CIRCLE_EVM_WALLET_ADDRESS` があれば、
+`--probe-sweep` はその Base ウォレットを使う。追加のウォレット作成やUSDC移動は不要。
+probe の支出は1コール・1回・週の上限と Upstash の消費記録で制限する。
+`CIRCLE_PROBE_WALLET_ID` / `_ADDRESS` を両方設定した場合だけ、専用ウォレットを優先する。
+`--probe-run0` はウォレット設定なしでも無課金実行できる。
 
 ```
-1. npm run build && npm run probe:create-wallet   # Circle DCW に probe 専用ウォレットを作る
-2. Railway Variables に CIRCLE_PROBE_WALLET_ID / _ADDRESS を設定
-3. そのアドレスに Base USDC $20 を入金（残高ガードが自動で監視対象に加える）
-4. npm run probe:run0                              # ★課金ゼロ。7ルートの402を再確認
-5. npm run probe:sweep                             # 直ちに7ルートを有料で試す
-6. PROBE_ENABLED=true                              # 毎週月 09:00 JST に sweep
+1. npm run build
+2. npm run probe:run0                              # ★課金ゼロ。7ルートの402を再確認
+3. npm run probe:sweep                             # 既存の Circle Base ウォレットで直ちに有料実行
+4. PROBE_ENABLED=true                              # 毎週月 09:00 JST に sweep
+
+# 任意: 日次決済と残高を分けたい場合だけ実行
+npm run probe:create-wallet
+# 出力された ID / address を CIRCLE_PROBE_WALLET_ID / _ADDRESS に設定し、Base USDCを入金
 ```
 
 run 0 は支払いクライアントを構築すらせず、

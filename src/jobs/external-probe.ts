@@ -402,9 +402,9 @@ export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeR
     const client = options.client !== undefined ? options.client : buildProbeClient(spend);
     if (!client) {
       throw new Error(
-        "probe ウォレット未設定: CIRCLE_PROBE_WALLET_ID と CIRCLE_PROBE_WALLET_ADDRESS を " +
-          "Railway Variables に設定し、Base USDC を入金してから再実行してください。" +
-          "支払いはまだ行われていません。手順: docs/external-probe.md"
+        "支払いウォレット未設定: SIGNER_BACKEND=circle と CIRCLE_EVM_WALLET_ID / " +
+          "CIRCLE_EVM_WALLET_ADDRESS、または専用の CIRCLE_PROBE_WALLET_ID / _ADDRESS が必要。" +
+          "支払いはまだ行われていません"
       );
     }
     console.log(`[PROBE] paying wallet: ${client.walletAddress} (networks: ${PROBE_NETWORKS.join(", ")})`);
