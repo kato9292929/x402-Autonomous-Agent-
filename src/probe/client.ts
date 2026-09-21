@@ -2,8 +2,8 @@
  * Payment client for the external probe.
  *
  * Separate from the daily agent client so the probe keeps its own strict spend
- * policy. It prefers a dedicated probe wallet when configured, otherwise it
- * reuses the existing Circle Base wallet to avoid manual USDC redistribution.
+ * policy. It pays from the existing Circle Base wallet — the same wallet the
+ * daily agent uses — so there is no second balance to fund or watch.
  * Everything else is the existing machinery — wrapFetchWithPayment does the
  * transport, the 402 parsing and the signing. No 402 parser is written here;
  * hand-rolling one is how the JIN diagnosis went wrong (v2 carries the challenge
@@ -67,38 +67,15 @@ export function observe(paymentRequired: PaymentRequired): ObservedChallenge {
   };
 }
 
-export interface ProbeWallet {
-  id: string;
-  address: string;
-  source: "probe" | "base";
-}
-
-/** Prefer a complete dedicated pair; otherwise reuse the configured Circle Base wallet. */
-export function resolveProbeWallet(env: NodeJS.ProcessEnv = process.env): ProbeWallet | null {
-  const probeId = env.CIRCLE_PROBE_WALLET_ID;
-  const probeAddress = env.CIRCLE_PROBE_WALLET_ADDRESS;
-  if (probeId || probeAddress) {
-    if (!probeId || !probeAddress) {
-      throw new Error("CIRCLE_PROBE_WALLET_ID と CIRCLE_PROBE_WALLET_ADDRESS は両方設定する");
-    }
-    return { id: probeId, address: probeAddress, source: "probe" };
-  }
-  if (env.SIGNER_BACKEND !== "circle") return null;
-  const baseId = env.CIRCLE_EVM_WALLET_ID;
-  const baseAddress = env.CIRCLE_EVM_WALLET_ADDRESS;
-  return baseId && baseAddress ? { id: baseId, address: baseAddress, source: "base" } : null;
-}
-
-/** Build the paying fetch, or null when neither Circle wallet is configured. */
+/** Build the paying fetch, or null when the Circle Base wallet is not configured. */
 export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
-  const wallet = resolveProbeWallet();
-  if (!wallet) return null;
-  if (wallet.source === "base") {
-    console.warn(`[PROBE] 専用ウォレット未設定 — 既存の Circle Base ウォレット ${wallet.address} を使用`);
-  }
+  if (process.env.SIGNER_BACKEND !== "circle") return null;
+  const walletId = process.env.CIRCLE_EVM_WALLET_ID;
+  const walletAddress = process.env.CIRCLE_EVM_WALLET_ADDRESS;
+  if (!walletId || !walletAddress) return null;
 
   // Circle DCW holds the key; the agent holds a wallet id. No raw key in env.
-  const signer = createCircleEvmSigner(wallet.id, wallet.address as `0x${string}`, "live");
+  const signer = createCircleEvmSigner(walletId, walletAddress as `0x${string}`, "live");
   const scheme = new ExactEvmScheme(signer);
 
   const base = new x402Client()
@@ -126,7 +103,7 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
       last = undefined;
       return c;
     },
-    walletAddress: wallet.address,
+    walletAddress,
   };
 }
 
