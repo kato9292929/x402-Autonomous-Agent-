@@ -403,8 +403,7 @@ export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeR
     if (!client) {
       throw new Error(
         "支払いウォレット未設定: SIGNER_BACKEND=circle と CIRCLE_EVM_WALLET_ID / " +
-          "CIRCLE_EVM_WALLET_ADDRESS、または専用の CIRCLE_PROBE_WALLET_ID / _ADDRESS が必要。" +
-          "支払いはまだ行われていません"
+          "CIRCLE_EVM_WALLET_ADDRESS が必要。支払いはまだ行われていません"
       );
     }
     console.log(`[PROBE] paying wallet: ${client.walletAddress} (networks: ${PROBE_NETWORKS.join(", ")})`);
