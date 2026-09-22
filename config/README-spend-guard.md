@@ -44,6 +44,30 @@ Those are observations from a static read, not conclusions — a consumer may
 exist outside this repo. They are exactly the pattern shadow mode is meant to
 measure, so they are flagged here and left alone.
 
+## Task definitions
+
+Every route carries `task.purpose` and `task.required_data`, and every one
+records where it came from:
+
+| `task_origin` | routes | meaning |
+|---|---|---|
+| `code` | 3 | Mode A's three signals. Derived from this repository, with citations. |
+| `demo` | 17 | Written for the demo harness. Mode B and Mode C buy unconditionally and declare no per-route need, so there was nothing to derive. |
+
+`demo` is not a claim about what this agent needs. It is a plausible task so
+the judge has something to judge against.
+
+## Demo switches
+
+`demo.duplicate_purchase` is **off by default**. Enabled, the run requests one
+route (`smart-money-screener`, the cheapest on Base at USD 0.05, no request
+body) a second time, so the guard's `EXACT_REPURCHASE` check fires and records
+a `HOLD` over a real settlement. Shadow mode does not block, so that second
+payment still settles — the contrast between what happened and what the guard
+would have done is the thing being shown.
+
+Turn it back off after the demo.
+
 ## Caveat on the shape
 
 The integration spec (3-5) that names this file was not available when it was

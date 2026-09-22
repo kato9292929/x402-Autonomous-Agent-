@@ -71,6 +71,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Brief the desk on this morning's APAC macro picture before the Asia open.",
+        "required_data": [
+          "current APAC macro indicators",
+          "direction of change since the previous session"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -103,6 +112,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Find where stablecoin yield is worth moving to today.",
+        "required_data": [
+          "current yields by protocol",
+          "which pools changed materially since yesterday"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -136,6 +154,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Review the treasury wallet's current exposure before deciding today's allocation.",
+        "required_data": [
+          "holdings and their weights for the wallet",
+          "exposure concentration"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -168,6 +195,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Track the Tokyo rental-yield picture for the Japan property allocation.",
+        "required_data": [
+          "current rental yield for Tokyo",
+          "how it moved versus the previous reading"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -204,6 +240,20 @@
       "consuming_task": {
         "mode": "A",
         "citation": "README.md:25 - Mode A reuses this Mode B result as the strength input"
+      },
+      "task": {
+        "task_origin": "code",
+        "purpose": "Produce one daily call - buy or skip, with direction and a size proposal - for the ERC-8004 agent, by scoring three signals into a bounded score and comparing it against a threshold.",
+        "required_data": [
+          "strength signal: Nansen net flow in USD for the token",
+          "conviction signal: Hyperliquid open-interest positioning skew",
+          "direction signal: whale intent with a confidence"
+        ],
+        "citations": [
+          "README.md:18-31",
+          "src/modes/scoring.ts:4-7",
+          "src/modes/scoring.ts:43-45"
+        ]
       }
     },
     {
@@ -239,6 +289,20 @@
       "consuming_task": {
         "mode": "A",
         "citation": "README.md:26 - Mode A reuses this Mode B result as the conviction input"
+      },
+      "task": {
+        "task_origin": "code",
+        "purpose": "Produce one daily call - buy or skip, with direction and a size proposal - for the ERC-8004 agent, by scoring three signals into a bounded score and comparing it against a threshold.",
+        "required_data": [
+          "strength signal: Nansen net flow in USD for the token",
+          "conviction signal: Hyperliquid open-interest positioning skew",
+          "direction signal: whale intent with a confidence"
+        ],
+        "citations": [
+          "README.md:18-31",
+          "src/modes/scoring.ts:4-7",
+          "src/modes/scoring.ts:43-45"
+        ]
       }
     },
     {
@@ -272,6 +336,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Shortlist wallets whose recent activity is worth following.",
+        "required_data": [
+          "wallets showing notable recent accumulation",
+          "the assets they accumulated"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -304,6 +377,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Collect this morning's APAC on-chain activity for the daily note.",
+        "required_data": [
+          "notable APAC on-chain transfers in the last 24h",
+          "the assets and counterparties involved"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -336,6 +418,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Catch large transfers that could move price before the desk acts.",
+        "required_data": [
+          "large transfers in the last 24h above the alert threshold",
+          "sending and receiving side"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -368,6 +459,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Track upcoming and recent listings for the stock-data note.",
+        "required_data": [
+          "upcoming and recent IPOs",
+          "listing dates and pricing"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -400,6 +500,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Understand who holds the tracked tickers before writing the note.",
+        "required_data": [
+          "holder composition for the tracked tickers",
+          "recent changes in holder mix"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -432,6 +541,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Check whether the tracked tickers can actually be traded in size.",
+        "required_data": [
+          "current liquidity for the tracked tickers",
+          "recent change in depth"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -465,6 +583,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Record today's JIN index level for the daily stock-data note.",
+        "required_data": [
+          "latest JIN index value",
+          "as-of timestamp"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -498,6 +625,15 @@
       "consuming_task": {
         "mode": "B",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Name the day's biggest JIN movers for the daily stock-data note.",
+        "required_data": [
+          "largest JIN constituent moves today",
+          "direction and size of each move"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -530,6 +666,15 @@
       "consuming_task": {
         "mode": "C",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Write the weekly APAC macro section of the Monday report.",
+        "required_data": [
+          "APAC macro summary for the past week",
+          "week-over-week changes"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -562,6 +707,15 @@
       "consuming_task": {
         "mode": "C",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Write the weekly yield section of the Monday report.",
+        "required_data": [
+          "yield summary for the past week",
+          "pools that changed most over the week"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -594,6 +748,15 @@
       "consuming_task": {
         "mode": "C",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Write the weekly Japan property section of the Monday report.",
+        "required_data": [
+          "Japan rental-yield summary for the past week",
+          "week-over-week change"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -626,6 +789,15 @@
       "consuming_task": {
         "mode": "C",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Include an outside research view in the Monday report.",
+        "required_data": [
+          "this week's research memo",
+          "the positions or theses it argues for"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -658,6 +830,15 @@
       "consuming_task": {
         "mode": "C",
         "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      },
+      "task": {
+        "task_origin": "demo",
+        "purpose": "Write the weekly on-chain section of the Monday report.",
+        "required_data": [
+          "on-chain activity summary for the past week",
+          "the largest flows of the week"
+        ],
+        "note": "Written for the demo. The agent's Mode B and Mode C buy every route unconditionally and state no per-route need, so there was nothing in the code to derive this from."
       }
     },
     {
@@ -694,7 +875,37 @@
       "consuming_task": {
         "mode": "A",
         "citation": "README.md:27 - Mode A pays for this fresh as the direction input"
+      },
+      "task": {
+        "task_origin": "code",
+        "purpose": "Produce one daily call - buy or skip, with direction and a size proposal - for the ERC-8004 agent, by scoring three signals into a bounded score and comparing it against a threshold.",
+        "required_data": [
+          "strength signal: Nansen net flow in USD for the token",
+          "conviction signal: Hyperliquid open-interest positioning skew",
+          "direction signal: whale intent with a confidence"
+        ],
+        "citations": [
+          "README.md:18-31",
+          "src/modes/scoring.ts:4-7",
+          "src/modes/scoring.ts:43-45"
+        ]
       }
     }
-  ]
+  ],
+  "_task_origin_legend": {
+    "code": "Derived from the agent's own code, with citations. Only Mode A's three signals qualify.",
+    "demo": "Written for the demo harness. Not a claim about what the agent actually needs; the agent declares no per-route need for these."
+  },
+  "demo": {
+    "_comment": "Demo-only switches. All default to false. They exist so a live run can be made to show a specific Spend Guard verdict on a real x402 settlement; none of them changes what the agent buys when they are off.",
+    "duplicate_purchase": {
+      "enabled": false,
+      "route_key": "smart-money-screener",
+      "_why_this_route": "Cheapest route on Base at USD 0.05, GET, no request body, and the agent's own README records that it returns zero candidates anyway (README.md:31) - so the wasted second purchase is as small and as harmless as the endpoint list allows.",
+      "_what_it_does": "Requests this one route a second time in the same run. The second candidate carries the first purchase in prior_acquisitions, which is what makes the deterministic check fire.",
+      "_expected_verdict": "First purchase PAY. Second: deterministic signal EXACT_REPURCHASE, aggregated to HOLD by rule 3.",
+      "_shadow_mode_caveat": "Shadow mode does not block. The second payment still settles on chain; the ledger records that the guard would have held it. That contrast is the demo.",
+      "_cost": "USD 0.05 extra per demo run."
+    }
+  }
 }
