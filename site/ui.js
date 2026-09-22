@@ -257,7 +257,7 @@ function selectSweep(surface) {
   sweepState.total = s.settlements;
   document.querySelectorAll('#sweep-tabs .sweep__tab').forEach((b) =>
     b.setAttribute('aria-selected', b.dataset.surface === surface ? 'true' : 'false'));
-  const name = surface === 'edinet' ? 'EDINET 週次' : surface === 'catalyst' ? 'Catalyst 週次' : surface;
+  const name = surface === 'edinet' ? 'EDINET 週次' : surface;
   document.getElementById('sweep-title').textContent = name;
   document.getElementById('sweep-sub').textContent =
     `${s.week} · ${s.settlements}件 · ${money(s.totalUsdc)} · 社ごとに per-call 決済`;
@@ -276,11 +276,6 @@ function selectSweep(surface) {
       `<code>doc_id</code>（EDINET書類ID）・<code>financials_available</code>。` +
       `株価・時価総額などの相場データは含まない。` +
       `<code>financials_available:false</code> の社は「書類は特定・財務は未取得」と表示する。出典：金融庁 EDINET。`;
-  } else if (surface === 'catalyst') {
-    scope.innerHTML = `自社リサーチの約${s.settlements}社を <code>/api/catalyst/{ticker}</code> で per-call 取得。` +
-      `下記は今週 AA が実決済した全社。`;
-    desc.innerHTML = `各 per-call は <code>/api/catalyst/{ticker}</code> で自社リサーチのカタリスト` +
-      `（事業・財務・成立条件・出典）を1社ぶん返す。`;
   } else {
     scope.textContent = '';
     desc.textContent = '';
@@ -331,13 +326,18 @@ async function loadSweepDetail() {
   try {
     const res = await fetch('/api/sweeps');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const sweeps = (await res.json()).sweeps || [];
+    const all = (await res.json()).sweeps || [];
+    // Catalyst は per-call 買い付けの週次記録で、この面で見せている「実決済の
+    // 証跡」としては EDINET と同じ形に見えてしまう。本体の Catalyst は osd 側の
+    // スコア付き予測（/api/alpha/catalysts/*）なので、この枠からは外す。
+    // API とデータはそのまま残しているので、戻すのはこの filter を外すだけ。
+    const sweeps = all.filter((s) => s.surface !== 'catalyst');
     if (!sweeps.length) { section.hidden = true; return; }
     section.hidden = false;
     sweepState.summaries = sweeps;
     const tabs = document.getElementById('sweep-tabs');
     tabs.innerHTML = sweeps.map((s) => {
-      const label = s.surface === 'edinet' ? 'EDINET' : s.surface === 'catalyst' ? 'Catalyst' : s.surface;
+      const label = s.surface === 'edinet' ? 'EDINET' : s.surface;
       return `<button class="sweep__tab" role="tab" data-surface="${esc(s.surface)}">${esc(label)}</button>`;
     }).join('');
     tabs.querySelectorAll('.sweep__tab').forEach((b) =>
