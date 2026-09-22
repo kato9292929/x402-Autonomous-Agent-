@@ -11,6 +11,20 @@ import type { RunLog } from "./types";
  *
  * One header line plus one line per endpoint. Never includes `fullData`.
  */
+/** Response peeks are samples — a short one is enough to eyeball the shape. */
+const PEEK_MAX_CHARS = 160;
+
+/**
+ * Errors keep far more room than peeks. The run summary is the line an incident
+ * is actually read from, and at 160 it cut a CDP facilitator failure off mid
+ * `{"errorMessage":"A val` — the sentence naming the cause never made it in.
+ */
+const ERROR_NOTE_MAX_CHARS = 1200;
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
 export function formatRunSummary(log: RunLog): string[] {
   const results = log.results ?? [];
   const ok = results.filter((r) => r.status === "success").length;
@@ -29,14 +43,19 @@ export function formatRunSummary(log: RunLog): string[] {
       r.status === "error"
         ? (r.error ?? "unknown error")
         : (r.degradedReason ?? r.responsePeek ?? "");
+    // A response peek is a sample and stays short; an error is the only record
+    // of why the call failed, so it keeps room for the facilitator's own
+    // message. 160 truncated it mid-envelope and hid the cause for days.
+    const limit = r.status === "error" ? ERROR_NOTE_MAX_CHARS : PEEK_MAX_CHARS;
     lines.push(
       `[RUN]  ${icon} ${r.product} $${(r.costUsdc ?? 0).toFixed(3)}` +
+        (r.settledNetwork ? ` via=${r.settledNetwork}` : "") +
         (r.txHash ? ` tx=${r.txHash}` : "") +
-        (note ? ` — ${String(note).slice(0, 160)}` : "")
+        (note ? ` — ${clip(String(note), limit)}` : "")
     );
   }
 
-  for (const e of log.errors ?? []) lines.push(`[RUN]  ! ${e}`);
+  for (const e of log.errors ?? []) lines.push(`[RUN]  ! ${clip(e, ERROR_NOTE_MAX_CHARS)}`);
 
   return lines;
 }
