@@ -1,0 +1,700 @@
+{
+  "schema_version": "1",
+  "_comment": "Routes AA actually buys, for the Spend Guard shadow evaluation. Generated from the repository at the commit below; every description carries its source. Where no provider description exists, `description` is the verbatim `name` field and description_source.kind is name_only - nothing here is invented. The integration spec 3-5 that names this file was not available to the author, so this shape is a proposal; rename or reshape it to match the spec.",
+  "source_repository": "kato9292929/x402-Autonomous-Agent-",
+  "source_commit": "da482250f3757f32d63982a37472700b04a095b4",
+  "generated_at": "2026-09-22",
+  "route_count": 20,
+  "provider_count": 12,
+  "modes": {
+    "A": {
+      "purpose": "Produce one daily call - buy or skip, with direction and a size proposal - for the ERC-8004 agent, by scoring three signals into a bounded score and comparing it against a threshold.",
+      "required_data": [
+        "strength signal: Nansen net flow in USD for the token",
+        "conviction signal: Hyperliquid open-interest positioning skew",
+        "direction signal: whale intent with a confidence"
+      ],
+      "cites": [
+        "README.md:18-31",
+        "src/modes/scoring.ts:4-7",
+        "src/modes/scoring.ts:43-45"
+      ]
+    },
+    "B": {
+      "purpose": "Daily briefing: fetch every configured Mode B endpoint and log the result.",
+      "required_data": [],
+      "required_data_note": "Mode B enumerates NO per-route need. It iterates the whole endpoint array and buys all 14 unconditionally, so there is nothing in the code saying what any single route is required to supply. Left empty rather than invented.",
+      "cites": [
+        "README.md:16",
+        "src/modes/modeB.ts:81",
+        "src/modes/modeB.ts:97"
+      ]
+    },
+    "C": {
+      "purpose": "Weekly report: fetch every configured Mode C endpoint and log the result.",
+      "required_data": [],
+      "required_data_note": "As Mode B: all 5 are bought unconditionally, with no per-route need stated.",
+      "cites": [
+        "src/modes/modeC.ts:28",
+        "src/modes/modeC.ts:41"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "route_key": "apac-macro-dashboard",
+      "provider_id": "x402amd",
+      "service_id": "macro",
+      "route_id": "dashboard",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402amd.vercel.app/api/macro/dashboard",
+      "url_env_override": "APAC_MACRO_URL",
+      "price": {
+        "amount": "0.30",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "APAC Macro Dashboard",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:16"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": true,
+      "ab_group": "name_only",
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "yield-intelligence",
+      "provider_id": "x402yi",
+      "service_id": "yield",
+      "route_id": "scan",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402yi.vercel.app/api/yield/scan",
+      "url_env_override": "YIELD_INTELLIGENCE_URL",
+      "price": {
+        "amount": "0.20",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Yield Intelligence",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:25"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "portfolio-intelligence",
+      "provider_id": "x402pi",
+      "service_id": "portfolio",
+      "route_id": "analyze",
+      "access_method": "x402_http",
+      "http_method": "POST",
+      "url": "https://x402pi.vercel.app/api/portfolio/analyze",
+      "url_env_override": "PORTFOLIO_INTELLIGENCE_URL",
+      "price": {
+        "amount": "0.50",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Analyses a wallet's portfolio. Takes POST {walletAddress, chain}; the wallet analysed comes from PORTFOLIO_ANALYZE_TARGET.",
+      "description_source": {
+        "kind": "documented",
+        "citations": [
+          ".env.example:7",
+          "src/scripts/verify-products.ts:210-220"
+        ],
+        "note": null
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": true,
+      "ab_group": "documented",
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "japan-real-estate",
+      "provider_id": "x402-jrey",
+      "service_id": "realestate",
+      "route_id": "yield",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402-jrey.vercel.app/api/realestate/yield?area=tokyo",
+      "url_env_override": "JAPAN_REAL_ESTATE_URL",
+      "price": {
+        "amount": "0.30",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Japan Real Estate Yield",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:43"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "divergence-analyzer",
+      "provider_id": "x402nansenpolymarket",
+      "service_id": "divergence",
+      "route_id": "scan",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402nansenpolymarket.vercel.app/api/divergence/scan",
+      "url_env_override": "DIVERGENCE_ANALYZER_URL",
+      "price": {
+        "amount": "0.15",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Divergence signal. Supplies `nansenNetFlowUsd`, a Nansen net flow in USD, together with the token and chain it applies to. Mode A consumes it as the origin/strength input.",
+      "description_source": {
+        "kind": "documented",
+        "citations": [
+          "README.md:25",
+          "src/modes/signal-extract.ts:3-5",
+          "src/modes/signal-extract.ts:13-18",
+          "src/modes/signal-extract.ts:28-34",
+          "src/modes/scoring.ts:4-7"
+        ],
+        "note": null
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": true,
+      "ab_group": "documented",
+      "consuming_task": {
+        "mode": "A",
+        "citation": "README.md:25 - Mode A reuses this Mode B result as the strength input"
+      }
+    },
+    {
+      "route_key": "hyperliquid-intelligence",
+      "provider_id": "x402-hl",
+      "service_id": "hyperliquid",
+      "route_id": "scan",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402-hl.vercel.app/api/hyperliquid/scan",
+      "url_env_override": "HYPERLIQUID_INTELLIGENCE_URL",
+      "price": {
+        "amount": "0.20",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Hyperliquid positioning. Supplies an open-interest positioning skew: positive means a net-long crowd, negative a net-short one. Mode A consumes it as the conviction input.",
+      "description_source": {
+        "kind": "documented",
+        "citations": [
+          "README.md:26",
+          "src/modes/signal-extract.ts:20-26",
+          "src/modes/signal-extract.ts:37-47",
+          "src/modes/scoring.ts:4-7"
+        ],
+        "note": null
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": true,
+      "ab_group": "documented",
+      "consuming_task": {
+        "mode": "A",
+        "citation": "README.md:26 - Mode A reuses this Mode B result as the conviction input"
+      }
+    },
+    {
+      "route_key": "smart-money-screener",
+      "provider_id": "smartmoneyscreener",
+      "service_id": "screener",
+      "route_id": "smart-money",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://smartmoneyscreener.vercel.app/api/screener/smart-money",
+      "url_env_override": "SMART_MONEY_SCREENER_URL",
+      "price": {
+        "amount": "0.05",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Smart Money Screener",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:74"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "note": "Excluded from Mode A's decision input: Nansen does not cover Solana, so it returns zero candidates. Still purchased every day by Mode B. (README.md:31)",
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "onchain-feed-apac",
+      "provider_id": "x402oif",
+      "service_id": "feed",
+      "route_id": "apac-daily",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402oif.vercel.app/api/feed/apac-daily",
+      "url_env_override": "ONCHAIN_FEED_APAC_URL",
+      "price": {
+        "amount": "0.10",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Onchain Intelligence Feed (APAC Daily)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:83"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "onchain-feed-whale",
+      "provider_id": "x402oif",
+      "service_id": "feed",
+      "route_id": "whale-alert",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402oif.vercel.app/api/feed/whale-alert",
+      "url_env_override": "ONCHAIN_FEED_WHALE_URL",
+      "price": {
+        "amount": "0.20",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "Onchain Intelligence Feed (Whale Alert)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:92"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "osd-ipo",
+      "provider_id": "osd-coral",
+      "service_id": "ipo",
+      "route_id": "root",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://osd-coral.vercel.app/api/ipo",
+      "url_env_override": "OSD_IPO_URL",
+      "price": {
+        "amount": "0.01",
+        "currency": "USDC",
+        "network": "solana"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "OSD IPO Data (Solana)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:104"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "osd-holders",
+      "provider_id": "osd-coral",
+      "service_id": "holders",
+      "route_id": "root",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://osd-coral.vercel.app/api/holders",
+      "url_env_override": "OSD_HOLDERS_URL",
+      "price": {
+        "amount": "0.01",
+        "currency": "USDC",
+        "network": "solana"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "OSD Holders Data (Solana)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:113"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "osd-liquidity",
+      "provider_id": "osd-coral",
+      "service_id": "liquidity",
+      "route_id": "root",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://osd-coral.vercel.app/api/liquidity",
+      "url_env_override": "OSD_LIQUIDITY_URL",
+      "price": {
+        "amount": "0.01",
+        "currency": "USDC",
+        "network": "solana"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "OSD Liquidity Data (Solana)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:122"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "osd-jin-latest",
+      "provider_id": "jin-orcin-pi",
+      "service_id": "jin",
+      "route_id": "latest",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://jin-orcin-pi.vercel.app/api/jin/latest",
+      "url_env_override": "OSD_JIN_LATEST_URL",
+      "price": {
+        "amount": "0.01",
+        "currency": "USDC",
+        "network": "solana"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "JIN Index Latest (Solana)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:131"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": true,
+      "in_ab_comparison": true,
+      "ab_group": "name_only",
+      "note": "Response is written to data/external/jin-latest-<date>.json. No reader for data/external was found anywhere in the repository. (src/modes/modeB.ts:23-53)",
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "osd-jin-movers",
+      "provider_id": "jin-orcin-pi",
+      "service_id": "jin",
+      "route_id": "movers",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://jin-orcin-pi.vercel.app/api/jin/movers",
+      "url_env_override": "OSD_JIN_MOVERS_URL",
+      "price": {
+        "amount": "0.01",
+        "currency": "USDC",
+        "network": "solana"
+      },
+      "mode": "B",
+      "purchased": "every Mode B run (daily)",
+      "description": "JIN Movers (Solana)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:141"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": true,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "note": "Response is written to data/external/jin-movers-<date>.json. No reader for data/external was found anywhere in the repository. (src/modes/modeB.ts:23-53)",
+      "consuming_task": {
+        "mode": "B",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "apac-macro-weekly",
+      "provider_id": "x402amd",
+      "service_id": "macro",
+      "route_id": "weekly",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402amd.vercel.app/api/macro/weekly",
+      "url_env_override": "APAC_MACRO_WEEKLY_URL",
+      "price": {
+        "amount": "3.00",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "C",
+      "purchased": "every Mode C run (weekly)",
+      "description": "APAC Macro Dashboard (Weekly)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:154"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": true,
+      "ab_group": "name_only",
+      "consuming_task": {
+        "mode": "C",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "yield-intelligence-weekly",
+      "provider_id": "x402yi",
+      "service_id": "yield",
+      "route_id": "weekly",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402yi.vercel.app/api/yield/weekly",
+      "url_env_override": "YIELD_INTELLIGENCE_WEEKLY_URL",
+      "price": {
+        "amount": "2.00",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "C",
+      "purchased": "every Mode C run (weekly)",
+      "description": "Yield Intelligence (Weekly)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:163"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "C",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "japan-real-estate-weekly",
+      "provider_id": "x402-jrey",
+      "service_id": "realestate",
+      "route_id": "weekly",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402-jrey.vercel.app/api/realestate/weekly",
+      "url_env_override": "JAPAN_REAL_ESTATE_WEEKLY_URL",
+      "price": {
+        "amount": "2.00",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "C",
+      "purchased": "every Mode C run (weekly)",
+      "description": "Japan Real Estate Yield (Weekly)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:172"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "C",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "alpha-memo-weekly",
+      "provider_id": "x402amp",
+      "service_id": "memo",
+      "route_id": "weekly",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402amp.vercel.app/api/memo/weekly",
+      "url_env_override": "ALPHA_MEMO_WEEKLY_URL",
+      "price": {
+        "amount": "3.00",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "C",
+      "purchased": "every Mode C run (weekly)",
+      "description": "Alpha Memo Protocol (Weekly)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:181"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "C",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "onchain-feed-weekly",
+      "provider_id": "x402oif",
+      "service_id": "feed",
+      "route_id": "weekly-report",
+      "access_method": "x402_http",
+      "http_method": "GET",
+      "url": "https://x402oif.vercel.app/api/feed/weekly-report",
+      "url_env_override": "ONCHAIN_FEED_WEEKLY_URL",
+      "price": {
+        "amount": "0.50",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "C",
+      "purchased": "every Mode C run (weekly)",
+      "description": "Onchain Intelligence Feed (Weekly Report)",
+      "description_source": {
+        "kind": "name_only",
+        "citations": [
+          "src/config.ts:190"
+        ],
+        "note": "No provider description exists in the repository; this is the verbatim `name` field. Not invented, but thin. Provider APIs could not be queried: egress to them is blocked from the authoring sandbox, and src/modes/signal-extract.ts:6-7 records that AA's own environment cannot reach them either."
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": false,
+      "ab_group": null,
+      "consuming_task": {
+        "mode": "C",
+        "citation": "No downstream consumer is stated; the mode fetches and logs it."
+      }
+    },
+    {
+      "route_key": "whale-intent-decoder",
+      "provider_id": "x402wid",
+      "service_id": "decode",
+      "route_id": "root",
+      "access_method": "x402_http",
+      "http_method": "POST",
+      "url": "https://x402wid.vercel.app/api/decode",
+      "url_env_override": "WHALE_INTENT_DECODER_URL",
+      "price": {
+        "amount": "0.30",
+        "currency": "USDC",
+        "network": "base"
+      },
+      "mode": "A",
+      "purchased": "every Mode A run",
+      "description": "Decodes whale intent for a token. Takes POST {token, chain, amount} and returns an intent with a confidence. Mode A pays for it fresh on every run and consumes it as the direction input; it is the highest-weighted of the three signals.",
+      "description_source": {
+        "kind": "documented",
+        "citations": [
+          "README.md:27",
+          "src/modes/modeA.ts:89",
+          "src/scripts/verify-products.ts:244-251",
+          "src/modes/scoring.ts:4-7",
+          "src/modes/scoring.ts:36"
+        ],
+        "note": null
+      },
+      "capture_full_data": false,
+      "in_ab_comparison": true,
+      "ab_group": "documented",
+      "consuming_task": {
+        "mode": "A",
+        "citation": "README.md:27 - Mode A pays for this fresh as the direction input"
+      }
+    }
+  ]
+}
