@@ -72,7 +72,7 @@ export function describeX402Failure(res: Response): string {
   const parts: string[] = [];
 
   if (challenge) {
-    parts.push(`再チャレンジ(支払い未受理) offered=${decodeOfferedNetworks(challenge)}`);
+    parts.push(`再チャレンジ(支払い未受理) ${describeChallenge(challenge)}`);
   } else {
     parts.push("再チャレンジなし(支払いは受理されたが 200 に至らず)");
   }
@@ -80,14 +80,25 @@ export function describeX402Failure(res: Response): string {
   return ` — ${parts.join(" / ")}`;
 }
 
-/** Networks named by a base64 PAYMENT-REQUIRED header, or why it could not be read. */
-function decodeOfferedNetworks(header: string): string {
+/**
+ * What a base64 PAYMENT-REQUIRED header offers: protocol version and networks.
+ *
+ * The version matters as much as the network. The SVM client registers v2 under
+ * `solana:*` and v1 under fixed aliases, and only the v2 registration takes our
+ * dedicated-RPC override — so "which version did the seller speak" changes which
+ * code path built the payment.
+ */
+function describeChallenge(header: string): string {
   try {
     const parsed = JSON.parse(decodeHeaderJson(header)) as {
-      accepts?: { network?: unknown }[];
+      x402Version?: unknown;
+      accepts?: { network?: unknown; scheme?: unknown }[];
     };
-    const nets = (parsed.accepts ?? []).map((a) => String(a.network ?? "?"));
-    return nets.length > 0 ? nets.join(",") : "(accepts 空)";
+    const version = parsed.x402Version !== undefined ? `v${String(parsed.x402Version)}` : "v?";
+    const legs = (parsed.accepts ?? []).map(
+      (a) => `${String(a.network ?? "?")}/${String(a.scheme ?? "?")}`
+    );
+    return `${version} offered=${legs.length > 0 ? legs.join(",") : "(accepts 空)"}`;
   } catch {
     return "(復号不能)";
   }

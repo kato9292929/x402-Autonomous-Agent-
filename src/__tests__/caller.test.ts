@@ -70,7 +70,7 @@ test("402 + PAYMENT-REQUIRED → 再チャレンジ（支払い未受理）と�
     })
   );
   assert.match(out, /再チャレンジ\(支払い未受理\)/);
-  assert.match(out, /offered=solana:5eykt4Us/);
+  assert.match(out, /v2 offered=solana:5eykt4Us\/exact/);
 });
 
 test("402 + 複数 leg → 提示された全ネットワークを並べる", () => {
@@ -82,7 +82,7 @@ test("402 + 複数 leg → 提示された全ネットワークを並べる", ()
       }),
     })
   );
-  assert.match(out, /offered=eip155:8453,solana:5eykt4Us/);
+  assert.match(out, /offered=eip155:8453\/\?,solana:5eykt4Us\/\?/);
 });
 
 test("402 かつ PAYMENT-REQUIRED 無し → 受理後に 200 に至らなかった側と分かる", () => {
