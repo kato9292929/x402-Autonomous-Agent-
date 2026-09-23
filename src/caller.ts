@@ -47,6 +47,61 @@ export function networkMatchesChain(network: string, chain: string): boolean {
   }
 }
 
+/**
+ * What a failing x402 response tells us about WHERE it failed.
+ *
+ * A bare `HTTP 402: {}` is ambiguous and cost us days: in x402 v2 the challenge
+ * travels in the PAYMENT-REQUIRED header and the body is empty, so an empty
+ * body after we already signed can mean either of two very different things:
+ *
+ *   - a FRESH challenge (PAYMENT-REQUIRED present) — the seller did not accept
+ *     the payment we sent: verify rejected it, or our header never registered.
+ *     The seller is asking again, as if unpaid.
+ *   - settlement failed (no PAYMENT-REQUIRED) — @x402/next returns the
+ *     facilitator's own error verbatim in the body when settle fails, so an
+ *     empty body here means the failure was not a settle error either.
+ *
+ * Reading the headers separates them without another round trip. `accepts` is
+ * decoded far enough to name the networks offered, because "which chain did the
+ * seller actually offer" is the first question in every one of these.
+ */
+export function describeX402Failure(res: Response): string {
+  if (res.status !== 402) return "";
+  const challenge = res.headers.get("PAYMENT-REQUIRED") ?? res.headers.get("X-PAYMENT-REQUIRED");
+  const settle = res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
+  const parts: string[] = [];
+
+  if (challenge) {
+    parts.push(`再チャレンジ(支払い未受理) offered=${decodeOfferedNetworks(challenge)}`);
+  } else {
+    parts.push("再チャレンジなし(支払いは受理されたが 200 に至らず)");
+  }
+  if (settle) parts.push(`settle=${clipBody(decodeHeaderJson(settle), 400)}`);
+  return ` — ${parts.join(" / ")}`;
+}
+
+/** Networks named by a base64 PAYMENT-REQUIRED header, or why it could not be read. */
+function decodeOfferedNetworks(header: string): string {
+  try {
+    const parsed = JSON.parse(decodeHeaderJson(header)) as {
+      accepts?: { network?: unknown }[];
+    };
+    const nets = (parsed.accepts ?? []).map((a) => String(a.network ?? "?"));
+    return nets.length > 0 ? nets.join(",") : "(accepts 空)";
+  } catch {
+    return "(復号不能)";
+  }
+}
+
+/** base64 header → JSON text, falling back to the raw value when it is not base64. */
+function decodeHeaderJson(header: string): string {
+  try {
+    return Buffer.from(header, "base64").toString("utf8");
+  } catch {
+    return header;
+  }
+}
+
 export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> {
   const startMs = Date.now();
 
@@ -66,7 +121,7 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
 
     if (!res.ok) {
       const text = await res.text().catch(() => "(no body)");
-      throw new Error(`HTTP ${res.status}: ${clipBody(text)}`);
+      throw new Error(`HTTP ${res.status}: ${clipBody(text)}${describeX402Failure(res)}`);
     }
 
     const data = (await res.json()) as Record<string, unknown>;
