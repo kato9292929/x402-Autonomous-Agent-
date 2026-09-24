@@ -38,6 +38,10 @@ export function networkMatchesChain(network: string, chain: string): boolean {
       return n === "base" || n.startsWith("eip155:8453");
     case "solana":
       return n === "solana" || n.startsWith("solana:");
+    case "arc":
+      // Arc mainnet is chain id 5042. It is EVM, so a settlement on it reports
+      // an eip155 network like any other — the label is what tells them apart.
+      return n === "arc" || n.startsWith("eip155:5042");
     case "polygon":
       return n === "polygon" || n.startsWith("eip155:137");
     case "bnb":
