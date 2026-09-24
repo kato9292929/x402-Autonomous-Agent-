@@ -7,7 +7,7 @@ export interface EndpointConfig {
   url: string;
   method: "GET" | "POST";
   cost: number;
-  chain: "base" | "solana" | "polygon" | "bnb";
+  chain: "base" | "solana" | "arc" | "polygon" | "bnb";
   mode: "B" | "C" | "D";
   captureFullData?: boolean;
 }

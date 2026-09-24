@@ -1,3 +1,5 @@
+import { ARC_USDC_ERC20 } from "./payment-guard";
+
 /**
  * Pre-flight USDC balance check for both settlement legs.
  *
@@ -24,9 +26,18 @@ export const SOLANA_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const BASE_WARN_USDC = Number(process.env.BALANCE_WARN_BASE_USDC ?? "10");
 /** Warn below this many USDC on the Solana leg. */
 export const SOLANA_WARN_USDC = Number(process.env.BALANCE_WARN_SOLANA_USDC ?? "1");
+/**
+ * Warn below this many USDC on the Arc leg.
+ *
+ * Arc pays gas in USDC too, so this one balance covers both the payments and
+ * the fees to make them — it empties from two directions at once. Only checked
+ * once the Arc leg is actually enabled; an unconfigured chain warning every day
+ * is how warnings get ignored.
+ */
+export const ARC_WARN_USDC = Number(process.env.BALANCE_WARN_ARC_USDC ?? "5");
 
 export interface LegBalance {
-  leg: "base" | "solana";
+  leg: "base" | "solana" | "arc";
   address?: string;
   /** Balance in USDC. Undefined when it could not be read. */
   usdc?: number;
@@ -83,9 +94,26 @@ async function rpc<T>(url: string, method: string, params: unknown[]): Promise<T
 
 /** ERC-20 balanceOf(address) → USDC, via eth_call. */
 export async function readBaseUsdc(address: string, rpcUrl: string): Promise<number> {
+  return readErc20Usdc(address, rpcUrl, BASE_USDC);
+}
+
+/**
+ * USDC balance of an address on any EVM chain, through the ERC-20 interface.
+ *
+ * The token address is a parameter because it differs per chain — on Arc it is
+ * the native balance's ERC-20 view (0x3600…0000), not a deployed stablecoin.
+ * Both use 6 decimals through this interface; Arc's NATIVE gas balance uses 18,
+ * which is why this reads balanceOf rather than eth_getBalance. Mixing the two
+ * would report a balance a trillion times too large.
+ */
+export async function readErc20Usdc(
+  address: string,
+  rpcUrl: string,
+  token: string
+): Promise<number> {
   // balanceOf(address) selector + 32-byte padded address
   const data = "0x70a08231" + address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
-  const hex = await rpc<string>(rpcUrl, "eth_call", [{ to: BASE_USDC, data }, "latest"]);
+  const hex = await rpc<string>(rpcUrl, "eth_call", [{ to: token, data }, "latest"]);
   return Number(BigInt(hex)) / 1e6;
 }
 
@@ -146,6 +174,30 @@ export async function checkBalances(solanaAddress?: string): Promise<BalanceRepo
     }
   }
   legs.push(svmLeg);
+
+  // Arc leg. Only when X402_ARC_ENABLED=true, so a chain we do not pay on never
+  // warns. The payer defaults to the Base Circle wallet, matching the fallback
+  // in initX402Fetch — but the balance read here is Arc's, which is a different
+  // balance even when the address string is identical.
+  if (process.env.X402_ARC_ENABLED === "true") {
+    const arcAddress =
+      process.env.CIRCLE_ARC_WALLET_ADDRESS ?? process.env.CIRCLE_EVM_WALLET_ADDRESS;
+    const arcLeg: LegBalance = { leg: "arc", address: arcAddress, threshold: ARC_WARN_USDC };
+    if (!arcAddress) {
+      arcLeg.error = "no wallet address configured";
+    } else {
+      try {
+        arcLeg.usdc = await readErc20Usdc(
+          arcAddress,
+          process.env.ARC_RPC ?? "https://rpc.arc.network/",
+          ARC_USDC_ERC20
+        );
+      } catch (err) {
+        arcLeg.error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    legs.push(arcLeg);
+  }
 
   return { legs, warnings: evaluateBalances(legs) };
 }

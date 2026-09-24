@@ -50,3 +50,36 @@ test("per-call 上限は Arc にもそのまま効く（チェーン非依存）
 test("金額が読めない要件は Arc でも弾く", () => {
   assert.equal(withinMicroUsdcCap({}, BigInt(3_000_000)), false);
 });
+
+// ── Arc を一級のチェーンとして扱う ─────────────────────────────────────────
+// 支払いレグだけ足して監視・ラベルを足さないと、Base で起きたのと同じ
+// 「静かに枯れる」経路がもう1本増える。
+import { networkMatchesChain } from "../caller";
+import { ARC_WARN_USDC, evaluateBalances, type LegBalance } from "../balance-guard";
+
+test("networkMatchesChain: Arc の決済を arc ラベルと一致させる", () => {
+  assert.ok(networkMatchesChain("eip155:5042", "arc"));
+  assert.ok(networkMatchesChain("arc", "arc"));
+});
+
+test("networkMatchesChain: Arc と Base を取り違えない", () => {
+  // どちらも eip155 なので、接頭辞だけの判定だと混ざる。
+  assert.equal(networkMatchesChain("eip155:8453", "arc"), false);
+  assert.equal(networkMatchesChain("eip155:5042", "base"), false);
+});
+
+test("残高ガードが arc leg を評価できる", () => {
+  const legs: LegBalance[] = [
+    { leg: "arc", address: "0xae7c34b72d0f49605ee2448c5f0d0ecfb4fcfec8", usdc: 0.5, threshold: ARC_WARN_USDC },
+  ];
+  const [w] = evaluateBalances(legs);
+  assert.match(w, /LOW BALANCE/);
+  assert.match(w, /arc/);
+});
+
+test("Arc は閾値以上なら警告しない", () => {
+  assert.deepEqual(
+    evaluateBalances([{ leg: "arc", usdc: ARC_WARN_USDC, threshold: ARC_WARN_USDC }]),
+    []
+  );
+});
