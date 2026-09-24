@@ -20,7 +20,7 @@ import type { PaymentRequirements } from "@x402/core/types";
 import { getCircleEvmSignerFromEnv, createCircleEvmSigner } from "./circle/evm-signer";
 import { getCircleSolanaSignerFromEnv, resolveSolanaBackend } from "./circle/solana-signer";
 import { DEFAULT_MAX_BASE_MICRO_USDC } from "./circle/spending-controls";
-import { TESTNET_NETWORK } from "./payment-guard";
+import { ARC_NETWORK, TESTNET_NETWORK } from "./payment-guard";
 
 let _fetchWithPayment:
   | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
@@ -129,6 +129,38 @@ export async function initX402Fetch(): Promise<void> {
     );
     client.register(TESTNET_NETWORK, testnetScheme);
     console.log(`[X402] Base Sepolia leg registered (Circle TEST wallet: ${testnetAddress})`);
+  }
+
+  // Arc mainnet leg. Off unless X402_ARC_ENABLED=true, so a deploy alone never
+  // adds a chain. Arc is EVM, so the same ExactEvmScheme serves it — there is no
+  // Arc-specific payment code, and no local asset table: chain id 5042 is parsed
+  // out of the CAIP-2 network string, and the asset and EIP-712 domain come from
+  // the seller's 402.
+  //
+  // Wallet: a dedicated Arc Circle DCW pair when configured, otherwise the
+  // existing Circle EVM wallet. Reusing it is the documented default — but the
+  // payer address must hold USDC ON ARC, which is a separate balance from Base
+  // even when the address string matches. An unfunded payer signs fine and fails
+  // at settlement, so fund it before enabling this.
+  if (process.env.X402_ARC_ENABLED === "true") {
+    const arcWalletId = process.env.CIRCLE_ARC_WALLET_ID ?? process.env.CIRCLE_EVM_WALLET_ID;
+    const arcAddress =
+      process.env.CIRCLE_ARC_WALLET_ADDRESS ?? process.env.CIRCLE_EVM_WALLET_ADDRESS;
+    if (!arcWalletId || !arcAddress) {
+      throw new Error(
+        "X402_ARC_ENABLED=true requires CIRCLE_ARC_WALLET_ID / CIRCLE_ARC_WALLET_ADDRESS, " +
+          "or the existing CIRCLE_EVM_WALLET_ID / CIRCLE_EVM_WALLET_ADDRESS to fall back to"
+      );
+    }
+    const reused = !process.env.CIRCLE_ARC_WALLET_ID;
+    const arcScheme = new ExactEvmScheme(
+      createCircleEvmSigner(arcWalletId, arcAddress as `0x${string}`, "live")
+    );
+    client.register(ARC_NETWORK, arcScheme);
+    console.log(
+      `[X402] Arc leg registered (${ARC_NETWORK}, Circle wallet: ${arcAddress}` +
+        `${reused ? " — reused from the Base leg; it must hold USDC on Arc" : ""})`
+    );
   }
 
   // Solana signer: Circle DCW (SOLANA_SIGNER_BACKEND=circle) or a local keypair.

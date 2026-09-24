@@ -17,6 +17,28 @@
 import type { PaymentRequirements } from "@x402/core/types";
 
 /** Base Sepolia. The testnet demo must never settle anywhere else. */
+/**
+ * Arc mainnet, CAIP-2. Circle's own L1: USDC is the native gas token, so a
+ * payer here holds no third asset for fees.
+ *
+ * Chain id 5042 needs no entry in any local table. The v2 EVM scheme derives it
+ * by parsing the CAIP-2 string (`getEvmChainId` in @x402/evm), and the asset
+ * address plus the EIP-712 `name`/`version` arrive in the seller's 402 — so a
+ * buyer supports a new EVM chain by registering a signer for it, nothing more.
+ */
+export const ARC_NETWORK = "eip155:5042";
+
+/**
+ * USDC on Arc — the optional ERC-20 interface over the native balance
+ * (Arc docs, contract-addresses; same address on mainnet and testnet).
+ * Informational here: the amount we actually sign against comes from the 402.
+ *
+ * CAUTION: this ERC-20 interface uses 6 decimals while Arc's NATIVE USDC gas
+ * balance uses 18. They are one balance seen two ways. Read balances through
+ * the ERC-20 interface only, and never mix the two precisions.
+ */
+export const ARC_USDC_ERC20 = "0x3600000000000000000000000000000000000000";
+
 export const TESTNET_NETWORK = "eip155:84532";
 export const EXACT_SCHEME = "exact";
 
