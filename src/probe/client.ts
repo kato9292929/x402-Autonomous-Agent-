@@ -21,7 +21,7 @@ import { registerExactSvmScheme, ExactSvmScheme } from "@x402/svm/exact/client";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
 import { createCircleEvmSigner } from "../circle/evm-signer";
 import { getCircleSolanaSignerFromEnv } from "../circle/solana-signer";
-import { priceOf } from "../payment-guard";
+import { ARC_NETWORK, priceOf } from "../payment-guard";
 import { allowsCall, PER_CALL_CAP_USD, PER_RUN_CAP_USD, WEEKLY_CAP_USD } from "./budget";
 
 /** Solana mainnet, CAIP-2. */
@@ -31,6 +31,8 @@ export const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export const BASE_NETWORKS = ["eip155:8453", "base"];
 /** Solana, as v2 CAIP-2 and the v1 alias the SVM scheme registers. */
 export const SOLANA_NETWORKS = [SOLANA_MAINNET, "solana"];
+/** Arc mainnet. Same list shape as the others; there is no v1 alias. */
+export const ARC_NETWORKS = [ARC_NETWORK];
 
 /**
  * Networks the probe wallet can settle on.
@@ -44,7 +46,11 @@ export const SOLANA_NETWORKS = [SOLANA_MAINNET, "solana"];
  * a price the sweep then fails to pay.
  */
 export function probeNetworks(): string[] {
-  return solanaConfigured() ? [...BASE_NETWORKS, ...SOLANA_NETWORKS] : [...BASE_NETWORKS];
+  return [
+    ...BASE_NETWORKS,
+    ...(solanaConfigured() ? SOLANA_NETWORKS : []),
+    ...(arcConfigured() ? ARC_NETWORKS : []),
+  ];
 }
 
 /**
@@ -57,6 +63,19 @@ export const PROBE_NETWORKS = BASE_NETWORKS;
 
 function solanaConfigured(): boolean {
   return getCircleSolanaSignerFromEnv() !== undefined;
+}
+
+/** The Arc wallet the probe would pay from, or null when Arc is not enabled. */
+function arcWallet(): { walletId: string; address: `0x${string}`; reused: boolean } | null {
+  if (process.env.X402_ARC_ENABLED !== "true") return null;
+  const walletId = process.env.CIRCLE_ARC_WALLET_ID ?? process.env.CIRCLE_EVM_WALLET_ID;
+  const address = process.env.CIRCLE_ARC_WALLET_ADDRESS ?? process.env.CIRCLE_EVM_WALLET_ADDRESS;
+  if (!walletId || !address) return null;
+  return { walletId, address: address as `0x${string}`, reused: !process.env.CIRCLE_ARC_WALLET_ID };
+}
+
+function arcConfigured(): boolean {
+  return arcWallet() !== null;
 }
 
 /**
@@ -245,6 +264,26 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
           "public api.mainnet-beta.solana.com endpoint, which rate-limits server traffic"
       );
     }
+  }
+
+  // Arc mainnet leg, gated on the same X402_ARC_ENABLED as the daily client so
+  // neither a deploy nor a sweep adds a chain on its own. Arc is EVM, so the
+  // same ExactEvmScheme serves it: chain id 5042 is parsed out of the CAIP-2
+  // string and the asset and EIP-712 domain come from the seller's 402.
+  //
+  // The payer must hold USDC ON ARC. That is a separate balance from Base even
+  // when the address string is identical, and an unfunded payer signs fine and
+  // fails at settlement — which on this path costs a probe call, not money.
+  const arc = arcWallet();
+  if (arc) {
+    base.register(
+      ARC_NETWORK,
+      new ExactEvmScheme(createCircleEvmSigner(arc.walletId, arc.address, "live"))
+    );
+    console.log(
+      `[PROBE] Arc leg registered (${ARC_NETWORK}, Circle wallet: ${arc.address}` +
+        `${arc.reused ? " — Base レグからの流用。Arc 上の USDC 残高が別に必要" : ""})`
+    );
   }
 
   const networks = probeNetworks();

@@ -143,6 +143,16 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     metadata: ["/.well-known/x402", "/openapi.json"],
     probes: [{ path: "/api/v1/search", method: "POST", body: { query: "US inflation data", sources: ["web"], max_results: 3 } }],
     question: "Web 検索の返り値と実費を測る",
+    // 2026-10-20 の sweep で 500。無課金の 402 は3回とも正常に返る($0.081)ので、
+    // 支払いを提示したあとに壊れている = 売り手側。こちらに直せるものが無い。
+    //
+    // 単価も他の先の10〜80倍で、$0.081 は週上限 $4.00 の 2% を1コールで使う。
+    // 払えていない以上、毎週その枠を空振りに充てる理由が無い。
+    // run 0 は無課金で読み続けるので、復帰も値下げもそこで分かる。
+    suspended: {
+      since: "2026-10-20",
+      reason: "支払い提示後に HTTP 500(無課金の 402 は正常)。売り手側の障害",
+    },
   },
   {
     id: "exa",
