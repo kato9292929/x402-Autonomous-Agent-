@@ -164,9 +164,28 @@ probe クライアントにも Arc レグを登録する。日次クライアン
 
 ```
 X402_ARC_ENABLED=true
-CIRCLE_ARC_WALLET_ID=            # 省略時は CIRCLE_EVM_WALLET_ID を流用
-CIRCLE_ARC_WALLET_ADDRESS=       # 省略時は CIRCLE_EVM_WALLET_ADDRESS を流用
+CIRCLE_ARC_WALLET_ID=            # 必須。Arc 上に作成した Circle ウォレット
+CIRCLE_ARC_WALLET_ADDRESS=       # 省略時は CIRCLE_EVM_WALLET_ADDRESS を使う
 ```
+
+**Base ウォレットの流用はできない。** Circle はウォレットを作成時のチェーンに
+紐づけるので、chain 5042 の EIP-712 署名は Circle 側で拒まれる。
+
+```
+signTypedData failed: HTTP 400 {"code":155801,
+  "errors":[{"message":"Chain ID is invalid or mismatched with the wallet blockchain"}]}
+```
+
+2026-10-20 に Exa の Arc leg で実測した。**アドレスも Arc 上の USDC 残高も正しく、
+間違っていたのは walletId のチェーンだけ**だった。残高は 1 ウェイも動いていない
+（署名より前で落ちるため）。
+
+`CIRCLE_ARC_WALLET_ID` が無ければレグは登録されず、Arc は `probeNetworks()` に
+入らない。設定ミスが probe のコールを浪費しない形にしてある。
+
+アドレスのほうは流用してよい。同一 wallet set の EVM ウォレットはチェーンをまたいで
+アドレスを共有するので、Arc ウォレットを作っても Base と同じアドレスになることが多い
+（その場合、入金済みの USDC はそのまま使える）。
 
 `probeNetworks()` が Arc を含むのは**フラグとウォレットが両方揃ったときだけ**。
 署名できないチェーンを「払える」と数えると `observe` が払えない単価を見積もる。
