@@ -65,13 +65,31 @@ function solanaConfigured(): boolean {
   return getCircleSolanaSignerFromEnv() !== undefined;
 }
 
-/** The Arc wallet the probe would pay from, or null when Arc is not enabled. */
-function arcWallet(): { walletId: string; address: `0x${string}`; reused: boolean } | null {
+/**
+ * The Arc wallet the probe would pay from, or null when Arc is not usable.
+ *
+ * `CIRCLE_ARC_WALLET_ID` is required and has no fallback. A Circle DCW wallet is
+ * bound to its blockchain at creation, so the Base wallet cannot sign for Arc —
+ * Circle refuses it before anything reaches the chain:
+ *
+ *   signTypedData failed: HTTP 400 {"code":155801, …
+ *     "Chain ID is invalid or mismatched with the wallet blockchain"}
+ *
+ * seen on 2026-10-20 against Exa's Arc leg, with the right address holding
+ * USDC on Arc. The address and the balance were both correct; only the wallet
+ * id was for the wrong chain. Falling back to the Base wallet would register a
+ * leg that cannot sign, which `probeNetworks()` would then count as payable and
+ * `observe` would quote — the one thing this probe must not do.
+ *
+ * The ADDRESS may still fall back: EVM wallets created in one Circle wallet set
+ * share an address across chains, so an Arc wallet usually has the Base address.
+ */
+function arcWallet(): { walletId: string; address: `0x${string}` } | null {
   if (process.env.X402_ARC_ENABLED !== "true") return null;
-  const walletId = process.env.CIRCLE_ARC_WALLET_ID ?? process.env.CIRCLE_EVM_WALLET_ID;
+  const walletId = process.env.CIRCLE_ARC_WALLET_ID;
   const address = process.env.CIRCLE_ARC_WALLET_ADDRESS ?? process.env.CIRCLE_EVM_WALLET_ADDRESS;
   if (!walletId || !address) return null;
-  return { walletId, address: address as `0x${string}`, reused: !process.env.CIRCLE_ARC_WALLET_ID };
+  return { walletId, address: address as `0x${string}` };
 }
 
 function arcConfigured(): boolean {
@@ -271,9 +289,13 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
   // same ExactEvmScheme serves it: chain id 5042 is parsed out of the CAIP-2
   // string and the asset and EIP-712 domain come from the seller's 402.
   //
-  // The payer must hold USDC ON ARC. That is a separate balance from Base even
-  // when the address string is identical, and an unfunded payer signs fine and
-  // fails at settlement — which on this path costs a probe call, not money.
+  // Needs a Circle wallet created ON ARC — see `arcWallet()`. Without one the
+  // leg is simply not registered, and Arc stays out of `probeNetworks()`, so a
+  // misconfiguration costs no probe calls.
+  //
+  // The payer must also hold USDC ON ARC. That is a separate balance from Base
+  // even when the address string is identical, and an unfunded payer signs fine
+  // and fails at settlement — which on this path costs a probe call, not money.
   const arc = arcWallet();
   if (arc) {
     base.register(
@@ -282,7 +304,7 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
     );
     console.log(
       `[PROBE] Arc leg registered (${ARC_NETWORK}, Circle wallet: ${arc.address}` +
-        `${arc.reused ? " — Base レグからの流用。Arc 上の USDC 残高が別に必要" : ""})`
+        ` — Arc 上に作成した Circle ウォレットで、Arc 上の USDC 残高が必要)`
     );
   }
 

@@ -699,9 +699,20 @@ test("probeNetworks: Arc は X402_ARC_ENABLED が true のときだけ払える"
     delete process.env.CIRCLE_EVM_WALLET_ADDRESS;
     assert.equal(probeNetworks().includes("eip155:5042"), false, "ウォレット無しでは数えない");
 
-    // Base レグの流用も認める(日次クライアントと同じ既定)。
-    process.env.CIRCLE_EVM_WALLET_ID = "w";
+    // Base の walletId では駄目。Circle はウォレットを作成時のチェーンに紐づけ、
+    // chain 5042 の署名を 155801 で拒む(2026-10-20 に Exa の Arc leg で実測)。
+    // ここで拾わないと、署名できないレグを「払える」と数えて単価まで見積もる。
+    process.env.CIRCLE_EVM_WALLET_ID = "base-wallet";
     process.env.CIRCLE_EVM_WALLET_ADDRESS = "0xabc";
+    assert.equal(
+      probeNetworks().includes("eip155:5042"),
+      false,
+      "Base ウォレットへの流用は Arc を払えるとは数えない"
+    );
+
+    // Arc 上に作った Circle ウォレットの id があって初めて払える。アドレスは
+    // 流用してよい(同一 wallet set の EVM ウォレットはアドレスを共有する)。
+    process.env.CIRCLE_ARC_WALLET_ID = "arc-wallet";
     assert.deepEqual(ARC_NETWORKS, ["eip155:5042"]);
     assert.equal(probeNetworks().includes("eip155:5042"), true);
   } finally {

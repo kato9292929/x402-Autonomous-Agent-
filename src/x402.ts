@@ -137,29 +137,44 @@ export async function initX402Fetch(): Promise<void> {
   // out of the CAIP-2 network string, and the asset and EIP-712 domain come from
   // the seller's 402.
   //
-  // Wallet: a dedicated Arc Circle DCW pair when configured, otherwise the
-  // existing Circle EVM wallet. Reusing it is the documented default — but the
-  // payer address must hold USDC ON ARC, which is a separate balance from Base
-  // even when the address string matches. An unfunded payer signs fine and fails
-  // at settlement, so fund it before enabling this.
+  // Wallet: a Circle DCW wallet REGISTERED ON ARC. Reusing the Base wallet does
+  // not work and is not a funding problem — a Circle wallet is bound to its
+  // blockchain at creation, so signing an EIP-712 payload whose domain chainId
+  // is 5042 with a Base wallet is refused by Circle itself:
+  //
+  //   signTypedData failed: HTTP 400 {"code":155801, …
+  //     "Chain ID is invalid or mismatched with the wallet blockchain"}
+  //
+  // observed on 2026-10-20 against Exa's Arc leg, with the correct address
+  // holding USDC on Arc. The address and the balance were both right; the
+  // wallet id was for the wrong chain. So CIRCLE_ARC_WALLET_ID is required
+  // rather than optional, and the failure is raised here instead of at the
+  // first payment.
+  //
+  // The payer must also hold USDC ON ARC — a separate balance from Base even
+  // when the address string matches. An unfunded payer signs fine and fails at
+  // settlement.
   if (process.env.X402_ARC_ENABLED === "true") {
-    const arcWalletId = process.env.CIRCLE_ARC_WALLET_ID ?? process.env.CIRCLE_EVM_WALLET_ID;
+    const arcWalletId = process.env.CIRCLE_ARC_WALLET_ID;
     const arcAddress =
       process.env.CIRCLE_ARC_WALLET_ADDRESS ?? process.env.CIRCLE_EVM_WALLET_ADDRESS;
     if (!arcWalletId || !arcAddress) {
       throw new Error(
-        "X402_ARC_ENABLED=true requires CIRCLE_ARC_WALLET_ID / CIRCLE_ARC_WALLET_ADDRESS, " +
-          "or the existing CIRCLE_EVM_WALLET_ID / CIRCLE_EVM_WALLET_ADDRESS to fall back to"
+        "X402_ARC_ENABLED=true requires CIRCLE_ARC_WALLET_ID — a Circle wallet " +
+          "created on Arc. The Base wallet cannot be reused: Circle binds a wallet " +
+          "to its blockchain, and signing for chain 5042 with a Base wallet is " +
+          "refused (155801, 'Chain ID is invalid or mismatched with the wallet " +
+          "blockchain'). CIRCLE_ARC_WALLET_ADDRESS may be omitted when the Arc " +
+          "wallet shares the Base address, which EVM wallets in one wallet set do."
       );
     }
-    const reused = !process.env.CIRCLE_ARC_WALLET_ID;
     const arcScheme = new ExactEvmScheme(
       createCircleEvmSigner(arcWalletId, arcAddress as `0x${string}`, "live")
     );
     client.register(ARC_NETWORK, arcScheme);
     console.log(
       `[X402] Arc leg registered (${ARC_NETWORK}, Circle wallet: ${arcAddress}` +
-        `${reused ? " — reused from the Base leg; it must hold USDC on Arc" : ""})`
+        ` — must be a wallet created on Arc, holding USDC on Arc)`
     );
   }
 
