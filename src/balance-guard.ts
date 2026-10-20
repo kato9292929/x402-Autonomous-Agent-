@@ -36,6 +36,20 @@ export const SOLANA_WARN_USDC = Number(process.env.BALANCE_WARN_SOLANA_USDC ?? "
  */
 export const ARC_WARN_USDC = Number(process.env.BALANCE_WARN_ARC_USDC ?? "5");
 
+/**
+ * Arc mainnet RPC, used when ARC_RPC is unset.
+ *
+ * Verified against the public chain registry on 2026-10-20: chain 5042 is
+ * "Arc (arc-mainnet)", native currency USDC, and its first listed endpoint is
+ * this one. The previous default, rpc.arc.network, does not resolve at all —
+ * so the Arc leg would have reported a read error every run instead of a
+ * balance, which is a monitor that never monitors anything.
+ *
+ * Alternates, if this one is ever unreachable:
+ *   https://arc.drpc.org  ·  https://rpc.beamrpc.com
+ */
+export const ARC_RPC_DEFAULT = "https://rpc.mainnet.arc.io";
+
 export interface LegBalance {
   leg: "base" | "solana" | "arc";
   address?: string;
@@ -189,7 +203,7 @@ export async function checkBalances(solanaAddress?: string): Promise<BalanceRepo
       try {
         arcLeg.usdc = await readErc20Usdc(
           arcAddress,
-          process.env.ARC_RPC ?? "https://rpc.arc.network/",
+          process.env.ARC_RPC ?? ARC_RPC_DEFAULT,
           ARC_USDC_ERC20
         );
       } catch (err) {
