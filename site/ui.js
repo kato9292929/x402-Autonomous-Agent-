@@ -349,6 +349,94 @@ async function loadSweepDetail() {
 document.getElementById('sweep-more')?.addEventListener('click', () => loadSweepPage(false));
 loadSweepDetail();
 
+/* ── External x402 probe ───────────────────────────────────────────────────
+   Third-party sellers. The quote and the settled amount are separate columns on
+   purpose: the published price and the real charge are expected to disagree, so
+   a single "price" column would be the one thing this measurement cannot show.
+   Nothing is filled in from the target list — a row shows only what was read. */
+const SELLER_NAMES = {
+  onesource: 'OneSource', '2s': '2s', otto: 'Otto AI',
+  gocreative: 'GoCreative', blockrun: 'BlockRun',
+};
+const sellerName = (id) => SELLER_NAMES[id] || id;
+const money6 = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Number(n).toFixed(6));
+const chainLabel = (c) => {
+  if (!c) return '';
+  if (c.startsWith('eip155:8453') || c === 'base') return 'Base';
+  if (c.startsWith('solana')) return 'Solana';
+  if (c.startsWith('eip155:5042') || c === 'arc') return 'Arc';
+  return c;
+};
+
+async function loadProbe() {
+  const section = document.getElementById('probe');
+  if (!section) return;
+  try {
+    const res = await fetch('/api/probes?limit=12');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const runs = (await res.json()).probes || [];
+    // Headline the newest PAID run. A discovery run settles nothing, so showing
+    // one here would read as external spend that never happened.
+    const run = runs.find((r) => r.mode === 'sweep');
+    if (!run) { section.hidden = true; return; }
+    section.hidden = false;
+
+    const rows = run.records || [];
+    const paid = rows.filter((r) => r.outcome === 'paid');
+    const sellers = new Set(paid.map((r) => r.target));
+    const when = new Date(run.at).toLocaleDateString('ja-JP');
+    document.getElementById('probe-sub').textContent =
+      `${run.week} · ${sellers.size}社 · ${paid.length}件決済 · ${money(run.runSpentUsdc)} · ${when}`;
+
+    document.getElementById('probe-scope').innerHTML =
+      '自社の外側にある第三者の x402 売り手に、毎週1回こちらから支払って実費と内容を測っている。' +
+      '<strong>提示額</strong>は売り手の 402 から、<strong>実課金</strong>は決済レスポンスから取る。' +
+      '掲載価格は写さない — 掲載と実課金は乖離しうるので、1列にまとめるとその乖離が見えなくなる。';
+
+    // Per-seller rollup. `measuredPerCallUsdc` is settled ÷ paid calls, so a
+    // seller that settled nothing shows no per-call figure rather than a zero.
+    const list = document.getElementById('probe-sellers');
+    list.innerHTML = (run.summaries || []).map((s) => {
+      const perCall = s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) : '—';
+      const rate = Math.round((s.successRate || 0) * 100);
+      const bits = [`${s.paidCalls}/${s.calls} 決済`];
+      if (s.skipped) bits.push(`${s.skipped} skip`);
+      if (s.errors) bits.push(`${s.errors} err`);
+      return `<li class="probe__seller">` +
+        `<span class="probe__sellername">${esc(sellerName(s.target))}</span>` +
+        `<span class="probe__sellermeta">${esc(bits.join(' · '))}</span>` +
+        `<span class="probe__sellercost">実測 per-call ${esc(perCall)}</span>` +
+        `<span class="probe__sellerrate">成功 ${rate}%</span></li>`;
+    }).join('');
+
+    document.getElementById('probe-list').innerHTML = rows.map((r, i) => {
+      const tx = r.txHash
+        ? `<a class="probe__txlink" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>`
+        : `<span class="probe__txlink probe__txlink--none">no tx</span>`;
+      const chain = r.chain ? `<span class="probe__chain">${esc(chainLabel(r.chain))}</span>` : '';
+      // Quote and charge side by side. Either can legitimately be missing: no
+      // 402 means no quote, nothing settled means no charge.
+      const cost = `<span class="probe__cost">提示 ${esc(money6(r.quotedUsdc))}` +
+        ` → 実課金 ${esc(money6(r.actualUsdc))}</span>`;
+      const why = r.outcome !== 'paid' && r.reason
+        ? `<div class="probe__why">${esc(r.reason)}</div>` : '';
+      return `<li class="probe__item probe__item--${esc(r.outcome)}">` +
+        `<span class="probe__idx">#${i + 1}</span>` +
+        `<span class="probe__target">${esc(sellerName(r.target))}</span>` +
+        `<code class="probe__path">${esc(r.path)}</code>` +
+        `<span class="probe__outcome">${esc(r.outcome)}</span>` +
+        `${cost}${chain}${tx}` +
+        `<span class="probe__lat">${esc(String(r.latencyMs ?? '—'))}ms</span>${why}</li>`;
+    }).join('');
+
+    const skipped = rows.filter((r) => r.outcome === 'skipped');
+    document.getElementById('probe-note').textContent = skipped.length
+      ? `${skipped.length}件は支払わずに終えている（停止中の売り手・対応チェーンなし・予算上限）。理由は各行に出している。`
+      : '';
+  } catch { section.hidden = true; }
+}
+loadProbe();
+
 /* ── Menu ───────────────────────────────────────────────────────────────── */
 const menu = document.getElementById('menu');
 const openBtn = document.getElementById('menu-open');

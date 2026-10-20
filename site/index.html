@@ -180,6 +180,26 @@
     </div>
   </section>
 
+  <!-- ── External x402 probe ────────────────────────────────────────────────
+       Third-party sellers, outside our own economy. One row per call, with the
+       quoted price and the amount actually settled kept apart — the published
+       price and the real charge are expected to disagree, and a single "price"
+       column would hide that. -->
+  <section class="probe" id="probe" aria-label="External x402 probe" hidden>
+    <div class="probe__inner">
+      <header class="probe__head">
+        <div>
+          <h2 class="probe__title">External probe</h2>
+          <p class="probe__sub" id="probe-sub"></p>
+        </div>
+      </header>
+      <p class="probe__scope" id="probe-scope"></p>
+      <ul class="probe__sellers" id="probe-sellers"></ul>
+      <ol class="probe__list" id="probe-list"></ol>
+      <p class="probe__note" id="probe-note"></p>
+    </div>
+  </section>
+
   <!-- ── Endpoints overlay ─────────────────────────────────────────────────
        The hero itself never scrolls; the catalog lives in an overlay that
        scrolls internally. -->

@@ -1,20 +1,58 @@
 # 週次 外部 x402 プローブ
 
-外部5先を週1回叩き、**品質と実費を実測する**ための仕組み。叩いた件数は実需ではない（作業指示書 §9）。
+外部6先を週1回叩き、**品質と実費を実測する**ための仕組み。叩いた件数は実需ではない（作業指示書 §9）。
 自社完結の内部経済ではなく、境界をまたぐ実決済なので、実費と質は意味のある実測になる。
 
-## 対象（5先）
+## 対象（6先）
 
-| # | 先 | 選定した有料ルート | 2026-09-18 の402提示額 | 支払い可能と確認したチェーン | 週の上限本数 |
-|---|---|---|---|---|---|
-| 1 | OneSource | `GET /api/chain/block-number` | $0.001 | Base | 20 |
-| 2 | 2s | `GET /api/finance/sec-filings?ticker=NVDA&limit=5` | $0.009 | Base | 10 |
-| 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | Base | 10 |
-| 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | Base | 5 |
-| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | Base | 5 |
+| # | 先 | 選定した有料ルート | 09-18 の402提示額 | 10-20 の402提示額 | 10-20 の提示チェーン | 週の上限本数 |
+|---|---|---|---|---|---|---|
+| 1 | OneSource | `GET /api/chain/block-number` | $0.001 | $0.001 | Base | 20 |
+| 2 | 2s | `GET /api/finance/sec-filings?ticker=NVDA&limit=5` | $0.009 | $0.009 | Base・**Solana** | 10 |
+| 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | 同額 | Base・**Solana** | 10 |
+| 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | **502(停止中)** | — | 5 |
+| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | **$0.081000** | Base | 5 |
+| 6 | **Exa** | `POST /contents`・`POST /search` | — | **$0.001・$0.007** | Base・Solana・World Chain・**Arc** | 10 |
 
 この金額は**無課金リクエストに対する402提示額**。決済済みの実費ではない。
 実費は有料 sweep の `PAYMENT-RESPONSE` から別途記録する。価格と対応チェーンは実行時に再確認する。
+
+2026-10-20 に run 0 相当の無課金確認を行い、4点が動いていた。
+
+- **GoCreative はオリジン全体が 502**（`/`・`/.well-known/x402`・有料ルートすべて）。
+  ルート単体の問題ではないので `suspended` を立て、**有料 sweep では叩かない**。
+  対象リストからは外さない — run 0 は無課金なので読み続け、復帰はそこで気づく。
+- **BlockRun が $0.079751 → $0.081000**（+1.6%）。1コール上限 $0.20 の内側なので支払いは通る。
+- **2s と Otto AI が Solana leg を追加**。9/18 時点はどちらも Base のみだった。
+- OneSource が `batch-settlement` scheme の leg を追加（`exact` が `accepts[0]` なので選択は変わらない）。
+
+### Exa を追加（2026-10-20）
+
+キーなしで `POST /contents`・`POST /search` とも 402 を返すことを実測して追加した。
+`x-api-key` / `Authorization` を付けると通常の API キー課金に落ちるので、probe は
+**キーを一切載せない**（既存の設計のまま。probe クライアントは認証ヘッダを付けない）。
+
+`accepts` が7本あり、同一チェーンに複数 leg が並ぶ初めての先。
+
+```
+[0] eip155:8453   legacy                   ← 既定セレクタが選ぶ。今の Base ウォレットで払える
+[1] solana:5eyk…  solana-usdc-mainnet      ← feePayer 肩代わりあり
+[2] eip155:8453   base-usdc-gateway        ┐
+[3] eip155:480    worldchain-usdc-gateway  ├ Circle Gateway。この scheme では署名できない
+[4] eip155:5042   arc-usdc-gateway         ┘
+[5] eip155:5042   arc-usdc-circle          ← EIP-3009。我々の Arc レグで払える形
+[6] eip155:8453   base-usdc-circle
+```
+
+`arc-usdc-circle` の asset は `0x3600000000000000000000000000000000000000` で、
+`src/payment-guard.ts` の `ARC_USDC_ERC20` と一致する。
+**Arc leg を提示する初めての第三者**にあたる。
+
+`/search` は BlockRun と同じ Web 検索で、単価が $0.007 と $0.081 で1桁違う。
+同じ枠に並べて実測を比べる意味がある。
+
+`/.well-known/x402` は 404 だったので metadata から外した（毎回エラー行になり、
+有料ルートの成功率まで下げるため）。Exa は OpenAPI を配っているのでそちらを読む。
 
 Cluster Protocol はデプロイ基盤でデータ API ではないため対象外。
 
@@ -27,8 +65,12 @@ GoCreative は FRED GDP、BlockRun は web search を呼ぶ。単価は各回の
 
 **有料実行の前提:** `SIGNER_BACKEND=circle` と既存の
 `CIRCLE_EVM_WALLET_ID` / `CIRCLE_EVM_WALLET_ADDRESS` が必要。
-`--probe-sweep` はその Base ウォレットだけを使う。probe 専用ウォレットは無く、
-追加のウォレット作成やUSDC移動も不要。
+probe 専用ウォレットは無く、追加のウォレット作成やUSDC移動も不要。
+
+`CIRCLE_SOLANA_WALLET_ID` / `CIRCLE_SOLANA_WALLET_ADDRESS` が設定されていれば
+**Solana leg も登録する**（日次エージェントが既に使っているウォレットと同じ）。
+未設定なら Base だけに戻る — 署名できないチェーンを「払える」と数えると、
+`observe` が払えない単価を見積もってしまう。
 probe の支出は1コール・1回・週の上限と Upstash の消費記録で制限する。
 `--probe-run0` はウォレット設定なしでも無課金実行できる。
 
@@ -73,9 +115,57 @@ run 0 は支払いクライアントを構築すらせず、
 パターンで全先に適用する。テストで「対象リストに一件も無いこと」と「混ざっても呼び出し0であること」
 の両方を固定している。
 
+## どのチェーンで払うか
+
+既定は `@x402/core` の既定セレクタ（`accepts[0]`）。これまでの実測はすべてこの挙動で取っている。
+
+`PROBE_PREFER_NETWORK` に CAIP-2 を入れると、その leg を**優先して**選ぶ。
+同じルートを Base と Solana で測って実費を比べるためのもの。
+
+```
+PROBE_PREFER_NETWORK=solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp
+```
+
+**チェーンだけでは leg を名指しできない場合がある。** Exa は Arc に2本持っていて、
+`arc-usdc-gateway`（Circle Gateway・事前入金型）と `arc-usdc-circle`（EIP-3009）が
+どちらも `eip155:5042` の `exact`。`PROBE_PREFER_ACCEPT_ID` で売り手のラベルまで指定する。
+
+```
+PROBE_PREFER_NETWORK=eip155:5042
+PROBE_PREFER_ACCEPT_ID=arc-usdc-circle
+```
+
+片方だけでも効く（network だけならそのチェーンの先頭、acceptId だけならその leg）。
+優先は**予算 policy の後**に効く（`@x402/core` は policy を適用してからセレクタを呼ぶ）。
+上限で落とされた leg をここで拾い直すことはできない。
+該当が無ければ既定（`accepts[0]`）に落ちる。
+
+### 署名できない leg は掴まない
+
+`ExactEvmScheme` は EIP-712 の `verifyingContract` に **asset アドレス**を入れる
+（`@x402/evm` chunk-TRL63EE2.mjs:93）。`extra.verifyingContract` が asset と違う leg
+— Circle Gateway の `GatewayWalletBatched`（`0x77777777dcc4d5a8b6e418fd04d8997ef11000ee`）—
+は、署名しても domain がトークンにも Gateway にも一致せず、facilitator に弾かれる。
+
+fail-closed なので金は動かないが、無駄打ちになる。そこで policy で**予算を見る前に落とす**。
+`observe` の見積りからも外す — **払えない単価を出さない**のがこの観測の前提なので。
+
+既定セレクタが `accepts[0]` を取る以上、売り手が Gateway leg を先頭に置いた瞬間に
+これが効く。Exa では `accepts[0]` が legacy Base なので現状は当たらない。
+
 ## 記録
 
-`data/probe/probe-calls.csv` に1コール1行で追記（append-only）。
+**Upstash（`probe_runs`、新しい順・直近120 run）が正。** `/api/probes` とダッシュボードはここを読む。
+Railway のローカルディスクは再デプロイで消えるので、ここに置かないと
+「第三者にいくら払って何が返ってきたか」の記録が deploy のたびに消える。
+週次予算を Upstash に逃がしたのと同じ理由（`probe/budget.ts`）で、行そのものも移した。
+
+ローカルには `data/probe/probe-runs.jsonl` にも追記する（ローカル開発用の fallback）。
+Upstash 未設定で走らせた場合は「この run はローカルにしか無い」と warn を出す。
+記録されたように見えたまま消えるのが一番まずい。
+
+`data/probe/probe-calls.csv` も従来どおり1コール1行で追記（append-only）。
+人が 1〜5 を書き込む `quality` 列があるため、こちらは**作業ファイル**として残す。
 
 ```
 at, target, path, method, outcome, quoted_usdc, actual_usdc, latency_ms, http,
@@ -86,8 +176,20 @@ offered_networks, chain, tx, summary, reason, quality
   **掲載価格は写さない** — §9 が言うとおり掲載と実課金は乖離しうるので、乖離が見えなくなる。
 - 読めなかった値は空欄。0 で埋めない。
 - `quality`（5段階）は人の判断なので**エージェントは書かない**。空欄のまま残す。
-- 先ごとの週次サマリ（コール数・実費合計・実測 per-call・成功率）はこの記録から計算して
-  ログに出す。同じ数字を二重に保存すると、行と食い違うサマリが生まれる。
+- 先ごとの週次サマリ（コール数・実費合計・実測 per-call・成功率）はこの記録から計算する。
+  同じ数字を二重に保存すると、行と食い違うサマリが生まれる。
+
+## 表示
+
+`GET /api/probes?limit=N` が run を新しい順で返す（既定12・最大60）。
+ダッシュボード（`site/`）の **External probe** セクションがこれを読む。
+
+- 見出しに出すのは**最新の有料 sweep だけ**。run 0 は1円も払っていないので、
+  「最新の外部決済」として出すと起きていない支出に見える。
+- 行は**提示額と実課金を別の列**で出す。§9 が言うとおり掲載と実課金は乖離しうるので、
+  1列にまとめるとこの観測の肝が見えなくなる。どちらも欠けうる（402 が無ければ提示額は無い、
+  決済していなければ実課金は無い）。
+- `skipped` の行は**消さずに薄く出し、理由を行の下に書く**。叩かなかったことも結果。
 
 ## 費用
 
