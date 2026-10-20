@@ -354,11 +354,10 @@ loadSweepDetail();
    purpose: the published price and the real charge are expected to disagree, so
    a single "price" column would be the one thing this measurement cannot show.
    Nothing is filled in from the target list — a row shows only what was read. */
-const SELLER_NAMES = {
-  onesource: 'OneSource', '2s': '2s', otto: 'Otto AI',
-  gocreative: 'GoCreative', blockrun: 'BlockRun',
-};
-const sellerName = (id) => SELLER_NAMES[id] || id;
+// Served by /api/probes from PROBE_TARGETS, so adding a seller needs no change
+// here. Falls back to the raw id, which is what a run older than the map shows.
+let sellerNames = {};
+const sellerName = (id) => sellerNames[id] || id;
 const money6 = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Number(n).toFixed(6));
 const chainLabel = (c) => {
   if (!c) return '';
@@ -374,7 +373,9 @@ async function loadProbe() {
   try {
     const res = await fetch('/api/probes?limit=12');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const runs = (await res.json()).probes || [];
+    const payload = await res.json();
+    sellerNames = payload.targets || {};
+    const runs = payload.probes || [];
     // Headline the newest PAID run. A discovery run settles nothing, so showing
     // one here would read as external spend that never happened.
     const run = runs.find((r) => r.mode === 'sweep');
