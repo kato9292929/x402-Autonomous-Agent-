@@ -38,6 +38,14 @@ export interface ProbeTarget {
   probes: ProbePath[];
   /** What we are trying to learn from this seller. */
   question: string;
+  /**
+   * Set when the seller is not to be paid for now.
+   *
+   * The paid sweep skips it; run 0 still reads it, because run 0 costs nothing
+   * and an unreachable seller that comes back should be noticed rather than
+   * waited for. Removing a target outright loses that, and loses the reason.
+   */
+  suspended?: { since: string; reason: string };
 }
 
 /**
@@ -115,6 +123,12 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     metadata: ["/.well-known/x402", "/openapi.json"],
     probes: [{ path: "/v1/fred/series/GDP", method: "GET" }],
     question: "FRED GDP データの内容と鮮度を測る",
+    // 2026-10-20: オリジン全体が 502。ルート単体ではなく `/`・`/.well-known/x402`
+    // も同じなので、売り手側が落ちている。復帰は run 0(無課金)で検知する。
+    suspended: {
+      since: "2026-10-20",
+      reason: "オリジン全体が 502(`/`・`/.well-known/x402`・有料ルートすべて)",
+    },
   },
   {
     id: "blockrun",
@@ -131,5 +145,7 @@ export const PROBE_TARGETS: ProbeTarget[] = [
 
 /** Total paid calls a full sweep would make if every route were known. */
 export function plannedCallCount(targets = PROBE_TARGETS): number {
-  return targets.reduce((n, t) => n + Math.min(t.weeklyCallBudget, t.probes.length), 0);
+  return targets
+    .filter((t) => !t.suspended)
+    .reduce((n, t) => n + Math.min(t.weeklyCallBudget, t.probes.length), 0);
 }

@@ -28,9 +28,16 @@ import {
   type ProbeTarget,
 } from "../probe/targets";
 import { allowsCall, isoWeekKey, perCallMicroUsdc } from "../probe/budget";
-import { observe } from "../probe/client";
+import {
+  BASE_NETWORKS,
+  observe,
+  selectPreferred,
+  SOLANA_MAINNET,
+  SOLANA_NETWORKS,
+} from "../probe/client";
 import { appendCsv, CSV_HEADER, summarize, toCsvRow, type ProbeCallRecord } from "../probe/record";
 import { runExternalProbe } from "../jobs/external-probe";
+import { latestSweep, loadProbeRuns, saveProbeRun } from "../store/probe-store";
 import type { ProbeClient } from "../probe/client";
 
 const b64 = (o: unknown): string => Buffer.from(JSON.stringify(o), "utf8").toString("base64");
@@ -514,5 +521,155 @@ test("toCsvRow: 未確定の値は空欄。0 で埋めない", () => {
 
 test("plannedCallCount: 402 を確認した読み取り専用ルートを数える", () => {
   assert.equal(plannedCallCount([target({ probes: [] })]), 0);
-  assert.equal(plannedCallCount(PROBE_TARGETS), 7); // 5先、Otto AI は3本
+  // 5先・Otto AI は3本で計7本。GoCreative は停止中(2026-10-20 オリジン 502)なので
+  // 払う予定の本数からは外れる。
+  assert.equal(plannedCallCount(PROBE_TARGETS), 6);
+  assert.equal(
+    plannedCallCount([target({ suspended: { since: "2026-10-20", reason: "502" } })]),
+    0,
+    "停止中の先は払う予定に数えない"
+  );
+});
+
+// ── 停止中の売り手 ───────────────────────────────────────────────────────────
+
+test("sweep: 停止中の先は叩かず、理由を記録に残す", async () => {
+  let calls = 0;
+  const client: ProbeClient = {
+    fetch: async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    },
+    takeChallenge: () => undefined,
+    walletAddress: "0xprobe",
+  };
+  const report = await runExternalProbe({
+    mode: "sweep",
+    targets: [target({ suspended: { since: "2026-10-20", reason: "オリジン全体が 502" } })],
+    client,
+    weekSpentUsdc: 0,
+    write: false,
+  });
+  assert.equal(calls, 0, "停止中の先には一度もリクエストしない");
+  assert.equal(report.records.length, 1, "行は消さずに残す");
+  assert.equal(report.records[0].outcome, "skipped");
+  assert.match(report.records[0].reason ?? "", /停止中\(2026-10-20\)/);
+  assert.match(report.records[0].reason ?? "", /502/);
+  assert.equal(report.runSpentUsdc, 0);
+});
+
+test("run 0: 停止中の先も無課金で読む(復帰を検知するため)", async () => {
+  let hits = 0;
+  const fetchImpl = (async () => {
+    hits += 1;
+    return challenge402([baseRequirement("1000")]);
+  }) as unknown as typeof globalThis.fetch;
+
+  const report = await runExternalProbe({
+    mode: "discovery",
+    targets: [target({ suspended: { since: "2026-10-20", reason: "502" } })],
+    fetchImpl,
+    weekSpentUsdc: 0,
+    write: false,
+  });
+  assert.equal(hits, 1, "run 0 は停止中でも叩く(課金ゼロなので)");
+  assert.equal(report.runSpentUsdc, 0);
+  assert.equal(report.records[0].quotedUsdc, 0.001, "復帰すれば単価が読める");
+});
+
+// ── チェーン選択 ─────────────────────────────────────────────────────────────
+
+test("observe: Solana を払えるときだけ Solana leg を見積りに入れる", () => {
+  const solana = {
+    scheme: "exact",
+    network: SOLANA_MAINNET,
+    asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    amount: "2000",
+    payTo: "solseller",
+    maxTimeoutSeconds: 60,
+    extra: {},
+  };
+  const pr = { x402Version: 2, accepts: [solana] } as never;
+
+  // Base しか署名できない構成では「対応チェーンなし」。掲載価格で埋めない。
+  assert.equal(observe(pr, BASE_NETWORKS).quotedUsdc, undefined);
+  // Solana ウォレットがある構成では見積りが立つ。
+  assert.equal(observe(pr, [...BASE_NETWORKS, ...SOLANA_NETWORKS]).quotedUsdc, 0.002);
+  // 提示されたチェーンの記録は、払えるかどうかに関わらず残す。
+  assert.deepEqual(observe(pr, BASE_NETWORKS).offeredNetworks, [SOLANA_MAINNET]);
+});
+
+test("selectPreferred: 優先チェーンを選び、無ければ既定(accepts[0])に落ちる", () => {
+  const base = baseRequirement("1000") as never;
+  const sol = { ...baseRequirement("1000"), network: SOLANA_MAINNET } as never;
+
+  // 未設定なら従来どおり accepts[0]。これまでの実測と挙動を変えない。
+  assert.equal(selectPreferred(undefined)(2, [base, sol]), base);
+  // 指定があればそれを選ぶ。
+  assert.equal(selectPreferred(SOLANA_MAINNET)(2, [base, sol]), sol);
+  // 指定したチェーンが候補に無ければ既定に落ちる。policy が予算で落とした leg を
+  // ここで拾い直してしまわないことの固定でもある。
+  assert.equal(selectPreferred(SOLANA_MAINNET)(2, [base]), base);
+});
+
+// ── 記録の永続化 ─────────────────────────────────────────────────────────────
+
+test("probe-store: 保存した run を新しい順で読み戻せる", async () => {
+  const row = (target: string): ProbeCallRecord => ({
+    at: "2026-10-20T00:00:00Z",
+    target,
+    path: "/x",
+    method: "GET",
+    latencyMs: 1,
+    outcome: "paid",
+    actualUsdc: 0.001,
+  });
+
+  await saveProbeRun({
+    mode: "sweep",
+    at: "2026-10-13T00:00:00Z",
+    week: "2026-W42",
+    runSpentUsdc: 0.001,
+    weekSpentUsdc: 0.001,
+    summaries: [],
+    records: [row("onesource")],
+  });
+  await saveProbeRun({
+    mode: "sweep",
+    at: "2026-10-20T00:00:00Z",
+    week: "2026-W43",
+    runSpentUsdc: 0.002,
+    weekSpentUsdc: 0.002,
+    summaries: [],
+    records: [row("2s")],
+  });
+
+  const runs = await loadProbeRuns(10);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].week, "2026-W43", "新しい順");
+  assert.equal(runs[0].records[0].target, "2s", "行まで一緒に残る");
+});
+
+test("latestSweep: 無課金の run 0 を「最新の外部決済」として出さない", async () => {
+  const discovery = {
+    mode: "discovery" as const,
+    at: "2026-10-21T00:00:00Z",
+    week: "2026-W43",
+    runSpentUsdc: 0,
+    weekSpentUsdc: 0.002,
+    summaries: [],
+    records: [],
+  };
+  const sweep = {
+    mode: "sweep" as const,
+    at: "2026-10-20T00:00:00Z",
+    week: "2026-W43",
+    runSpentUsdc: 0.002,
+    weekSpentUsdc: 0.002,
+    summaries: [],
+    records: [],
+  };
+  // run 0 のほうが新しくても、決済があったのは sweep。
+  assert.equal(latestSweep([discovery, sweep]), sweep);
+  assert.equal(latestSweep([discovery]), undefined);
 });

@@ -5,16 +5,25 @@
 
 ## 対象（5先）
 
-| # | 先 | 選定した有料ルート | 2026-09-18 の402提示額 | 支払い可能と確認したチェーン | 週の上限本数 |
-|---|---|---|---|---|---|
-| 1 | OneSource | `GET /api/chain/block-number` | $0.001 | Base | 20 |
-| 2 | 2s | `GET /api/finance/sec-filings?ticker=NVDA&limit=5` | $0.009 | Base | 10 |
-| 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | Base | 10 |
-| 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | Base | 5 |
-| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | Base | 5 |
+| # | 先 | 選定した有料ルート | 09-18 の402提示額 | 10-20 の402提示額 | 10-20 の提示チェーン | 週の上限本数 |
+|---|---|---|---|---|---|---|
+| 1 | OneSource | `GET /api/chain/block-number` | $0.001 | $0.001 | Base | 20 |
+| 2 | 2s | `GET /api/finance/sec-filings?ticker=NVDA&limit=5` | $0.009 | $0.009 | Base・**Solana** | 10 |
+| 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | 同額 | Base・**Solana** | 10 |
+| 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | **502(停止中)** | — | 5 |
+| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | **$0.081000** | Base | 5 |
 
 この金額は**無課金リクエストに対する402提示額**。決済済みの実費ではない。
 実費は有料 sweep の `PAYMENT-RESPONSE` から別途記録する。価格と対応チェーンは実行時に再確認する。
+
+2026-10-20 に run 0 相当の無課金確認を行い、4点が動いていた。
+
+- **GoCreative はオリジン全体が 502**（`/`・`/.well-known/x402`・有料ルートすべて）。
+  ルート単体の問題ではないので `suspended` を立て、**有料 sweep では叩かない**。
+  対象リストからは外さない — run 0 は無課金なので読み続け、復帰はそこで気づく。
+- **BlockRun が $0.079751 → $0.081000**（+1.6%）。1コール上限 $0.20 の内側なので支払いは通る。
+- **2s と Otto AI が Solana leg を追加**。9/18 時点はどちらも Base のみだった。
+- OneSource が `batch-settlement` scheme の leg を追加（`exact` が `accepts[0]` なので選択は変わらない）。
 
 Cluster Protocol はデプロイ基盤でデータ API ではないため対象外。
 
@@ -27,8 +36,12 @@ GoCreative は FRED GDP、BlockRun は web search を呼ぶ。単価は各回の
 
 **有料実行の前提:** `SIGNER_BACKEND=circle` と既存の
 `CIRCLE_EVM_WALLET_ID` / `CIRCLE_EVM_WALLET_ADDRESS` が必要。
-`--probe-sweep` はその Base ウォレットだけを使う。probe 専用ウォレットは無く、
-追加のウォレット作成やUSDC移動も不要。
+probe 専用ウォレットは無く、追加のウォレット作成やUSDC移動も不要。
+
+`CIRCLE_SOLANA_WALLET_ID` / `CIRCLE_SOLANA_WALLET_ADDRESS` が設定されていれば
+**Solana leg も登録する**（日次エージェントが既に使っているウォレットと同じ）。
+未設定なら Base だけに戻る — 署名できないチェーンを「払える」と数えると、
+`observe` が払えない単価を見積もってしまう。
 probe の支出は1コール・1回・週の上限と Upstash の消費記録で制限する。
 `--probe-run0` はウォレット設定なしでも無課金実行できる。
 
@@ -73,9 +86,34 @@ run 0 は支払いクライアントを構築すらせず、
 パターンで全先に適用する。テストで「対象リストに一件も無いこと」と「混ざっても呼び出し0であること」
 の両方を固定している。
 
+## どのチェーンで払うか
+
+既定は `@x402/core` の既定セレクタ（`accepts[0]`）。これまでの実測はすべてこの挙動で取っている。
+
+`PROBE_PREFER_NETWORK` に CAIP-2 を入れると、その leg を**優先して**選ぶ。
+同じルートを Base と Solana で測って実費を比べるためのもの。
+
+```
+PROBE_PREFER_NETWORK=solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp
+```
+
+優先は**予算 policy の後**に効く（`@x402/core` は policy を適用してからセレクタを呼ぶ）。
+上限で落とされた leg をここで拾い直すことはできない。
+指定したチェーンが候補に無ければ既定に落ちる。
+
 ## 記録
 
-`data/probe/probe-calls.csv` に1コール1行で追記（append-only）。
+**Upstash（`probe_runs`、新しい順・直近120 run）が正。** `/api/probes` とダッシュボードはここを読む。
+Railway のローカルディスクは再デプロイで消えるので、ここに置かないと
+「第三者にいくら払って何が返ってきたか」の記録が deploy のたびに消える。
+週次予算を Upstash に逃がしたのと同じ理由（`probe/budget.ts`）で、行そのものも移した。
+
+ローカルには `data/probe/probe-runs.jsonl` にも追記する（ローカル開発用の fallback）。
+Upstash 未設定で走らせた場合は「この run はローカルにしか無い」と warn を出す。
+記録されたように見えたまま消えるのが一番まずい。
+
+`data/probe/probe-calls.csv` も従来どおり1コール1行で追記（append-only）。
+人が 1〜5 を書き込む `quality` 列があるため、こちらは**作業ファイル**として残す。
 
 ```
 at, target, path, method, outcome, quoted_usdc, actual_usdc, latency_ms, http,
@@ -86,8 +124,20 @@ offered_networks, chain, tx, summary, reason, quality
   **掲載価格は写さない** — §9 が言うとおり掲載と実課金は乖離しうるので、乖離が見えなくなる。
 - 読めなかった値は空欄。0 で埋めない。
 - `quality`（5段階）は人の判断なので**エージェントは書かない**。空欄のまま残す。
-- 先ごとの週次サマリ（コール数・実費合計・実測 per-call・成功率）はこの記録から計算して
-  ログに出す。同じ数字を二重に保存すると、行と食い違うサマリが生まれる。
+- 先ごとの週次サマリ（コール数・実費合計・実測 per-call・成功率）はこの記録から計算する。
+  同じ数字を二重に保存すると、行と食い違うサマリが生まれる。
+
+## 表示
+
+`GET /api/probes?limit=N` が run を新しい順で返す（既定12・最大60）。
+ダッシュボード（`site/`）の **External probe** セクションがこれを読む。
+
+- 見出しに出すのは**最新の有料 sweep だけ**。run 0 は1円も払っていないので、
+  「最新の外部決済」として出すと起きていない支出に見える。
+- 行は**提示額と実課金を別の列**で出す。§9 が言うとおり掲載と実課金は乖離しうるので、
+  1列にまとめるとこの観測の肝が見えなくなる。どちらも欠けうる（402 が無ければ提示額は無い、
+  決済していなければ実課金は無い）。
+- `skipped` の行は**消さずに薄く出し、理由を行の下に書く**。叩かなかったことも結果。
 
 ## 費用
 
