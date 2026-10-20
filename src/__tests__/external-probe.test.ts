@@ -682,6 +682,46 @@ test("Exa: 実物の accepts から既定で選ばれるのは legacy Base leg",
   assert.equal((picked.extra as Record<string, unknown>).acceptId, "legacy");
 });
 
+test("Otto /token-details は必須の symbol を付けて呼ぶ", () => {
+  // 402 はパラメータ検証より前に出るので、run 0 では「叩ける」ように見える。
+  // 2026-10-20 の sweep で、支払いを提示した2回目に 400 が返って初めて分かった。
+  // OpenAPI 上 symbol は required。
+  const otto = PROBE_TARGETS.find((t) => t.id === "otto");
+  assert.ok(otto);
+  const td = otto.probes.find((p) => p.path.startsWith("/token-details"));
+  assert.ok(td, "/token-details が対象に残っている");
+  assert.match(td.path, /[?&]symbol=/, "symbol なしで叩くと有料側で 400 になる");
+});
+
+test("有料で落ちたとき、どちら側の問題かを記録に書く", async () => {
+  const run = async (status: number) => {
+    const client: ProbeClient = {
+      fetch: async () => new Response("{}", { status }),
+      takeChallenge: () => undefined,
+      walletAddress: "0xprobe",
+    };
+    const r = await runExternalProbe({
+      mode: "sweep",
+      targets: [target()],
+      client,
+      weekSpentUsdc: 0,
+      write: false,
+    });
+    return r.records[0];
+  };
+
+  // 402 はここまで来ない(ライブラリが処理する)。ここでの 4xx は常に
+  // 「支払いを提示したあとにリクエストを拒まれた」= こちらの設定の問題。
+  const bad = await run(400);
+  assert.equal(bad.outcome, "error");
+  assert.match(bad.reason ?? "", /HTTP 400/);
+  assert.match(bad.reason ?? "", /probe の設定/);
+
+  const broken = await run(500);
+  assert.match(broken.reason ?? "", /HTTP 500/);
+  assert.match(broken.reason ?? "", /売り手側/);
+});
+
 test("Exa: 2ルートとも読み取り専用で、安い方が先に来る", () => {
   const exa = PROBE_TARGETS.find((t) => t.id === "exa");
   assert.ok(exa, "Exa が対象に入っている");
