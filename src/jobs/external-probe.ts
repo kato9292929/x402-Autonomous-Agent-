@@ -28,11 +28,14 @@ import {
   buildProbeClient,
   capsSummary,
   observe,
+  preferredAcceptId,
+  preferredNetwork,
   PROBE_NETWORKS,
   type ObservedChallenge,
   type ProbeClient,
   type ProbeSpend,
 } from "../probe/client";
+import { saveProbeRun } from "../store/probe-store";
 import {
   allowsCall,
   isoWeekKey,
@@ -53,6 +56,24 @@ import { parseAdvertisedRoutes, saveRawMetadata, type DiscoveredRoute } from "..
 
 /** Consecutive failures from one seller before it is dropped for the day (§2). */
 const MAX_CONSECUTIVE_ERRORS = 3;
+
+/**
+ * Whose problem a failed paid call is.
+ *
+ * Both halves showed up in the same sweep on 2026-10-20 and needed opposite
+ * responses: Otto's `/token-details` answered 400 because we called it without
+ * its required `symbol` — our configuration — while BlockRun answered 500 with
+ * a request it had just quoted $0.081 for. Reading `HTTP 400` and `HTTP 500`
+ * side by side said nothing about which one we could fix.
+ *
+ * A 4xx here is never the buyer being refused payment: 402 is handled upstream,
+ * and the call only reaches this point after a payment was presented.
+ */
+function blameFor(status: number): string {
+  if (status >= 500) return "売り手側の障害";
+  if (status >= 400) return "こちらのリクエストが不正(probe の設定を直す)";
+  return "想定外のステータス";
+}
 
 /**
  * Timeout for discovery requests. Applied to run 0 only: those are unpaid, so
@@ -291,7 +312,12 @@ async function sweepPath(
     }
 
     if (!res.ok) {
-      return { ...base, outcome: "error", reason: `HTTP ${res.status}`, summary: summarizeBody(payload) };
+      return {
+        ...base,
+        outcome: "error",
+        reason: `HTTP ${res.status} — ${blameFor(res.status)}`,
+        summary: summarizeBody(payload),
+      };
     }
     return {
       ...base,
@@ -335,6 +361,26 @@ async function runSweep(
 
   for (const target of targets) {
     let consecutiveErrors = 0;
+
+    // A suspended seller is not paid, but the reason is recorded every week so
+    // the row does not simply vanish from the sweep. Run 0 keeps reading it for
+    // free, which is what notices a recovery.
+    if (target.suspended) {
+      console.log(
+        `[PROBE] ${target.name}: 停止中(${target.suspended.since}) — ${target.suspended.reason}`
+      );
+      records.push({
+        at: new Date().toISOString(),
+        target: target.id,
+        path: target.probes[0]?.path ?? "",
+        method: target.probes[0]?.method ?? "GET",
+        latencyMs: 0,
+        outcome: "skipped",
+        reason: `停止中(${target.suspended.since}): ${target.suspended.reason}`,
+      });
+      continue;
+    }
+
     const budgetedProbes = target.probes.slice(0, target.weeklyCallBudget);
     if (budgetedProbes.length === 0) {
       console.log(`[PROBE] ${target.name}: 有料ルート未確定のためスキップ(run0 待ち)`);
@@ -406,12 +452,36 @@ export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeR
           "CIRCLE_EVM_WALLET_ADDRESS が必要。支払いはまだ行われていません"
       );
     }
-    console.log(`[PROBE] paying wallet: ${client.walletAddress} (networks: ${PROBE_NETWORKS.join(", ")})`);
+    const nets = client.networks ?? PROBE_NETWORKS;
+    console.log(`[PROBE] paying wallet: ${client.walletAddress} (networks: ${nets.join(", ")})`);
+    if (client.solanaAddress) {
+      console.log(`[PROBE] Solana payer: ${client.solanaAddress}`);
+    }
+    const prefer = preferredNetwork();
+    const preferId = preferredAcceptId();
+    if (prefer || preferId) {
+      console.log(
+        `[PROBE] 優先 leg: ${prefer ?? "(network 指定なし)"} / ${preferId ?? "(acceptId 指定なし)"}`
+      );
+    }
     records = await runSweep(targets, client, spend);
   }
 
   const summaries = summarize(records);
-  if (options.write !== false) appendCsv(records);
+  if (options.write !== false) {
+    appendCsv(records);
+    // Upstash is the copy that survives a redeploy, and the one /api/probes and
+    // the dashboard read. The CSV keeps the hand-scored `quality` column.
+    await saveProbeRun({
+      mode: options.mode,
+      at: new Date().toISOString(),
+      week,
+      runSpentUsdc: spend.run,
+      weekSpentUsdc: spend.week,
+      summaries,
+      records,
+    });
+  }
 
   for (const s of summaries) {
     const perCall =

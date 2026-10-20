@@ -38,6 +38,14 @@ export interface ProbeTarget {
   probes: ProbePath[];
   /** What we are trying to learn from this seller. */
   question: string;
+  /**
+   * Set when the seller is not to be paid for now.
+   *
+   * The paid sweep skips it; run 0 still reads it, because run 0 costs nothing
+   * and an unreachable seller that comes back should be noticed rather than
+   * waited for. Removing a target outright loses that, and loses the reason.
+   */
+  suspended?: { since: string; reason: string };
 }
 
 /**
@@ -98,7 +106,10 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     weeklyCallBudget: 10,
     metadata: ["/.well-known/x402", "/openapi.json"],
     probes: [
-      { path: "/token-details", method: "GET" },
+      // `symbol` は OpenAPI 上 required。無しで叩くと 402 は返るが、支払いを
+      // 提示した2回目で 400 になる(2026-10-20 の sweep で実際にそうなった)。
+      // 402 はパラメータ検証より前に出るので、run 0 では捕まえられない欠陥だった。
+      { path: "/token-details?symbol=SOL", method: "GET" },
       { path: "/yield-alpha", method: "GET" },
       { path: "/crypto-news", method: "GET" },
     ],
@@ -115,6 +126,12 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     metadata: ["/.well-known/x402", "/openapi.json"],
     probes: [{ path: "/v1/fred/series/GDP", method: "GET" }],
     question: "FRED GDP データの内容と鮮度を測る",
+    // 2026-10-20: オリジン全体が 502。ルート単体ではなく `/`・`/.well-known/x402`
+    // も同じなので、売り手側が落ちている。復帰は run 0(無課金)で検知する。
+    suspended: {
+      since: "2026-10-20",
+      reason: "オリジン全体が 502(`/`・`/.well-known/x402`・有料ルートすべて)",
+    },
   },
   {
     id: "blockrun",
@@ -127,9 +144,30 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     probes: [{ path: "/api/v1/search", method: "POST", body: { query: "US inflation data", sources: ["web"], max_results: 3 } }],
     question: "Web 検索の返り値と実費を測る",
   },
+  {
+    id: "exa",
+    name: "Exa",
+    host: "https://api.exa.ai",
+    // 掲載価格は読んでいないので置かない。単価は 402 から取る($0.001 / $0.007)。
+    listedChains: ["base", "solana", "worldchain", "arc"],
+    weeklyCallBudget: 10,
+    // `/.well-known/x402` は 404(2026-10-20 実測)。入れたままだと毎回エラー行になり、
+    // 有料ルートの成功率まで下がる。Exa は OpenAPI を配っているのでそちらを読む。
+    metadata: ["/openapi.json"],
+    probes: [
+      // 安い方を先に置く。打ち切りが起きたとき、残るのが $0.001 側になる。
+      { path: "/contents", method: "POST", body: { urls: ["https://en.wikipedia.org/wiki/Stablecoin"] } },
+      { path: "/search", method: "POST", body: { query: "x402 payment protocol adoption", numResults: 5 } },
+    ],
+    question:
+      "検索・本文抽出の質と実費を測る。/search は BlockRun と同じ Web 検索で単価が1桁違う($0.007 vs $0.081)ので、" +
+      "同じ枠に並べる意味がある。Arc leg を持つ初めての第三者でもある",
+  },
 ];
 
 /** Total paid calls a full sweep would make if every route were known. */
 export function plannedCallCount(targets = PROBE_TARGETS): number {
-  return targets.reduce((n, t) => n + Math.min(t.weeklyCallBudget, t.probes.length), 0);
+  return targets
+    .filter((t) => !t.suspended)
+    .reduce((n, t) => n + Math.min(t.weeklyCallBudget, t.probes.length), 0);
 }

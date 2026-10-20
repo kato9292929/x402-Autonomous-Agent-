@@ -14,6 +14,8 @@ import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { loadSweepSummaries } from "./store/sweep-summary";
 import { loadSweepItems } from "./store/sweep-items";
+import { loadProbeRuns } from "./store/probe-store";
+import { PROBE_TARGETS } from "./probe/targets";
 import { buildDashboardPage } from "./dashboard";
 import type { WorldIdVerifyResponse } from "./world-id/types";
 import type { IDKitResult } from "@worldcoin/idkit-core";
@@ -535,6 +537,31 @@ export function startHttpServer(): void {
       return;
     }
 
+    // External x402 probe runs, newest first — what third-party sellers were
+    // paid, what they quoted, and what they actually returned. Separate from
+    // /api/sweeps, which is our own surfaces (EDINET / catalyst).
+    if (urlPath === "/api/probes" && req.method === "GET") {
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
+      const limit = Math.min(60, Math.max(1, parseInt(q ?? "12", 10) || 12));
+      loadProbeRuns(limit)
+        .then((probes) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          // Records carry the seller id only. Ship the id→name map with them so
+          // the dashboard never has to keep its own copy: a hardcoded one drifts
+          // the moment a seller is added, which is how Exa first rendered as
+          // "exa". Suspended sellers are named too — their rows are still shown.
+          const targets = Object.fromEntries(
+            PROBE_TARGETS.map((t) => [t.id, t.name])
+          );
+          sendJson(res, 200, { probes, targets });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/probes error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
     // Full per-company settlement list of one sweep (paged):
     //   GET /api/sweeps/{surface}/{week}/items?offset=&limit=
     if (req.method === "GET" && /^\/api\/sweeps\/[^/]+\/[^/]+\/items$/.test(urlPath)) {
@@ -640,6 +667,7 @@ export function startHttpServer(): void {
     console.log(`[SERVER] GET  /preview                     — Hero design preview (site/)`);
     console.log(`[SERVER] GET  /api/runs?limit=N            — Recent run summaries (JSON)`);
     console.log(`[SERVER] GET  /api/decisions               — Recent Mode A decisions (JSON)`);
+    console.log(`[SERVER] GET  /api/probes?limit=N          — External x402 probe runs (JSON)`);
     console.log(`[SERVER] GET  /api/latest-external-data`);
     console.log(`[SERVER] GET  /.well-known/agent-card.json`);
     console.log(`[SERVER] GET  /approve?id={queueId}        — World ID approval page`);
