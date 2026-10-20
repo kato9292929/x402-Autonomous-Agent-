@@ -58,6 +58,24 @@ import { parseAdvertisedRoutes, saveRawMetadata, type DiscoveredRoute } from "..
 const MAX_CONSECUTIVE_ERRORS = 3;
 
 /**
+ * Whose problem a failed paid call is.
+ *
+ * Both halves showed up in the same sweep on 2026-10-20 and needed opposite
+ * responses: Otto's `/token-details` answered 400 because we called it without
+ * its required `symbol` — our configuration — while BlockRun answered 500 with
+ * a request it had just quoted $0.081 for. Reading `HTTP 400` and `HTTP 500`
+ * side by side said nothing about which one we could fix.
+ *
+ * A 4xx here is never the buyer being refused payment: 402 is handled upstream,
+ * and the call only reaches this point after a payment was presented.
+ */
+function blameFor(status: number): string {
+  if (status >= 500) return "売り手側の障害";
+  if (status >= 400) return "こちらのリクエストが不正(probe の設定を直す)";
+  return "想定外のステータス";
+}
+
+/**
  * Timeout for discovery requests. Applied to run 0 only: those are unpaid, so
  * an abort costs nothing. A paid request is deliberately left to run — aborting
  * after the payment is signed would spend the money and discard the response.
@@ -294,7 +312,12 @@ async function sweepPath(
     }
 
     if (!res.ok) {
-      return { ...base, outcome: "error", reason: `HTTP ${res.status}`, summary: summarizeBody(payload) };
+      return {
+        ...base,
+        outcome: "error",
+        reason: `HTTP ${res.status} — ${blameFor(res.status)}`,
+        summary: summarizeBody(payload),
+      };
     }
     return {
       ...base,

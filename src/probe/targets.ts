@@ -106,7 +106,10 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     weeklyCallBudget: 10,
     metadata: ["/.well-known/x402", "/openapi.json"],
     probes: [
-      { path: "/token-details", method: "GET" },
+      // `symbol` は OpenAPI 上 required。無しで叩くと 402 は返るが、支払いを
+      // 提示した2回目で 400 になる(2026-10-20 の sweep で実際にそうなった)。
+      // 402 はパラメータ検証より前に出るので、run 0 では捕まえられない欠陥だった。
+      { path: "/token-details?symbol=SOL", method: "GET" },
       { path: "/yield-alpha", method: "GET" },
       { path: "/crypto-news", method: "GET" },
     ],
