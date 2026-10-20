@@ -1,6 +1,6 @@
 # 週次 外部 x402 プローブ
 
-外部6先を週1回叩き、**品質と実費を実測する**ための仕組み。叩いた件数は実需ではない（作業指示書 §9）。
+外部6先（うち2先は停止中）を週1回叩き、**品質と実費を実測する**ための仕組み。叩いた件数は実需ではない（作業指示書 §9）。
 自社完結の内部経済ではなく、境界をまたぐ実決済なので、実費と質は意味のある実測になる。
 
 ## 対象（6先）
@@ -11,7 +11,7 @@
 | 2 | 2s | `GET /api/finance/sec-filings?ticker=NVDA&limit=5` | $0.009 | $0.009 | Base・**Solana** | 10 |
 | 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | 同額 | Base・**Solana** | 10 |
 | 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | **502(停止中)** | — | 5 |
-| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | **$0.081000** | Base | 5 |
+| 5 | BlockRun | `POST /api/v1/search` | $0.079751 | $0.081000（**停止中**） | Base | 5 |
 | 6 | **Exa** | `POST /contents`・`POST /search` | — | **$0.001・$0.007** | Base・Solana・World Chain・**Arc** | 10 |
 
 この金額は**無課金リクエストに対する402提示額**。決済済みの実費ではない。
@@ -143,6 +143,53 @@ Base 上の USDC 転送を直接数えても6件・$0.021000 ちょうどで、�
 この2件は原因も対処も正反対なのに、記録は `HTTP 400` と `HTTP 500` としか言っていなかった。
 いまは `reason` にどちら側の問題かを書く。402 は上流で処理されるので、
 ここに来る 4xx は常に「支払いを提示したあとに拒まれた」＝こちらの設定の問題。
+
+## 停止中の先（2026-10-20 時点）
+
+| 先 | 理由 | 復帰の見方 |
+|---|---|---|
+| GoCreative | オリジン全体が 502（`/`・`/.well-known/x402`・有料ルートすべて） | run 0 が 402 を読めたら |
+| BlockRun | 支払い提示後に HTTP 500。**無課金の 402 は3回とも正常**（$0.081）なので売り手側 | 同上。単価の是正も同時に見える |
+
+どちらも対象リストからは外さない。**run 0 は無課金なので読み続ける** — 外すと理由ごと消え、
+復帰にも気づけなくなる。有料 sweep は叩かず、理由を行として記録に残す。
+
+BlockRun は単価も他の先の10〜80倍で、$0.081 は週上限 $4.00 の 2% を1コールで使う。
+払えていない以上、毎週その枠を空振りに充てる理由が無い。
+
+## Arc で払う
+
+probe クライアントにも Arc レグを登録する。日次クライアント（`src/x402.ts`）と同じ
+`X402_ARC_ENABLED` ゲートなので、デプロイや sweep がひとりでにチェーンを増やすことはない。
+
+```
+X402_ARC_ENABLED=true
+CIRCLE_ARC_WALLET_ID=            # 省略時は CIRCLE_EVM_WALLET_ID を流用
+CIRCLE_ARC_WALLET_ADDRESS=       # 省略時は CIRCLE_EVM_WALLET_ADDRESS を流用
+```
+
+`probeNetworks()` が Arc を含むのは**フラグとウォレットが両方揃ったときだけ**。
+署名できないチェーンを「払える」と数えると `observe` が払えない単価を見積もる。
+
+**payer は Arc 上に USDC を持っている必要がある。** アドレス文字列が Base と同じでも
+残高は別物で、未入金だと署名は通って settlement で落ちる。
+
+### Arc を実際に選ばせるには
+
+有効にするだけでは足りない。Exa の `accepts[0]` は Base の legacy なので、
+既定セレクタは Base を選び続ける。
+
+```
+PROBE_PREFER_NETWORK=eip155:5042
+PROBE_PREFER_ACCEPT_ID=arc-usdc-circle
+```
+
+`acceptId` まで要るのは Arc に2本あるため。`arc-usdc-gateway` は Circle Gateway で、
+この scheme では署名できない（「署名できない leg は掴まない」を参照）。
+
+2026-W43 の sweep が Exa を Base で決済したのは、この時点で **probe クライアントに
+Arc レグが登録されていなかった**ため。`PROBE_PREFER_ACCEPT_ID` は選ぶ仕組みだけで、
+選ぶ対象が無かった。
 
 ## どのチェーンで払うか
 

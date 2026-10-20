@@ -29,8 +29,10 @@ import {
 } from "../probe/targets";
 import { allowsCall, isoWeekKey, perCallMicroUsdc } from "../probe/budget";
 import {
+  ARC_NETWORKS,
   BASE_NETWORKS,
   isSignableLeg,
+  probeNetworks,
   observe,
   selectPreferred,
   SOLANA_MAINNET,
@@ -522,9 +524,9 @@ test("toCsvRow: 未確定の値は空欄。0 で埋めない", () => {
 
 test("plannedCallCount: 402 を確認した読み取り専用ルートを数える", () => {
   assert.equal(plannedCallCount([target({ probes: [] })]), 0);
-  // 6先。Otto AI 3本 + Exa 2本 + OneSource/2s/BlockRun 各1本 = 8本。
-  // GoCreative は停止中(2026-10-20 オリジン 502)なので払う予定からは外れる。
-  assert.equal(plannedCallCount(PROBE_TARGETS), 8);
+  // 6先。停止中の GoCreative(オリジン 502)と BlockRun(支払い提示後の 500)を
+  // 除くと、Otto AI 3本 + Exa 2本 + OneSource/2s 各1本 = 7本。
+  assert.equal(plannedCallCount(PROBE_TARGETS), 7);
   assert.equal(
     plannedCallCount([target({ suspended: { since: "2026-10-20", reason: "502" } })]),
     0,
@@ -680,6 +682,54 @@ test("Exa: 実物の accepts から既定で選ばれるのは legacy Base leg",
   const picked = selectPreferred(undefined)(2, allowed) as unknown as Record<string, unknown>;
   assert.equal(picked.network, "eip155:8453");
   assert.equal((picked.extra as Record<string, unknown>).acceptId, "legacy");
+});
+
+test("probeNetworks: Arc は X402_ARC_ENABLED が true のときだけ払える", () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.X402_ARC_ENABLED;
+    assert.equal(probeNetworks().includes("eip155:5042"), false, "既定では Arc を払えると数えない");
+
+    // フラグだけでウォレットが無ければ、やはり払えない。署名できないチェーンを
+    // 「払える」と数えると observe が払えない単価を見積もる。
+    process.env.X402_ARC_ENABLED = "true";
+    delete process.env.CIRCLE_ARC_WALLET_ID;
+    delete process.env.CIRCLE_ARC_WALLET_ADDRESS;
+    delete process.env.CIRCLE_EVM_WALLET_ID;
+    delete process.env.CIRCLE_EVM_WALLET_ADDRESS;
+    assert.equal(probeNetworks().includes("eip155:5042"), false, "ウォレット無しでは数えない");
+
+    // Base レグの流用も認める(日次クライアントと同じ既定)。
+    process.env.CIRCLE_EVM_WALLET_ID = "w";
+    process.env.CIRCLE_EVM_WALLET_ADDRESS = "0xabc";
+    assert.deepEqual(ARC_NETWORKS, ["eip155:5042"]);
+    assert.equal(probeNetworks().includes("eip155:5042"), true);
+  } finally {
+    for (const k of ["X402_ARC_ENABLED", "CIRCLE_ARC_WALLET_ID", "CIRCLE_ARC_WALLET_ADDRESS",
+                     "CIRCLE_EVM_WALLET_ID", "CIRCLE_EVM_WALLET_ADDRESS"]) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+});
+
+test("Exa の Arc leg は Arc を有効にして初めて見積りに入る", () => {
+  const [, , arcGateway, arcCircle] = EXA_ACCEPTS;
+  const pr = { x402Version: 2, accepts: [arcGateway, arcCircle] } as never;
+  // Base しか払えない構成では「対応チェーンなし」。2026-W43 の sweep が Exa を
+  // Base で決済したのはこのため — Arc leg は登録すらされていなかった。
+  assert.equal(observe(pr, BASE_NETWORKS).quotedUsdc, undefined);
+  // Arc を足すと見積りが立つ。Gateway 版は署名できないので EIP-3009 版の額になる。
+  assert.equal(observe(pr, [...BASE_NETWORKS, ...ARC_NETWORKS]).quotedUsdc, 0.007);
+});
+
+test("BlockRun は停止中(支払い提示後の 500)", () => {
+  const br = PROBE_TARGETS.find((t) => t.id === "blockrun");
+  assert.ok(br);
+  assert.ok(br.suspended, "払いに行かない");
+  assert.match(br.suspended.reason, /500/);
+  // 停止中の2先を除いた本数。Otto 3 + Exa 2 + OneSource 1 + 2s 1 = 7。
+  assert.equal(plannedCallCount(PROBE_TARGETS), 7);
 });
 
 test("Otto /token-details は必須の symbol を付けて呼ぶ", () => {
