@@ -28,6 +28,7 @@ import {
   buildProbeClient,
   capsSummary,
   observe,
+  preferredAcceptId,
   preferredNetwork,
   PROBE_NETWORKS,
   type ObservedChallenge,
@@ -434,7 +435,12 @@ export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeR
       console.log(`[PROBE] Solana payer: ${client.solanaAddress}`);
     }
     const prefer = preferredNetwork();
-    if (prefer) console.log(`[PROBE] 優先チェーン: ${prefer} (PROBE_PREFER_NETWORK)`);
+    const preferId = preferredAcceptId();
+    if (prefer || preferId) {
+      console.log(
+        `[PROBE] 優先 leg: ${prefer ?? "(network 指定なし)"} / ${preferId ?? "(acceptId 指定なし)"}`
+      );
+    }
     records = await runSweep(targets, client, spend);
   }
 

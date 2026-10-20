@@ -73,6 +73,52 @@ export function preferredNetwork(): string | undefined {
   return v ? v : undefined;
 }
 
+/**
+ * Which of several legs on the same network to take.
+ *
+ * A network is not always enough to name a leg. Exa offers two on Arc —
+ * `arc-usdc-gateway` (Circle Gateway, prefunded) and `arc-usdc-circle`
+ * (EIP-3009, what this wallet signs) — both `eip155:5042`, both `exact`. Naming
+ * only the network would pick whichever came first.
+ *
+ * Matched against `extra.acceptId`, which is the seller's own label for the leg.
+ */
+export function preferredAcceptId(): string | undefined {
+  const v = process.env.PROBE_PREFER_ACCEPT_ID?.trim();
+  return v ? v : undefined;
+}
+
+function acceptIdOf(r: PaymentRequirements): string | undefined {
+  const extra = (r as { extra?: Record<string, unknown> }).extra;
+  const id = extra?.acceptId;
+  return typeof id === "string" ? id : undefined;
+}
+
+/**
+ * True when `ExactEvmScheme` can actually produce a valid signature for this leg.
+ *
+ * The scheme builds its EIP-712 domain as `{ name, version }` from `extra` with
+ * `verifyingContract` set to the **asset** address
+ * (@x402/evm chunk-TRL63EE2.mjs:93). A leg that names a different settlement
+ * contract — Circle Gateway's `GatewayWalletBatched` at
+ * 0x77777777dcc4d5a8b6e418fd04d8997ef11000ee, which Exa offers on Base, World
+ * Chain and Arc — would therefore be signed over a domain that matches neither
+ * the token nor the Gateway, and the facilitator rejects it.
+ *
+ * That fails closed, so no money moves. But a leg we cannot sign must not be
+ * selected, and must not be counted as payable: quoting a price the sweep then
+ * cannot pay is exactly the kind of number this probe exists to not produce.
+ */
+export function isSignableLeg(r: PaymentRequirements): boolean {
+  const network = networkOf(r);
+  if (!network.startsWith("eip155:")) return true; // Solana legs carry no EIP-712 domain
+  const extra = (r as { extra?: Record<string, unknown> }).extra;
+  const vc = extra?.verifyingContract;
+  if (typeof vc !== "string") return true;
+  const asset = String((r as { asset?: unknown }).asset ?? "");
+  return vc.toLowerCase() === asset.toLowerCase();
+}
+
 export interface ProbeSpend {
   /** USDC spent so far in this sweep. */
   run: number;
@@ -111,7 +157,7 @@ export function observe(
 ): ObservedChallenge {
   const accepts = paymentRequired.accepts ?? [];
   const payable = accepts
-    .filter((r) => networks.includes(networkOf(r)))
+    .filter((r) => networks.includes(networkOf(r)) && isSignableLeg(r))
     .map((r) => priceOf(r))
     .filter((p): p is number => p !== undefined);
   return {
@@ -123,17 +169,26 @@ export function observe(
 }
 
 /**
- * Selector that prefers one network, falling back to the library's default.
+ * Selector that prefers one leg, falling back to the library's default.
+ *
+ * Both filters are optional and combine: a network alone takes the first leg on
+ * that chain, an acceptId alone takes that leg wherever it is, and both together
+ * name one leg exactly — which is what Arc needs, where `arc-usdc-gateway` and
+ * `arc-usdc-circle` share a network and a scheme.
  *
  * Exported for the test: a preference that silently dropped a requirement the
  * policy had already approved would quietly change what we pay.
  */
 export function selectPreferred(
-  prefer: string | undefined
+  prefer: string | undefined,
+  acceptId?: string
 ): (version: number, reqs: PaymentRequirements[]) => PaymentRequirements {
   return (_version, reqs) => {
-    if (prefer) {
-      const match = reqs.find((r) => networkOf(r) === prefer);
+    if (prefer || acceptId) {
+      const match = reqs.find(
+        (r) =>
+          (!prefer || networkOf(r) === prefer) && (!acceptId || acceptIdOf(r) === acceptId)
+      );
       if (match) return match;
     }
     return reqs[0];
@@ -154,11 +209,15 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
   // The preference runs after the budget policy (@x402/core applies policies,
   // then the selector), so it reorders what is already allowed and cannot
   // reintroduce a requirement a ceiling refused.
-  const base = new x402Client(selectPreferred(preferredNetwork()))
+  const base = new x402Client(selectPreferred(preferredNetwork(), preferredAcceptId()))
     .register("eip155:8453", scheme)
     .registerV1("base", scheme)
     .registerPolicy((_version: number, reqs: PaymentRequirements[]) =>
       reqs.filter((r) => {
+        // A leg this scheme cannot sign is dropped before the budget is even
+        // consulted, so it can never be selected — including at accepts[0],
+        // where the default selector would otherwise take it.
+        if (!isSignableLeg(r)) return false;
         const price = priceOf(r);
         if (price === undefined) return false; // 読めない金額は払わない
         return allowsCall(price, spend.run, spend.week).allowed;

@@ -1,9 +1,9 @@
 # 週次 外部 x402 プローブ
 
-外部5先を週1回叩き、**品質と実費を実測する**ための仕組み。叩いた件数は実需ではない（作業指示書 §9）。
+外部6先を週1回叩き、**品質と実費を実測する**ための仕組み。叩いた件数は実需ではない（作業指示書 §9）。
 自社完結の内部経済ではなく、境界をまたぐ実決済なので、実費と質は意味のある実測になる。
 
-## 対象（5先）
+## 対象（6先）
 
 | # | 先 | 選定した有料ルート | 09-18 の402提示額 | 10-20 の402提示額 | 10-20 の提示チェーン | 週の上限本数 |
 |---|---|---|---|---|---|---|
@@ -12,6 +12,7 @@
 | 3 | Otto AI | `GET /token-details`・`/yield-alpha`・`/crypto-news` | $0.001・$0.002・$0.001 | 同額 | Base・**Solana** | 10 |
 | 4 | GoCreative | `GET /v1/fred/series/GDP` | $0.020 | **502(停止中)** | — | 5 |
 | 5 | BlockRun | `POST /api/v1/search` | $0.079751 | **$0.081000** | Base | 5 |
+| 6 | **Exa** | `POST /contents`・`POST /search` | — | **$0.001・$0.007** | Base・Solana・World Chain・**Arc** | 10 |
 
 この金額は**無課金リクエストに対する402提示額**。決済済みの実費ではない。
 実費は有料 sweep の `PAYMENT-RESPONSE` から別途記録する。価格と対応チェーンは実行時に再確認する。
@@ -24,6 +25,34 @@
 - **BlockRun が $0.079751 → $0.081000**（+1.6%）。1コール上限 $0.20 の内側なので支払いは通る。
 - **2s と Otto AI が Solana leg を追加**。9/18 時点はどちらも Base のみだった。
 - OneSource が `batch-settlement` scheme の leg を追加（`exact` が `accepts[0]` なので選択は変わらない）。
+
+### Exa を追加（2026-10-20）
+
+キーなしで `POST /contents`・`POST /search` とも 402 を返すことを実測して追加した。
+`x-api-key` / `Authorization` を付けると通常の API キー課金に落ちるので、probe は
+**キーを一切載せない**（既存の設計のまま。probe クライアントは認証ヘッダを付けない）。
+
+`accepts` が7本あり、同一チェーンに複数 leg が並ぶ初めての先。
+
+```
+[0] eip155:8453   legacy                   ← 既定セレクタが選ぶ。今の Base ウォレットで払える
+[1] solana:5eyk…  solana-usdc-mainnet      ← feePayer 肩代わりあり
+[2] eip155:8453   base-usdc-gateway        ┐
+[3] eip155:480    worldchain-usdc-gateway  ├ Circle Gateway。この scheme では署名できない
+[4] eip155:5042   arc-usdc-gateway         ┘
+[5] eip155:5042   arc-usdc-circle          ← EIP-3009。我々の Arc レグで払える形
+[6] eip155:8453   base-usdc-circle
+```
+
+`arc-usdc-circle` の asset は `0x3600000000000000000000000000000000000000` で、
+`src/payment-guard.ts` の `ARC_USDC_ERC20` と一致する。
+**Arc leg を提示する初めての第三者**にあたる。
+
+`/search` は BlockRun と同じ Web 検索で、単価が $0.007 と $0.081 で1桁違う。
+同じ枠に並べて実測を比べる意味がある。
+
+`/.well-known/x402` は 404 だったので metadata から外した（毎回エラー行になり、
+有料ルートの成功率まで下げるため）。Exa は OpenAPI を配っているのでそちらを読む。
 
 Cluster Protocol はデプロイ基盤でデータ API ではないため対象外。
 
@@ -97,9 +126,32 @@ run 0 は支払いクライアントを構築すらせず、
 PROBE_PREFER_NETWORK=solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp
 ```
 
+**チェーンだけでは leg を名指しできない場合がある。** Exa は Arc に2本持っていて、
+`arc-usdc-gateway`（Circle Gateway・事前入金型）と `arc-usdc-circle`（EIP-3009）が
+どちらも `eip155:5042` の `exact`。`PROBE_PREFER_ACCEPT_ID` で売り手のラベルまで指定する。
+
+```
+PROBE_PREFER_NETWORK=eip155:5042
+PROBE_PREFER_ACCEPT_ID=arc-usdc-circle
+```
+
+片方だけでも効く（network だけならそのチェーンの先頭、acceptId だけならその leg）。
 優先は**予算 policy の後**に効く（`@x402/core` は policy を適用してからセレクタを呼ぶ）。
 上限で落とされた leg をここで拾い直すことはできない。
-指定したチェーンが候補に無ければ既定に落ちる。
+該当が無ければ既定（`accepts[0]`）に落ちる。
+
+### 署名できない leg は掴まない
+
+`ExactEvmScheme` は EIP-712 の `verifyingContract` に **asset アドレス**を入れる
+（`@x402/evm` chunk-TRL63EE2.mjs:93）。`extra.verifyingContract` が asset と違う leg
+— Circle Gateway の `GatewayWalletBatched`（`0x77777777dcc4d5a8b6e418fd04d8997ef11000ee`）—
+は、署名しても domain がトークンにも Gateway にも一致せず、facilitator に弾かれる。
+
+fail-closed なので金は動かないが、無駄打ちになる。そこで policy で**予算を見る前に落とす**。
+`observe` の見積りからも外す — **払えない単価を出さない**のがこの観測の前提なので。
+
+既定セレクタが `accepts[0]` を取る以上、売り手が Gateway leg を先頭に置いた瞬間に
+これが効く。Exa では `accepts[0]` が legacy Base なので現状は当たらない。
 
 ## 記録
 

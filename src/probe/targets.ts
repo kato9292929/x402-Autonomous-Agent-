@@ -141,6 +141,25 @@ export const PROBE_TARGETS: ProbeTarget[] = [
     probes: [{ path: "/api/v1/search", method: "POST", body: { query: "US inflation data", sources: ["web"], max_results: 3 } }],
     question: "Web 検索の返り値と実費を測る",
   },
+  {
+    id: "exa",
+    name: "Exa",
+    host: "https://api.exa.ai",
+    // 掲載価格は読んでいないので置かない。単価は 402 から取る($0.001 / $0.007)。
+    listedChains: ["base", "solana", "worldchain", "arc"],
+    weeklyCallBudget: 10,
+    // `/.well-known/x402` は 404(2026-10-20 実測)。入れたままだと毎回エラー行になり、
+    // 有料ルートの成功率まで下がる。Exa は OpenAPI を配っているのでそちらを読む。
+    metadata: ["/openapi.json"],
+    probes: [
+      // 安い方を先に置く。打ち切りが起きたとき、残るのが $0.001 側になる。
+      { path: "/contents", method: "POST", body: { urls: ["https://en.wikipedia.org/wiki/Stablecoin"] } },
+      { path: "/search", method: "POST", body: { query: "x402 payment protocol adoption", numResults: 5 } },
+    ],
+    question:
+      "検索・本文抽出の質と実費を測る。/search は BlockRun と同じ Web 検索で単価が1桁違う($0.007 vs $0.081)ので、" +
+      "同じ枠に並べる意味がある。Arc leg を持つ初めての第三者でもある",
+  },
 ];
 
 /** Total paid calls a full sweep would make if every route were known. */
