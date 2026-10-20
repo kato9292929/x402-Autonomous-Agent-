@@ -10,6 +10,8 @@
     "run-now": "ts-node src/index.ts --run-now",
     "arc:setup-entity-secret": "node dist/scripts/arc-setup-entity-secret.js",
     "arc:create-wallets": "node dist/scripts/arc-create-wallets.js",
+    "arc:derive-mainnet-wallet": "node dist/scripts/arc-derive-mainnet-wallet.js",
+    "mxe:setup": "node dist/scripts/mxe-setup.js",
     "arc:register": "node dist/scripts/arc-register-agent.js",
     "probe:run0": "node dist/index.js --probe-run0",
     "probe:sweep": "node dist/index.js --probe-sweep",
