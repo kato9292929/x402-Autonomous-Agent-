@@ -117,6 +117,22 @@ describe("AaMxe", () => {
     return event;
   };
 
+  /** Logs of a confirmed transaction (retried: it may not be indexed yet). */
+  const txLogs = async (sig: string): Promise<string[]> => {
+    for (let i = 0; i < 20; i++) {
+      const tx = await provider.connection.getTransaction(sig, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (tx?.meta?.logMessages) return tx.meta.logMessages;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    throw new Error(`transaction ${sig} not found`);
+  };
+  const eventParser = new anchor.EventParser(program.programId, program.coder);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const eventsInTx = (logs: string[]): { name: string; data: any }[] => [...eventParser.parseLogs(logs)];
+
   const arciumEnv = getArciumEnv();
   const clusterAccount = getClusterAccAddress(arciumEnv.arciumClusterOffset);
 
@@ -353,12 +369,15 @@ describe("AaMxe", () => {
         await new Promise((r) => setTimeout(r, 2000));
       }
 
-      const closed = awaitEvent("rfqClosedEvent", "rfq", rfqPDA);
-      await program.methods
+      // close_rfq is a plain transaction: it can confirm before a websocket
+      // listener has subscribed, so read its event from the transaction's logs.
+      const closeSig = await program.methods
         .closeRfq()
         .accountsPartial({ authority: owner.publicKey, rfq: rfqPDA })
         .rpc({ preflightCommitment: "confirmed", commitment: "confirmed" });
-      expect((await closed).quoteCount).to.equal(3);
+      const closed = eventsInTx(await txLogs(closeSig)).find((e) => e.name === "rfqClosedEvent");
+      expect(closed, "rfqClosedEvent in the close_rfq logs").to.not.equal(undefined);
+      expect(closed!.data.quoteCount).to.equal(3);
 
       const awardOffset = newOffset();
       const awarded = awaitEvent("rfqAwardedEvent", "rfq", rfqPDA);
