@@ -1,0 +1,86 @@
+# Arcium MXE: build the circuits and the Solana program, then run the tests on
+# a localnet cluster (validator + Arx nodes in Docker).
+#
+# This runs in CI rather than locally because the Arcium CLI needs a running
+# Docker daemon (`arcup install` refuses without /var/run/docker.sock), which the
+# development container does not have.
+#
+# Job logs are not readable from the development session, but check-run
+# annotations are. So the steps tee their output, and on failure the tail of the
+# log is emitted as an error annotation — that is how the failure gets read.
+
+name: arcium-mxe
+
+on:
+  push:
+    paths:
+      - "mxe/**"
+      - ".github/workflows/arcium.yml"
+  pull_request:
+    paths:
+      - "mxe/**"
+      - ".github/workflows/arcium.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arcium-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mxe
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # Versions pinned to match mxe/Cargo.lock and mxe/yarn.lock. Arcium tests
+      # and supports only a single coordinated release across all components.
+      - uses: arcium-hq/setup-arcium@v0.15.0
+        with:
+          runner-arch-os: x86_64_linux
+          arcium-version: "0.15.0"
+          anchor-version: "1.0.2"
+          solana-cli-version: "3.1.10"
+          node-version: "24.10.0"
+
+      - name: Versions
+        run: |
+          {
+            echo "arcium: $(arcium --version 2>&1)"
+            echo "anchor: $(anchor --version 2>&1)"
+            echo "solana: $(solana --version 2>&1)"
+            echo "rustc:  $(rustc --version 2>&1)"
+          } | tee ci-versions.log
+          echo "::notice title=toolchain::$(paste -sd ' | ' ci-versions.log)"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile 2>&1 | tee ci-install.log
+
+      - name: Build
+        run: |
+          set -o pipefail
+          arcium build 2>&1 | tee ci-build.log
+
+      - name: Test
+        run: |
+          set -o pipefail
+          sudo prlimit --pid $$ --nofile=1048576:1048576
+          arcium test 2>&1 | tee ci-test.log
+          echo "::notice title=arcium test::$(grep -E 'passing|failing|pending' ci-test.log | paste -sd ' ' -)"
+
+      # Surface the failure where the session can read it. Annotation messages
+      # are capped, so take the tail; %0A keeps the line breaks.
+      - name: Report failure
+        if: failure()
+        run: |
+          for f in ci-test.log ci-build.log ci-install.log; do
+            [ -s "$f" ] || continue
+            tail -n 80 "$f" | sed -e 's/%/%25/g' -e 's/\r//g' | awk 'BEGIN{ORS="%0A"} {print}' > tail.txt
+            echo "::error title=$f (last 80 lines)::$(cat tail.txt)"
+          done
