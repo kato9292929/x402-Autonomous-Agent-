@@ -112,9 +112,8 @@ function measured(ctx: Ctx, out: MxeOutcome<unknown>): Partial<MxeTradeRecord> {
     queueTx: last?.queueTx,
     latencyMs: out.latencyMs,
     costSol,
-    // No Arcium token is charged on devnet: computation fees are paid in SOL
-    // and are already inside costSol.
-    costArcium: 0,
+    // costArcium stays unset: Arcium 0.15 takes its computation fee in SOL
+    // (inside costSol), and no separate token balance is read here.
     solUsd: ctx.solUsd,
     costUsd: ctx.solUsd !== undefined ? costSol * ctx.solUsd : undefined,
     costUsdBasis: ctx.solUsd !== undefined ? (ctx.network === "arcium-devnet" ? DEVNET_USD_BASIS : MAINNET_USD_BASIS) : undefined,

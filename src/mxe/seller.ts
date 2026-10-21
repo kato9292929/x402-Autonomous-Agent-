@@ -18,7 +18,7 @@
 import type * as http from "http";
 import { randomBytes } from "crypto";
 import { HTTPFacilitatorClient, x402ResourceServer, x402HTTPResourceServer } from "@x402/core/server";
-import type { HTTPAdapter, HTTPRequestContext } from "@x402/core/server";
+import type { FacilitatorClient, HTTPAdapter, HTTPRequestContext } from "@x402/core/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { createFacilitatorConfig } from "@payai/facilitator";
 
@@ -63,20 +63,28 @@ function tradeIdOf(path: string): string {
 
 let httpServer: x402HTTPResourceServer | undefined;
 let ready: Promise<void> | undefined;
+let injected: FacilitatorClient | undefined;
+
+/** Tests only: settle through `f` instead of PayAI, and rebuild the server. */
+export function useFacilitatorForTests(f: FacilitatorClient | undefined): void {
+  injected = f;
+  ready = undefined;
+  httpServer = undefined;
+}
 
 /** The x402 resource server, built and initialized once (asks PayAI what it supports). */
 function server(): Promise<x402HTTPResourceServer> {
   if (!ready) {
-    if (!process.env.PAYAI_API_KEY_ID || !process.env.PAYAI_API_KEY_SECRET) {
+    if (!injected && (!process.env.PAYAI_API_KEY_ID || !process.env.PAYAI_API_KEY_SECRET)) {
       // Not a fallback to the free lane: an internal trade that cannot settle
       // properly should fail visibly, the way the 10/08 outage should have.
       ready = Promise.reject(
         new Error("PAYAI_API_KEY_ID / PAYAI_API_KEY_SECRET are not set — internal trades do not settle on the free tier")
       );
     } else {
-      const facilitator = new HTTPFacilitatorClient(
-        createFacilitatorConfig(process.env.PAYAI_API_KEY_ID, process.env.PAYAI_API_KEY_SECRET)
-      );
+      const facilitator =
+        injected ??
+        new HTTPFacilitatorClient(createFacilitatorConfig(process.env.PAYAI_API_KEY_ID, process.env.PAYAI_API_KEY_SECRET));
       const rs = new x402ResourceServer([facilitator]);
       // @x402/svm 2.15 carries its own @x402/core; the scheme object is the
       // same shape, so it is registered directly rather than through its helper.

@@ -153,7 +153,6 @@ export async function handleMxeApi(req: http.IncomingMessage, res: http.ServerRe
         queueTx: run.queueTx,
         latencyMs: out.latencyMs,
         costSol: out.lamports / 1e9,
-        costArcium: 0,
         result: { boardId, ratingCount: out.result.ratingCount, sealedBy: "evaluator" },
       };
       await saveMxeRecord(ok);

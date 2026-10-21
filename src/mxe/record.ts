@@ -80,8 +80,9 @@ export interface MxeTradeRecord {
   /** Fee payer's SOL balance delta over the computation, in SOL. */
   costSol?: number;
   /**
-   * Fees paid in an Arcium token, if the cluster charged any. `0` when the
-   * balance was checked and nothing was charged; undefined when unknown.
+   * Fees paid in an Arcium token, if one is ever charged. Arcium 0.15 takes
+   * its computation fee in SOL — already inside `costSol` — and no token
+   * balance is read, so this is left unset rather than written as 0.
    */
   costArcium?: number;
   /** costSol at the SOL/USD price in `solUsd`. */

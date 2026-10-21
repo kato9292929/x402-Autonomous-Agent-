@@ -17,7 +17,8 @@ import { catalogOf, knownEndpoints, CATEGORY } from "../mxe/catalog";
 import { plainSearch } from "../mxe/functions";
 import { slotFor } from "../mxe/slots";
 import { isExpectedLeg } from "../mxe/buyer";
-import { handleMxeSell, openTrade, SOLANA_MAINNET, SOLANA_USDC_MINT } from "../mxe/seller";
+import { handleMxeSell, openTrade, useFacilitatorForTests, SOLANA_MAINNET, SOLANA_USDC_MINT } from "../mxe/seller";
+import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { devnetRpcUrl, runMxeJob } from "../jobs/mxe-trades";
 import type { PaymentRequirements } from "@x402/core/types";
 
@@ -176,5 +177,39 @@ test("job with the MXE unreachable records each enabled function as failed, with
   } finally {
     process.chdir(cwd);
     process.env = keep;
+  }
+});
+
+test("seller route challenges for exactly the decided amount, to the decided seller", async () => {
+  const payTo = "7PVToFakeSeller1111111111111111111111111111";
+  useFacilitatorForTests({
+    getSupported: async () => ({
+      kinds: [{ x402Version: 2, scheme: "exact", network: SOLANA_MAINNET, extra: { feePayer: "FeePayer111111111111111111111111111111111111" } }],
+      extensions: [],
+      signers: {},
+    }),
+    verify: async () => ({ isValid: false, invalidReason: "stub" }),
+    settle: async () => ({ success: false, errorReason: "stub", transaction: "", network: SOLANA_MAINNET }),
+  } as never);
+  const { base, close } = await serve();
+  try {
+    const t = openTrade({ fn: 2, payTo, priceMicro: 4321n, product: { secret: "not before payment" } });
+    const r = await fetch(`${base}/mxe/sell/${t.id}`);
+    assert.equal(r.status, 402);
+    const body = await r.text();
+    assert.doesNotMatch(body, /not before payment/);
+    const header = r.headers.get("PAYMENT-REQUIRED");
+    assert.ok(header, "a v2 challenge header");
+    const pr = decodePaymentRequiredHeader(header!);
+    assert.equal(pr.accepts.length, 1);
+    const leg = pr.accepts[0] as unknown as PaymentRequirements;
+    assert.equal(leg.network, SOLANA_MAINNET);
+    assert.equal(leg.asset, SOLANA_USDC_MINT);
+    assert.equal(leg.payTo, payTo);
+    assert.equal((leg as { amount?: string }).amount, "4321");
+    assert.equal(isExpectedLeg(leg, 4321n, payTo), true);
+  } finally {
+    close();
+    useFacilitatorForTests(undefined);
   }
 });
