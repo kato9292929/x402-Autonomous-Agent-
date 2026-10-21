@@ -65,15 +65,10 @@ jobs:
         run: yarn install --frozen-lockfile 2>&1 | tee ci-install.log
 
       - name: Build
+        id: build
         run: |
           set -o pipefail
           arcium build 2>&1 | tee ci-build.log
-
-      # The AA client builds instructions from the committed mxe/idl/aa_mxe.json
-      # (assembled without the Arcium toolchain). Fail if it no longer matches
-      # the program: regenerate it per scripts/assemble-idl.py.
-      - name: IDL matches the committed copy
-        run: python3 scripts/assemble-idl.py --compare idl/aa_mxe.json target/idl/aa_mxe.json
 
       # What a deployment would cost in rent. The docs' "2-5 SOL" is for a small
       # program; rent scales with the binary, and circuits uploaded on chain pay
@@ -116,6 +111,19 @@ jobs:
           grep -E '\[(latency|compare)\]' ci-test.log | sed -e 's/^ *//' -e 's/ (finalize .*)$//' > latency.txt || true
           [ -s latency.txt ] || exit 0
           echo "::notice title=MPC latency (localnet)::$(sed -e 's/%/%25/g' latency.txt | awk 'BEGIN{ORS="%0A"} {print}')"
+
+      # The AA client builds instructions from the committed mxe/idl/aa_mxe.json
+      # (assembled without the Arcium toolchain). Fail if it no longer matches
+      # the program — after the tests, so a drift does not hide their results —
+      # and put the differences where the session can read them.
+      - name: IDL matches the committed copy
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          if ! python3 scripts/assemble-idl.py --compare idl/aa_mxe.json target/idl/aa_mxe.json > idl-compare.log 2>&1; then
+            echo "::error title=IDL drift::$(head -c 60000 idl-compare.log | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"
+            exit 1
+          fi
+          cat idl-compare.log
 
       # Surface the failure where the session can read it. Annotation messages
       # are capped, so take the tail; %0A keeps the line breaks.

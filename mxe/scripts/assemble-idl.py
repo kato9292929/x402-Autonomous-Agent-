@@ -67,18 +67,39 @@ def comparable(idl):
     return idl
 
 
+def report(a, b):
+    """Differences between two comparable IDLs, as short text lines."""
+    import difflib
+
+    out = []
+    for key in ("instructions", "accounts", "events", "types", "errors"):
+        xa = {x["name"]: x for x in a.get(key, [])}
+        xb = {x["name"]: x for x in b.get(key, [])}
+        for n in sorted(set(xa) - set(xb)):
+            out.append(f"{key}: only in committed: {n}")
+        for n in sorted(set(xb) - set(xa)):
+            out.append(f"{key}: only in build: {n}")
+        for n in sorted(set(xa) & set(xb)):
+            if xa[n] != xb[n]:
+                da = json.dumps(xa[n], indent=1, sort_keys=True).splitlines()
+                db = json.dumps(xb[n], indent=1, sort_keys=True).splitlines()
+                diff = list(difflib.unified_diff(da, db, "committed", "build", n=1, lineterm=""))
+                out.append(f"{key}: {n} differs")
+                out.extend("  " + d for d in diff[2:40])
+    for key in sorted(set(a) | set(b)):
+        if key not in ("instructions", "accounts", "events", "types", "errors") and a.get(key) != b.get(key):
+            out.append(f"top-level {key}: committed={json.dumps(a.get(key))[:200]} build={json.dumps(b.get(key))[:200]}")
+    return out
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "--compare":
         a, b = (comparable(json.load(open(p))) for p in sys.argv[2:4])
-        for key in ("instructions", "accounts", "events", "types", "errors"):
-            if a.get(key) != b.get(key):
-                names_a = {x["name"] for x in a.get(key, [])}
-                names_b = {x["name"] for x in b.get(key, [])}
-                diff = sorted(names_a ^ names_b) or sorted(
-                    x["name"] for x in a.get(key, []) if x not in b.get(key, [])
-                )
-                print(f"IDL drift in {key}: {diff}")
-                sys.exit(1)
+        lines = report(a, b)
+        if lines:
+            print("IDL drift:")
+            print("\n".join(lines[:200]))
+            sys.exit(1)
         print("IDL matches")
     else:
         print(json.dumps(assemble(open(sys.argv[1]).read()), indent=2))
