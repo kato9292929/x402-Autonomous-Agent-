@@ -33,6 +33,7 @@ import "dotenv/config";
 import * as crypto from "node:crypto";
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import { base58 } from "@scure/base";
+import { Keypair } from "@solana/web3.js";
 import { SOLANA_USDC_MINT } from "../balance-guard";
 
 type Client = ReturnType<typeof initiateDeveloperControlledWalletsClient>;
@@ -119,6 +120,19 @@ export function generateDeployKey(): { json: string; address: string } {
   const x = Buffer.from(publicKey.export({ format: "jwk" }).x as string, "base64url");
   if (d.length !== 32 || x.length !== 32) throw new Error("Ed25519 鍵の長さが不正");
   return { json: JSON.stringify([...d, ...x]), address: base58.encode(x) };
+}
+
+/**
+ * The aa_mxe program id the devnet deploy job will use for this deploy key.
+ * Same derivation as mxe/scripts/derive-program-keypair.js (kept in step by a
+ * test), so MXE_PROGRAM_ID can go into Railway together with everything else
+ * instead of waiting for the first deploy.
+ */
+export function programIdFor(deployKeyJson: string): string {
+  const deploy = JSON.parse(deployKeyJson) as number[];
+  if (!Array.isArray(deploy) || deploy.length !== 64) throw new Error("deploy key must be a 64-byte JSON array");
+  const seed = crypto.createHash("sha256").update("aa-mxe/program-id/v1").update(Buffer.from(deploy.slice(0, 32))).digest();
+  return Keypair.fromSeed(seed).publicKey.toBase58();
 }
 
 async function setupLive(fund: boolean): Promise<string[]> {
@@ -214,12 +228,17 @@ async function main(): Promise<void> {
   }
 
   const railway = [...(await setupLive(fund)), ...(await setupDevnet())];
+  const key = wantKey ? generateDeployKey() : undefined;
+  if (key) {
+    railway.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
+    // Flags last, so turning the integration on is a visible, separate step.
+    railway.push("MXE_ENABLED=true", ...[1, 2, 3, 4, 5].map((n) => `MXE_F${n}_ENABLED=true`));
+  }
 
   console.log("\n==== Railway Variables に設定 ====");
   for (const l of railway) console.log(l);
 
-  if (wantKey) {
-    const key = generateDeployKey();
+  if (key) {
     console.log("\n==== GitHub の Actions secret に設定(Railway には入れない)====");
     console.log("名前: ARCIUM_DEVNET_DEPLOY_KEY");
     console.log(`値  : ${key.json}`);
