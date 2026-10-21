@@ -26,7 +26,9 @@ permissions:
 
 concurrency:
   group: arcium-${{ github.ref }}
-  cancel-in-progress: true
+  # Queue rather than cancel: each commit's result is read from its own
+  # check-run, so a newer push must not discard the one still being waited on.
+  cancel-in-progress: false
 
 jobs:
   build-test:
@@ -66,6 +68,24 @@ jobs:
         run: |
           set -o pipefail
           arcium build 2>&1 | tee ci-build.log
+
+      # What a deployment would cost in rent. The docs' "2-5 SOL" is for a small
+      # program; rent scales with the binary, and circuits uploaded on chain pay
+      # rent too. Rent-exempt minimum = (bytes + 128) × 3480 × 2 lamports.
+      - name: Sizes and rent
+        run: |
+          rent() { awk -v b="$1" 'BEGIN { printf "%.4f", (b + 128) * 6960 / 1e9 }'; }
+          so=$(stat -c %s target/deploy/aa_mxe.so)
+          {
+            echo "program aa_mxe.so: ${so} bytes, rent ≈ $(rent $((so + 45))) SOL (programdata; a deploy also needs a same-size buffer temporarily)"
+            total=0
+            for f in build/*.arcis; do
+              b=$(stat -c %s "$f"); total=$((total + b))
+              echo "$(basename "$f"): ${b} bytes, rent ≈ $(rent $b) SOL if stored on chain"
+            done
+            echo "all circuits: ${total} bytes, rent ≈ $(rent $total) SOL if stored on chain"
+          } | tee ci-sizes.log
+          echo "::notice title=sizes and rent::$(sed -e 's/%/%25/g' ci-sizes.log | awk 'BEGIN{ORS="%0A"} {print}')"
 
       - name: Test
         run: |

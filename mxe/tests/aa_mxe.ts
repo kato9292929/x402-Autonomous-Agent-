@@ -158,6 +158,9 @@ describe("AaMxe", () => {
 
   const nonceArg = (nonce: Buffer) => new anchor.BN(deserializeLE(nonce).toString());
   const newOffset = () => new anchor.BN(randomBytes(8), "hex");
+  // PDA ids are random rather than 1, 2, 3: the same suite runs against devnet
+  // (`arcium test --cluster devnet`), where accounts from an earlier run persist.
+  const newId = () => new anchor.BN(randomBytes(6), "hex").toNumber();
 
   let owner: anchor.web3.Keypair;
   let mxePublicKey: Uint8Array;
@@ -241,19 +244,19 @@ describe("AaMxe", () => {
   describe("Function 1: reservation-price matching", () => {
     it("reveals the midpoint on overlap, rounding an odd sum down", async () => {
       // 1001 + 3000 = 4001 → 2000. Exercises (a & b) + ((a ^ b) >> 1).
-      const ev = await negotiate(1, 1001n, 3000n);
+      const ev = await negotiate(newId(), 1001n, 3000n);
       expect(ev.matched).to.equal(true);
       expect(ev.price.toString()).to.equal("2000");
     });
 
     it("reveals nothing but 'no deal' when there is no overlap", async () => {
-      const ev = await negotiate(2, 5000n, 3000n);
+      const ev = await negotiate(newId(), 5000n, 3000n);
       expect(ev.matched).to.equal(false);
       expect(ev.price.toString()).to.equal("0");
     });
 
     it("matches when the ceiling equals the floor exactly", async () => {
-      const ev = await negotiate(3, 2500n, 2500n);
+      const ev = await negotiate(newId(), 2500n, 2500n);
       expect(ev.matched).to.equal(true);
       expect(ev.price.toString()).to.equal("2500");
     });
@@ -270,7 +273,7 @@ describe("AaMxe", () => {
 
   describe("Function 2: sealed-quote RFQ", () => {
     it("awards the lowest quote and reveals only winner and price", async () => {
-      const rfqId = 1;
+      const rfqId = newId();
       const [rfqPDA] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("rfq"),
@@ -373,7 +376,7 @@ describe("AaMxe", () => {
 
   describe("Function 3: seller scores without revealing the evaluator", () => {
     it("aggregates per seller, clamps latency, and leaves other slots at zero", async () => {
-      const boardId = 1;
+      const boardId = newId();
       const [boardPDA] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("scoreboard"),
@@ -638,6 +641,12 @@ describe("AaMxe", () => {
       ],
       getArciumProgramId()
     )[0];
+
+    // Comp defs persist on chain. On devnet a second run must not try again.
+    if (await provider.connection.getAccountInfo(compDefPDA)) {
+      console.log(`   ${circuitName}: comp def already initialized, skipping`);
+      return "existing";
+    }
 
     const arciumProgram = getArciumProgram(provider as anchor.AnchorProvider);
     const mxeAccount = getMXEAccAddress(program.programId);
