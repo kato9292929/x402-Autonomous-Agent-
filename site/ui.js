@@ -438,6 +438,86 @@ async function loadProbe() {
 }
 loadProbe();
 
+/* ── Arcium MXE ────────────────────────────────────────────────────────────
+   One row per function (aggregates over every record) and the newest records.
+   The computation's network and the payment's network are separate fields and
+   are shown separately. Nothing is filled in: a field the record lacks shows
+   as "—", and a failed run shows its error. */
+const devnetAcct = (a, net) =>
+  'https://explorer.solana.com/address/' + a + (net === 'arcium-devnet' ? '?cluster=devnet' : '');
+const ms = (n) => (n == null ? '—' : Math.round(n).toLocaleString('ja-JP') + 'ms');
+const usd = (n) => (n == null ? '—' : '$' + Number(n).toFixed(6));
+const netLabel = (n) => ({ 'arcium-devnet': 'devnet', 'arcium-mainnet': 'mainnet', 'arcium-localnet': 'localnet' }[n] || n || '—');
+const partyLabel = (c) => ({ internal: '内部取引', self: '自己', external: '外部' }[c] || c);
+
+function mxeResult(r) {
+  const x = r.result || {};
+  switch (r.fn) {
+    case 1: return x.matched ? `成立 ${usd(Number(x.priceMicro) / 1e6)}` : '不成立';
+    case 2: return x.winner ? `落札 ${shortTx(x.winner)} ${usd(Number(x.priceMicro) / 1e6)}` : '';
+    case 3: return x.ratingCount != null ? `評価 ${x.ratingCount}件(集計のみ公開)` : '';
+    case 4: return x.reached === undefined ? '' : x.reached ? `到達(${x.participants}者)` : '未到達・誰も払わない';
+    case 5: return x.catalogSize ? `N=${x.catalogSize} 一致 ${(x.matches || []).length}件` : '';
+    default: return '';
+  }
+}
+
+async function loadMxe() {
+  const section = document.getElementById('mxe');
+  if (!section) return;
+  try {
+    const res = await fetch('/api/mxe?limit=30');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const p = await res.json();
+    if (!p.total) { section.hidden = true; return; }
+    section.hidden = false;
+    const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
+    document.getElementById('mxe-sub').textContent =
+      `${p.total}件の記録 · 実計算 ${okRuns}件 · ${p.jobEnabled ? '毎日 07:30 JST' : '定時実行は停止中'}`;
+    document.getElementById('mxe-scope').innerHTML =
+      '相手に見せない数字を Arcium の MXE(秘密計算)に渡し、結果だけを取り出す。' +
+      '<strong>判定</strong>は Arcium のクラスタ、<strong>支払い</strong>は x402 で Solana mainnet — 両者は別の欄に記録する。' +
+      '機能1・2・4 の相手方は AA 自身の内部エージェントで、外部の需要の証拠ではない。';
+
+    document.getElementById('mxe-functions').innerHTML = p.aggregates.map((g) => {
+      const f = p.functions.find((x) => x.fn === g.fn) || {};
+      const bits = [`${g.ok}/${g.runs} 成功`];
+      if (g.failed) bits.push(`${g.failed} 失敗`);
+      if (g.compared) bits.push(`比較 ${g.compared}`);
+      if (g.networks.length) bits.push(g.networks.map(netLabel).join('/'));
+      const ratio = g.unitCostRatio ? ` · 単価比 ${g.unitCostRatio.mean.toFixed(2)}` : '';
+      return `<li class="probe__seller">` +
+        `<span class="probe__sellername">${g.fn}. ${esc(g.label)}</span>` +
+        `<span class="probe__sellermeta">${esc(bits.join(' · '))}${f.enabled ? '' : ' · 無効'}</span>` +
+        `<span class="probe__sellercost">平均 ${esc(ms(g.latencyMs && g.latencyMs.mean))} · ${esc(usd(g.costUsd && g.costUsd.mean))}${esc(ratio)}</span>` +
+        `<span class="probe__sellerrate">${g.costSol ? esc(g.costSol.mean.toFixed(6)) + ' SOL' : '—'}</span></li>`;
+    }).join('');
+
+    document.getElementById('mxe-list').innerHTML = (p.records || []).map((r) => {
+      const comp = r.computationAccount
+        ? `<a class="probe__txlink" href="${devnetAcct(r.computationAccount, r.network)}" target="_blank" rel="noopener">計算 ${esc(shortTx(r.computationOffset))}</a>`
+        : `<span class="probe__txlink probe__txlink--none">計算なし</span>`;
+      const pays = (r.paymentTxs || []).map((t) =>
+        `<a class="probe__txlink" href="${txUrl(t)}" target="_blank" rel="noopener">支払 ${esc(shortTx(t))}</a>`).join('');
+      const status = r.status === 'ok' ? 'paid' : 'error';
+      const why = r.status !== 'ok' && r.error ? `<div class="probe__why">${esc(r.error)}</div>` : '';
+      const cmp = r.comparison ? `<div class="probe__why">比較(${esc(r.comparison.method)}): ${esc(JSON.stringify(r.comparison.result))}</div>` : '';
+      return `<li class="probe__item probe__item--${status}">` +
+        `<span class="probe__idx">#${r.fn}</span>` +
+        `<span class="probe__target">${esc(partyLabel(r.counterparty))}</span>` +
+        `<code class="probe__path">${esc(mxeResult(r))}</code>` +
+        `<span class="probe__outcome">${esc(r.status)}</span>` +
+        `<span class="probe__cost">${esc(usd(r.costUsd))}${r.unitCostRatio != null ? ' · 単価比 ' + esc(r.unitCostRatio.toFixed(2)) : ''}</span>` +
+        `<span class="probe__chain">${esc(netLabel(r.network))}${r.paymentNetwork ? ' → Solana' : ''}</span>` +
+        `${comp}${pays}<span class="probe__lat">${esc(ms(r.latencyMs))}</span>${cmp}${why}</li>`;
+    }).join('');
+
+    document.getElementById('mxe-note').textContent =
+      'devnet の SOL に市場価格はない。USD 換算は同じ計算を mainnet でした場合の目安として mainnet の SOL/USD で出している。';
+  } catch { section.hidden = true; }
+}
+loadMxe();
+
 /* ── Menu ───────────────────────────────────────────────────────────────── */
 const menu = document.getElementById('menu');
 const openBtn = document.getElementById('menu-open');

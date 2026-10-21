@@ -9,8 +9,9 @@
  *      Circle のウォレットは作成時のチェーンに紐づく(Arc で 155801 として実測済み)ので、
  *      mainnet の 7PVTo… で devnet の tx を署名できるとは仮定しない。
  *   2. Circle LIVE の Solana ウォレット4つ — AA 内に置く内部エージェント。
- *        売り手 A・B(機能1・2):x402 の受取先。作るだけで資金は不要
- *        買い手 A・B(機能4):共同購入の参加者。--fund で少額を入れる
+ *        売り手 A・B(機能1・2・4):x402 の受取先。--fund で $0.01 を入れて USDC の
+ *          受取口座(ATA)を作る。口座のない宛先への x402 送金は失敗する
+ *        買い手 A・B(機能1・2・4):支払う側。--fund で少額を入れる
  *      いずれも「内部取引」の相手方で、外部の需要の証拠にはしない。
  *   3. (--deploy-key)devnet のプログラム管理鍵(upgrade authority)。
  *      `arcium deploy --keypair-path` はファイルの鍵を要求し、Circle DCW は使えない。
@@ -19,7 +20,7 @@
  * 実行(AA コンテナで):
  *   npm run build && npm run mxe:setup                 # ウォレットの作成だけ
  *   npm run mxe:setup -- --deploy-key                  # + devnet 管理鍵を出力
- *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10 送る
+ *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10、売り手A・Bへ各 $0.01 送る
  *
  * 必要 env(既存):
  *   LIVE: CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, CIRCLE_SOLANA_WALLET_ID
@@ -45,9 +46,9 @@ interface AgentSpec {
 }
 
 const LIVE_AGENTS: AgentSpec[] = [
-  { env: "CIRCLE_MXE_SELLER_A", refId: "aa-mxe-seller-a", role: "内部の売り手 A(機能1・2)" },
-  { env: "CIRCLE_MXE_SELLER_B", refId: "aa-mxe-seller-b", role: "内部の売り手 B(機能2)" },
-  { env: "CIRCLE_MXE_BUYER_A", refId: "aa-mxe-buyer-a", role: "内部の買い手 A(機能4)", fund: "0.10" },
+  { env: "CIRCLE_MXE_SELLER_A", refId: "aa-mxe-seller-a", role: "内部の売り手 A(機能1・2・4)", fund: "0.01" },
+  { env: "CIRCLE_MXE_SELLER_B", refId: "aa-mxe-seller-b", role: "内部の売り手 B(機能2)", fund: "0.01" },
+  { env: "CIRCLE_MXE_BUYER_A", refId: "aa-mxe-buyer-a", role: "内部の買い手 A(機能1・2・4)", fund: "0.10" },
   { env: "CIRCLE_MXE_BUYER_B", refId: "aa-mxe-buyer-b", role: "内部の買い手 B(機能4)", fund: "0.10" },
 ];
 
@@ -209,7 +210,7 @@ async function main(): Promise<void> {
   const wantKey = process.argv.includes("--deploy-key");
 
   if (fund) {
-    console.log("--fund: 買い手 A・B に各 $0.10 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ)");
+    console.log("--fund: 買い手 A・B に各 $0.10、売り手 A・B に各 $0.01 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ。売り手分は x402 の受取口座を作るため)");
   }
 
   const railway = [...(await setupLive(fund)), ...(await setupDevnet())];

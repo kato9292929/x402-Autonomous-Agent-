@@ -209,10 +209,26 @@ export async function submitRating(
   const p = await newParty(chain);
   // Order must match the circuit's Rating: slot, delivered, format_ok, latency_ms.
   const s = seal(p, [BigInt(r.slot), r.delivered ? 1n : 0n, r.formatOk ? 1n : 0n, BigInt(Math.max(0, Math.round(r.latencyMs)))]);
+  return submitSealedRating(chain, boardId, s.cts, p.publicKey, s.nonceArg);
+}
+
+/**
+ * A rating already sealed by the evaluator, relayed as is: the AA never sees
+ * the plaintext. `cts` are the four Rating fields, in circuit order.
+ */
+export async function submitSealedRating(
+  chain: MxeChain,
+  boardId: string,
+  cts: number[][],
+  evaluatorPubkey: Uint8Array,
+  nonceArg: anchor.BN
+): Promise<MxeOutcome<{ ratingCount: number }>> {
+  if (cts.length !== 4 || cts.some((c) => c.length !== 32)) throw new Error("a rating is four 32-byte ciphertexts");
+  if (evaluatorPubkey.length !== 32) throw new Error("evaluator public key must be 32 bytes");
   const run = await chain.queue(
     "submitRating",
     "submit_rating",
-    [s.cts[0], s.cts[1], s.cts[2], s.cts[3], Array.from(p.publicKey), s.nonceArg],
+    [cts[0], cts[1], cts[2], cts[3], Array.from(evaluatorPubkey), nonceArg],
     { scoreboard: scoreboardPda(chain, new anchor.BN(boardId)) }
   );
   const ev = eventOf(run, "ratingSubmittedEvent");

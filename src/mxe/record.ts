@@ -57,7 +57,19 @@ export interface MxeTradeRecord {
   network: MxeNetwork;
   /** CAIP-2 of the x402 settlement, when the function paid anything. */
   paymentNetwork?: string;
-  /** 計算ID: the computation offset (u64, decimal). Set only after the queue tx confirmed. */
+  /**
+   * Every computation the run queued, in order — a function can take several
+   * (function 1: seal + match; function 2: open + one per quote + award).
+   */
+  computations?: {
+    circuit: string;
+    offset: string;
+    account: string;
+    queueTx: string;
+    callbackTx?: string;
+    latencyMs?: number;
+  }[];
+  /** 計算ID: the deciding computation's offset (u64, decimal). Set only after its queue tx confirmed. */
   computationOffset?: string;
   computationAccount?: string;
   queueTx?: string;

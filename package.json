@@ -12,6 +12,8 @@
     "arc:create-wallets": "node dist/scripts/arc-create-wallets.js",
     "arc:derive-mainnet-wallet": "node dist/scripts/arc-derive-mainnet-wallet.js",
     "mxe:setup": "node dist/scripts/mxe-setup.js",
+    "mxe:run": "node dist/index.js --mxe-run",
+    "mxe:rate": "node dist/scripts/mxe-rate.js",
     "arc:register": "node dist/scripts/arc-register-agent.js",
     "probe:run0": "node dist/index.js --probe-run0",
     "probe:sweep": "node dist/index.js --probe-sweep",
