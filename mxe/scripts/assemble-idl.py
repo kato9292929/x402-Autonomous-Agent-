@@ -5,7 +5,7 @@
 Docker). The AA client only needs the IDL, and `cargo test` with the idl-build
 feature prints every piece of it, so this joins them the way the Anchor CLI
 does: the program block, plus the address, errors, and each event with its
-types; crate paths ("aa_mxe::Foo") become bare names.
+types; crate paths ("aa_mxe::Foo", "arcium_anchor::Bar") become bare names.
 
   python3 scripts/assemble-idl.py idl.out > idl/aa_mxe.json
   python3 scripts/assemble-idl.py --compare idl/aa_mxe.json target/idl/aa_mxe.json
@@ -17,7 +17,9 @@ import json
 import re
 import sys
 
-PREFIX = re.compile(r'"aa_mxe::')
+# The Anchor CLI drops every crate path ("arcium_anchor::SharedEncryptedStruct",
+# "arcium_client::idl::arcium::types::CircuitSource"), not only this crate's.
+PREFIX = re.compile(r'"(?:[a-z_][a-z0-9_]*::)+(?=[A-Za-z])')
 
 
 def blocks(text, kind):
