@@ -801,18 +801,21 @@ pub mod aa_mxe {
         encrypted_caps: [[u8; 32]; 3],
         buyer_pubkeys: [[u8; 32]; 3],
         nonces: [u128; 3],
-        price: u64,
+        price: u32,
     ) -> Result<()> {
+        require!(price > 0, ErrorCode::ZeroPrice);
         ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
 
+        // Caps and price are u32 micro-units (≈ 4,294 USDC max): the circuit
+        // keeps every product in u64, which is what fits it under the CU limit.
         let mut args = ArgBuilder::new();
         for i in 0..3 {
             args = args
                 .x25519_pubkey(buyer_pubkeys[i])
                 .plaintext_u128(nonces[i])
-                .encrypted_u64(encrypted_caps[i]);
+                .encrypted_u32(encrypted_caps[i]);
         }
-        let args = args.plaintext_u64(price).build();
+        let args = args.plaintext_u32(price).build();
 
         queue_computation(
             ctx.accounts,
@@ -2417,4 +2420,6 @@ pub enum ErrorCode {
     CatalogLengthMismatch,
     #[msg("This search instruction is for a different catalog size")]
     CatalogSizeMismatch,
+    #[msg("A joint purchase needs a price above zero")]
+    ZeroPrice,
 }

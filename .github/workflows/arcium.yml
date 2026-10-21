@@ -84,6 +84,12 @@ jobs:
               echo "$(basename "$f"): ${b} bytes, rent ≈ $(rent $b) SOL if stored on chain"
             done
             echo "all circuits: ${total} bytes, rent ≈ $(rent $total) SOL if stored on chain"
+            # The weight is the CU amount a comp def registers; the Arcium program
+            # rejects one above its maximum (InvalidCUAmount, 6304).
+            for f in build/*.weight; do
+              [ -e "$f" ] || continue
+              echo "$(basename "$f" .weight): weight $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["weight"])' "$f")"
+            done
           } | tee ci-sizes.log
           echo "::notice title=sizes and rent::$(sed -e 's/%/%25/g' ci-sizes.log | awk 'BEGIN{ORS="%0A"} {print}')"
 

@@ -219,13 +219,26 @@ mod circuits {
     /// Buyers per joint purchase. A buyer who does not take part submits 0.
     pub const JOINT_BUYERS: usize = 3;
 
+    /// Fixed-point scale of the pro-rata ratio: `ratio = floor(price · 2^24 / sum)`.
+    const SHARE_SCALE_BITS: usize = 24;
+
     /// Decides whether the buyers' caps together reach the seller's price and,
     /// if so, what each pays.
     ///
-    /// Shares are pro rata to each cap, rounded up: `ceil(cap_i * price / sum)`.
-    /// Because `price <= sum` on success, every share is at most its own cap,
-    /// and the total is at least the price (over by fewer than JOINT_BUYERS
-    /// micro-units). A buyer with cap 0 pays 0.
+    /// Caps, price and shares are u32 micro-units (up to ≈ 4,294 USDC), so every
+    /// intermediate fits in u64. Secret division is what makes MPC circuits
+    /// heavy — three u128 divisions put this circuit over Arcium's per-circuit
+    /// CU limit — so the pro-rata ratio is divided once, and each share is a
+    /// multiply and a shift by a public constant:
+    ///
+    ///   share_i = ceil(cap_i · ratio / 2^24)
+    ///
+    /// Because `ratio <= price / sum`, each share is at most `ceil(cap_i · price
+    /// / sum)` and so at most its own cap. Truncating the ratio can leave the
+    /// total a few units short of the price; that deficit is then taken from
+    /// the buyers' remaining headroom in order (it exists, since sum >= price).
+    /// The total is at least the price and over by fewer than JOINT_BUYERS
+    /// micro-units. A buyer with cap 0 pays 0.
     ///
     /// Revealed: only `reached`. Each share is encrypted to its own buyer, so
     /// no buyer — and not the seller — learns who else took part or for how
@@ -235,29 +248,50 @@ mod circuits {
     /// themselves show who paid.
     #[instruction]
     pub fn joint_purchase(
-        cap_0: Enc<Shared, u64>,
-        cap_1: Enc<Shared, u64>,
-        cap_2: Enc<Shared, u64>,
-        price: u64,
-    ) -> (bool, Enc<Shared, u64>, Enc<Shared, u64>, Enc<Shared, u64>) {
-        let caps = [cap_0.to_arcis(), cap_1.to_arcis(), cap_2.to_arcis()];
-        let mut sum: u128 = 0;
+        cap_0: Enc<Shared, u32>,
+        cap_1: Enc<Shared, u32>,
+        cap_2: Enc<Shared, u32>,
+        price: u32,
+    ) -> (bool, Enc<Shared, u32>, Enc<Shared, u32>, Enc<Shared, u32>) {
+        let caps = [
+            cap_0.to_arcis() as u64,
+            cap_1.to_arcis() as u64,
+            cap_2.to_arcis() as u64,
+        ];
+        let price = price as u64;
+        let mut sum: u64 = 0;
         for i in 0..JOINT_BUYERS {
-            sum += caps[i] as u128;
+            sum += caps[i];
         }
-        let reached = sum >= price as u128;
-        // Guard the division; when sum is 0 the result is masked out anyway.
-        let denom = if sum == 0 { 1 } else { sum };
+        let reached = sum >= price;
+        // Divide by sum on success; otherwise by price, which keeps the ratio
+        // (and every product below) in range — those shares are masked anyway.
+        let denom = if reached { sum } else { price };
+        let denom = if denom == 0 { 1 } else { denom };
+        let ratio = (price << SHARE_SCALE_BITS) / denom;
+        let round_up: u64 = (1 << SHARE_SCALE_BITS) - 1;
+
         let mut shares: [u64; JOINT_BUYERS] = [0; JOINT_BUYERS];
+        let mut total: u64 = 0;
         for i in 0..JOINT_BUYERS {
-            let s = (caps[i] as u128 * price as u128 + denom - 1) / denom;
-            shares[i] = if reached { s as u64 } else { 0 };
+            shares[i] = (caps[i] * ratio + round_up) >> SHARE_SCALE_BITS;
+            total += shares[i];
+        }
+        let mut deficit = if price > total { price - total } else { 0 };
+        for i in 0..JOINT_BUYERS {
+            let headroom = caps[i] - shares[i];
+            let add = if deficit < headroom { deficit } else { headroom };
+            shares[i] += add;
+            deficit -= add;
+        }
+        for i in 0..JOINT_BUYERS {
+            shares[i] = if reached { shares[i] } else { 0 };
         }
         (
             reached.reveal(),
-            cap_0.owner.from_arcis(shares[0]),
-            cap_1.owner.from_arcis(shares[1]),
-            cap_2.owner.from_arcis(shares[2]),
+            cap_0.owner.from_arcis(shares[0] as u32),
+            cap_1.owner.from_arcis(shares[1] as u32),
+            cap_2.owner.from_arcis(shares[2] as u32),
         )
     }
 

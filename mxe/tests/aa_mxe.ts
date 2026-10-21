@@ -16,8 +16,9 @@
  *   clamp, and that untouched slots stay zero.
  *
  * Function 4 (joint purchase): caps [600, 0, 900] for a price of 1000 → reached,
- *   shares 400 / 0 / 600 each decrypted by its own buyer; caps [100, 100, 100]
- *   → not reached, every share 0.
+ *   shares 400 / 0 / 600 each decrypted by its own buyer; a large case whose
+ *   truncated ratio leaves a shortfall the circuit tops up, so the shares sum
+ *   to the price exactly; caps [100, 100, 100] → not reached, every share 0.
  *
  * Function 5 (endpoint search): the same query against catalogs of 8, 16, 32
  *   and 64 entries; the decrypted bitmask must equal a plain JS filter of the
@@ -172,13 +173,20 @@ describe("AaMxe", () => {
       program.programId
     );
     console.log("MXE x25519 pubkey is", Buffer.from(mxePublicKey).toString("hex"));
+  });
 
-    // Comp defs must exist before any computation can be queued.
-    for (const circuit of CIRCUITS) {
+  // Comp defs must exist before a computation can be queued. Each function
+  // initializes its own, so a circuit the cluster rejects (e.g. over the CU
+  // limit) fails only the tests that use it, and the rest still run.
+  const initialized = new Set<string>();
+  const ensureCompDefs = async (...circuits: (typeof CIRCUITS)[number][]) => {
+    for (const circuit of circuits) {
+      if (initialized.has(circuit)) continue;
       console.log(`Initializing ${circuit} comp def...`);
       await initCompDef(program, owner, circuit);
+      initialized.add(circuit);
     }
-  });
+  };
 
   // ── Function 1 ──────────────────────────────────────────────────────────
 
@@ -242,6 +250,8 @@ describe("AaMxe", () => {
   }
 
   describe("Function 1: reservation-price matching", () => {
+    before(() => ensureCompDefs("seal_floor", "match_ceiling"));
+
     it("reveals the midpoint on overlap, rounding an odd sum down", async () => {
       // 1001 + 3000 = 4001 → 2000. Exercises (a & b) + ((a ^ b) >> 1).
       const ev = await negotiate(newId(), 1001n, 3000n);
@@ -272,6 +282,8 @@ describe("AaMxe", () => {
   }
 
   describe("Function 2: sealed-quote RFQ", () => {
+    before(() => ensureCompDefs("open_rfq_state", "place_quote", "award_rfq"));
+
     it("awards the lowest quote and reveals only winner and price", async () => {
       const rfqId = newId();
       const [rfqPDA] = PublicKey.findProgramAddressSync(
@@ -375,6 +387,8 @@ describe("AaMxe", () => {
   // ── Function 3 ──────────────────────────────────────────────────────────
 
   describe("Function 3: seller scores without revealing the evaluator", () => {
+    before(() => ensureCompDefs("open_scoreboard", "submit_rating", "reveal_scores"));
+
     it("aggregates per seller, clamps latency, and leaves other slots at zero", async () => {
       const boardId = newId();
       const [boardPDA] = PublicKey.findProgramAddressSync(
@@ -482,7 +496,7 @@ describe("AaMxe", () => {
         cts.map((c) => Array.from(c)),
         buyers.map((b) => Array.from(b.publicKey)),
         nonces.map((n) => nonceArg(n)),
-        new anchor.BN(price.toString())
+        Number(price)
       )
       .accountsPartial({
         authority: owner.publicKey,
@@ -501,11 +515,26 @@ describe("AaMxe", () => {
   }
 
   describe("Function 4: joint purchase without revealing the participants", () => {
+    before(() => ensureCompDefs("joint_purchase"));
+
     it("splits pro rata (rounded up) when the caps reach the price", async () => {
       const r = await jointPurchase([600n, 0n, 900n], 1000n);
       expect(r.reached).to.equal(true);
       // ceil(600*1000/1500) = 400, 0, ceil(900*1000/1500) = 600.
       expect(r.shares.map(String)).to.deep.equal(["400", "0", "600"]);
+    });
+
+    it("tops up a truncation shortfall from the buyers' headroom", async () => {
+      // The 2^24 fixed-point ratio leaves these shares 40 micro-units short of
+      // the price; the circuit adds them to the first buyer with headroom.
+      // Expected values are from the same integer algorithm run in plain code.
+      const caps = [167_760_436n, 373_878_287n, 226_614_242n];
+      const price = 650_111_169n;
+      const r = await jointPurchase(caps, price);
+      expect(r.reached).to.equal(true);
+      expect(r.shares.map(String)).to.deep.equal(["141962299", "316383335", "191765535"]);
+      expect(r.shares.reduce((a, b) => a + b, 0n)).to.equal(price);
+      r.shares.forEach((s, i) => expect(s <= caps[i]).to.equal(true));
     });
 
     it("charges no one when the caps fall short", async () => {
@@ -551,6 +580,8 @@ describe("AaMxe", () => {
 
     for (const n of [8, 16, 32, 64] as const) {
       it(`returns the same matches as a plain filter over ${n} entries`, async () => {
+        const circuit = `search_catalog_${n}` as const;
+        await ensureCompDefs(circuit);
         const catalog = makeCatalog(n);
         const [catalogPDA] = PublicKey.findProgramAddressSync(
           [Buffer.from("catalog"), owner.publicKey.toBuffer(), Buffer.from([n])],
@@ -568,7 +599,6 @@ describe("AaMxe", () => {
           [BigInt(query.category), BigInt(query.format), BigInt(query.maxPrice)],
           nonce
         );
-        const circuit = `search_catalog_${n}` as const;
         const method = `searchCatalog${n}` as const;
         const offset = newOffset();
         const computation = getComputationAccAddress(arciumEnv.arciumClusterOffset, offset);
