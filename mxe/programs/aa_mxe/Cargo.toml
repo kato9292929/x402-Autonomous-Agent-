@@ -1,12 +1,12 @@
 [package]
-name = "sealed_bid_auction"
+name = "aa_mxe"
 version = "0.1.0"
-description = "Created with Arcium & Anchor"
+description = "AA × Arcium MXE: sealed trades for the x402 Autonomous Agent"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "sealed_bid_auction"
+name = "aa_mxe"
 
 [features]
 default = []

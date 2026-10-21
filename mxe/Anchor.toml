@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-sealed_bid_auction = "DR3ooHHe22Ufk7mcbtFDuHZf3aQ3t7B6Z6gPTr6N2yR5"
+aa_mxe = "Aw55u51PyWFsGN12dsZfHVjQ6eVqxoH1Teb6gbjmWVxJ"
 
 [provider]
 cluster = "localnet"
