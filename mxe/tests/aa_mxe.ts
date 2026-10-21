@@ -11,6 +11,18 @@
  *   lowest quote's seller wins at its own price, and that nothing else is
  *   returned.
  *
+ * Function 3 (seller scores): open → 3 ratings (two for one seller, one with
+ *   a latency over the cap) → reveal. Checks the per-seller aggregates and the
+ *   clamp, and that untouched slots stay zero.
+ *
+ * Function 4 (joint purchase): caps [600, 0, 900] for a price of 1000 → reached,
+ *   shares 400 / 0 / 600 each decrypted by its own buyer; caps [100, 100, 100]
+ *   → not reached, every share 0.
+ *
+ * Function 5 (endpoint search): the same query against catalogs of 8, 16, 32
+ *   and 64 entries; the decrypted bitmask must equal a plain JS filter of the
+ *   same catalog. Latency per size is what the cost curve is built from.
+ *
  * Each queue → finalization round trip is timed and printed: that is the first
  * latency figure the integration records, taken on localnet.
  *
@@ -18,7 +30,7 @@
  */
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
-import { PublicKey } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
 import { AaMxe } from "../target/types/aa_mxe";
 import { randomBytes } from "crypto";
 import {
@@ -59,6 +71,14 @@ const CIRCUITS = [
   "open_rfq_state",
   "place_quote",
   "award_rfq",
+  "open_scoreboard",
+  "submit_rating",
+  "reveal_scores",
+  "joint_purchase",
+  "search_catalog_8",
+  "search_catalog_16",
+  "search_catalog_32",
+  "search_catalog_64",
 ] as const;
 
 describe("AaMxe", () => {
@@ -349,6 +369,243 @@ describe("AaMxe", () => {
     });
   });
 
+  // ── Function 3 ──────────────────────────────────────────────────────────
+
+  describe("Function 3: seller scores without revealing the evaluator", () => {
+    it("aggregates per seller, clamps latency, and leaves other slots at zero", async () => {
+      const boardId = 1;
+      const [boardPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("scoreboard"),
+          owner.publicKey.toBuffer(),
+          new anchor.BN(boardId).toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+
+      const openOffset = newOffset();
+      const opened = awaitEvent("scoreboardOpenedEvent", "scoreboard", boardPDA);
+      let t = Date.now();
+      await program.methods
+        .createScoreboard(openOffset, new anchor.BN(boardId))
+        .accountsPartial({
+          authority: owner.publicKey,
+          scoreboard: boardPDA,
+          ...queueAccounts("open_scoreboard", openOffset),
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      await finalize(openOffset, t, "open_scoreboard");
+      await opened;
+
+      // slot, delivered, format_ok, latency_ms. 70000 must clamp to 60000.
+      const ratings: Array<[number, boolean, boolean, number]> = [
+        [2, true, true, 1200],
+        [2, true, false, 800],
+        [5, false, false, 70000],
+      ];
+      for (const [i, [slot, delivered, formatOk, latency]] of ratings.entries()) {
+        const { publicKey, cipher } = newCipher();
+        const nonce = randomBytes(16);
+        // Plaintext order must match Rating: slot, delivered, format_ok, latency_ms.
+        const ct = cipher.encrypt(
+          [BigInt(slot), BigInt(delivered ? 1 : 0), BigInt(formatOk ? 1 : 0), BigInt(latency)],
+          nonce
+        );
+        const offset = newOffset();
+        const submitted = awaitEvent("ratingSubmittedEvent", "scoreboard", boardPDA);
+        t = Date.now();
+        await program.methods
+          .submitRating(
+            offset,
+            Array.from(ct[0]),
+            Array.from(ct[1]),
+            Array.from(ct[2]),
+            Array.from(ct[3]),
+            Array.from(publicKey),
+            nonceArg(nonce)
+          )
+          .accountsPartial({
+            authority: owner.publicKey,
+            scoreboard: boardPDA,
+            ...queueAccounts("submit_rating", offset),
+          })
+          .rpc({ skipPreflight: true, commitment: "confirmed" });
+        await finalize(offset, t, `submit_rating #${i + 1}`);
+        expect((await submitted).ratingCount).to.equal(i + 1);
+      }
+
+      const revealOffset = newOffset();
+      const revealed = awaitEvent("scoresRevealedEvent", "scoreboard", boardPDA);
+      t = Date.now();
+      await program.methods
+        .revealScores(revealOffset)
+        .accountsPartial({
+          authority: owner.publicKey,
+          scoreboard: boardPDA,
+          ...queueAccounts("reveal_scores", revealOffset),
+        })
+        .rpc({ skipPreflight: true, commitment: "confirmed" });
+      await finalize(revealOffset, t, "reveal_scores");
+      const ev = await revealed;
+
+      const want = (slot2: number, slot5: number) => {
+        const a = new Array(8).fill(0);
+        a[2] = slot2;
+        a[5] = slot5;
+        return a;
+      };
+      expect(ev.ratings.map(Number)).to.deep.equal(want(2, 1));
+      expect(ev.delivered.map(Number)).to.deep.equal(want(2, 0));
+      expect(ev.formatOk.map(Number)).to.deep.equal(want(1, 0));
+      expect(ev.latencySumMs.map(Number)).to.deep.equal(want(2000, 60000));
+    });
+  });
+
+  // ── Function 4 ──────────────────────────────────────────────────────────
+
+  /** Runs one joint purchase and returns `reached` plus each buyer's decrypted share. */
+  async function jointPurchase(caps: bigint[], price: bigint) {
+    const buyers = caps.map(() => newCipher());
+    const nonces = caps.map(() => randomBytes(16));
+    const cts = caps.map((c, i) => buyers[i].cipher.encrypt([c], nonces[i])[0]);
+
+    const offset = newOffset();
+    const computation = getComputationAccAddress(arciumEnv.arciumClusterOffset, offset);
+    const decided = awaitEvent("jointPurchaseDecidedEvent", "computation", computation);
+    const t = Date.now();
+    await program.methods
+      .jointPurchase(
+        offset,
+        cts.map((c) => Array.from(c)),
+        buyers.map((b) => Array.from(b.publicKey)),
+        nonces.map((n) => nonceArg(n)),
+        new anchor.BN(price.toString())
+      )
+      .accountsPartial({
+        authority: owner.publicKey,
+        ...queueAccounts("joint_purchase", offset),
+      })
+      .rpc({ skipPreflight: true, commitment: "confirmed" });
+    await finalize(offset, t, `joint_purchase price=${price}`);
+    const ev = await decided;
+
+    // Each buyer decrypts only its own slot, with its own key.
+    const shares = buyers.map((b, i) => {
+      const nonce = new anchor.BN(ev.shareNonces[i].toString()).toArrayLike(Buffer, "le", 16);
+      return b.cipher.decrypt([ev.shareCiphertexts[i]], new Uint8Array(nonce))[0];
+    });
+    return { reached: ev.reached as boolean, shares };
+  }
+
+  describe("Function 4: joint purchase without revealing the participants", () => {
+    it("splits pro rata (rounded up) when the caps reach the price", async () => {
+      const r = await jointPurchase([600n, 0n, 900n], 1000n);
+      expect(r.reached).to.equal(true);
+      // ceil(600*1000/1500) = 400, 0, ceil(900*1000/1500) = 600.
+      expect(r.shares.map(String)).to.deep.equal(["400", "0", "600"]);
+    });
+
+    it("charges no one when the caps fall short", async () => {
+      const r = await jointPurchase([100n, 100n, 100n], 1000n);
+      expect(r.reached).to.equal(false);
+      expect(r.shares.map(String)).to.deep.equal(["0", "0", "0"]);
+    });
+  });
+
+  // ── Function 5 ──────────────────────────────────────────────────────────
+
+  /** A deterministic catalog of `n` entries: category, format, price. */
+  function makeCatalog(n: number) {
+    const categories: number[] = [];
+    const formats: number[] = [];
+    const prices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      categories.push((i % 5) + 1);
+      formats.push((i % 3) + 1);
+      prices.push(1000 * ((i % 9) + 1));
+    }
+    return { categories, formats, prices };
+  }
+
+  /** The public search the sealed one is compared against. */
+  function plainSearch(
+    c: ReturnType<typeof makeCatalog>,
+    q: { category: number; format: number; maxPrice: number }
+  ): bigint {
+    let mask = 0n;
+    for (let i = 0; i < c.categories.length; i++) {
+      const ok =
+        c.categories[i] === q.category &&
+        (q.format === 0 || c.formats[i] === q.format) &&
+        c.prices[i] <= q.maxPrice;
+      if (ok) mask |= 1n << BigInt(i);
+    }
+    return mask;
+  }
+
+  describe("Function 5: endpoint search without revealing the query", () => {
+    const query = { category: 3, format: 0, maxPrice: 5000 };
+
+    for (const n of [8, 16, 32, 64] as const) {
+      it(`returns the same matches as a plain filter over ${n} entries`, async () => {
+        const catalog = makeCatalog(n);
+        const [catalogPDA] = PublicKey.findProgramAddressSync(
+          [Buffer.from("catalog"), owner.publicKey.toBuffer(), Buffer.from([n])],
+          program.programId
+        );
+        await program.methods
+          .setCatalog(n, 1, Buffer.from(catalog.categories), Buffer.from(catalog.formats), catalog.prices)
+          .accountsPartial({ authority: owner.publicKey, catalog: catalogPDA })
+          .rpc({ preflightCommitment: "confirmed", commitment: "confirmed" });
+
+        const { publicKey, cipher } = newCipher();
+        const nonce = randomBytes(16);
+        // Plaintext order must match SearchQuery: category, format, max_price_micro.
+        const ct = cipher.encrypt(
+          [BigInt(query.category), BigInt(query.format), BigInt(query.maxPrice)],
+          nonce
+        );
+        const circuit = `search_catalog_${n}` as const;
+        const method = `searchCatalog${n}` as const;
+        const offset = newOffset();
+        const computation = getComputationAccAddress(arciumEnv.arciumClusterOffset, offset);
+        const found = awaitEvent("searchResultEvent", "computation", computation);
+
+        const plainStart = process.hrtime.bigint();
+        const expected = plainSearch(catalog, query);
+        const plainUs = Number(process.hrtime.bigint() - plainStart) / 1000;
+
+        const t = Date.now();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (program.methods as any)
+          [method](
+            offset,
+            Array.from(ct[0]),
+            Array.from(ct[1]),
+            Array.from(ct[2]),
+            Array.from(publicKey),
+            nonceArg(nonce)
+          )
+          .accountsPartial({
+            authority: owner.publicKey,
+            catalog: catalogPDA,
+            ...queueAccounts(circuit, offset),
+          })
+          // Pushing 3·n plaintext arguments costs compute; give the queue room.
+          .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })])
+          .rpc({ skipPreflight: true, commitment: "confirmed" });
+        const ms = await finalize(offset, t, `search_catalog_${n}`);
+        console.log(`   [compare] N=${n}: sealed ${ms} ms vs plain ${plainUs.toFixed(1)} µs`);
+
+        const ev = await found;
+        const evNonce = new anchor.BN(ev.nonce.toString()).toArrayLike(Buffer, "le", 16);
+        const mask = cipher.decrypt([ev.ciphertext], new Uint8Array(evNonce))[0];
+        expect(mask.toString(2)).to.equal(expected.toString(2));
+        expect(expected).to.not.equal(0n, "the query should match something");
+      });
+    }
+  });
+
   // ── Comp-def initialization ─────────────────────────────────────────────
 
   const INIT_METHOD: Record<(typeof CIRCUITS)[number], string> = {
@@ -357,6 +614,14 @@ describe("AaMxe", () => {
     open_rfq_state: "initOpenRfqStateCompDef",
     place_quote: "initPlaceQuoteCompDef",
     award_rfq: "initAwardRfqCompDef",
+    open_scoreboard: "initOpenScoreboardCompDef",
+    submit_rating: "initSubmitRatingCompDef",
+    reveal_scores: "initRevealScoresCompDef",
+    joint_purchase: "initJointPurchaseCompDef",
+    search_catalog_8: "initSearchCatalog8CompDef",
+    search_catalog_16: "initSearchCatalog16CompDef",
+    search_catalog_32: "initSearchCatalog32CompDef",
+    search_catalog_64: "initSearchCatalog64CompDef",
   };
 
   async function initCompDef(

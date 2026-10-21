@@ -74,6 +74,17 @@ jobs:
           arcium test 2>&1 | tee ci-test.log
           echo "::notice title=arcium test::$(grep -E 'passing|failing|pending' ci-test.log | paste -sd ' ' -)"
 
+      # The tests print one line per MPC round trip ("[latency] …") and per
+      # sealed-vs-plain comparison ("[compare] …"). Those are the measurements
+      # the integration records, so they go into an annotation too — pass or fail.
+      - name: Report latency
+        if: always()
+        run: |
+          [ -s ci-test.log ] || exit 0
+          grep -E '\[(latency|compare)\]' ci-test.log | sed -e 's/^ *//' -e 's/ (finalize .*)$//' > latency.txt || true
+          [ -s latency.txt ] || exit 0
+          echo "::notice title=MPC latency (localnet)::$(sed -e 's/%/%25/g' latency.txt | awk 'BEGIN{ORS="%0A"} {print}')"
+
       # Surface the failure where the session can read it. Annotation messages
       # are capped, so take the tail; %0A keeps the line breaks.
       - name: Report failure
