@@ -69,6 +69,12 @@ jobs:
           set -o pipefail
           arcium build 2>&1 | tee ci-build.log
 
+      # The AA client builds instructions from the committed mxe/idl/aa_mxe.json
+      # (assembled without the Arcium toolchain). Fail if it no longer matches
+      # the program: regenerate it per scripts/assemble-idl.py.
+      - name: IDL matches the committed copy
+        run: python3 scripts/assemble-idl.py --compare idl/aa_mxe.json target/idl/aa_mxe.json
+
       # What a deployment would cost in rent. The docs' "2-5 SOL" is for a small
       # program; rent scales with the binary, and circuits uploaded on chain pay
       # rent too. Rent-exempt minimum = (bytes + 128) × 3480 × 2 lamports.
