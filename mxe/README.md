@@ -56,6 +56,52 @@ size is a design constraint, not a detail:
   N. u32 prices go through the plaintext-number table, indexed by a u8: at most
   256 entries.
 
+## Fitting the per-circuit compute limit
+
+A comp def registers the circuit's weight (`build/<name>.weight`, from
+`arcium build`), and the Arcium program refuses one above its maximum
+(`InvalidCUAmount`, 6304). The first `joint_purchase` did three u128 secret
+divisions and was refused. Secret division is what is heavy: the current one
+works in u32/u64, divides once for a 2^24 fixed-point ratio and turns each
+share into a multiply plus a shift by a constant. Its weight is
+2,093,527,382 — accepted, and just under 2^31, which is the closest the limit
+has been pinned down; any growth of this circuit should be measured first.
+Weights per circuit are printed by CI's "Sizes and rent" step.
+
+## Where the circuits live
+
+Stored on chain, the circuits would cost ≈ 28 SOL of rent (CI prints the
+figure). The devnet build instead sets `AA_MXE_CIRCUIT_BASE_URL`: each comp def
+then points at `{base}/{name}.arcis` with the circuit's hash compiled in, and
+the nodes check what they fetch against it, so the host cannot substitute a
+circuit. The deploy job publishes the files on the `mxe-circuits` branch under
+the commit SHA and checks they are served before deploying. Localnet tests
+leave it unset and upload on chain as before.
+
+A comp def cannot be re-initialized. Changing a circuit after a devnet deploy
+needs a new program id — bump the label in `scripts/derive-program-keypair.js`
+(and `programIdFor` in `src/scripts/mxe-setup.ts`, which a test keeps equal).
+
+## The IDL the AA uses
+
+`idl/aa_mxe.json` is assembled from `cargo test --features idl-build` by
+`scripts/assemble-idl.py`, so it can be regenerated without Docker. CI compares
+it with the IDL `arcium build` writes and prints any difference. The AA
+(`src/mxe/chain.ts`) builds every instruction from it, with all accounts
+passed explicitly.
+
+## In the AA
+
+`src/jobs/mxe-trades.ts` runs each enabled function daily (07:30 JST,
+`MXE_ENABLED` and `MXE_F1…F5_ENABLED`) or on demand (`npm run mxe:run`), and
+appends one record per function to `mxe_trades` (see `src/mxe/record.ts` for
+the fields). Internal trades (functions 1, 2, 4) are then paid over x402 on
+Solana mainnet, buyer agent to seller agent; functions 1, 2 and 5 run the
+public method beside the sealed one. `/api/mxe` serves the records and the
+per-function aggregates; `POST /api/mxe/ratings` is function 3's intake, which
+accepts ciphertext only (`npm run mxe:rate` seals a rating on the evaluator's
+side).
+
 ## Provenance
 
 The starting point is `sealed_bid_auction` from
