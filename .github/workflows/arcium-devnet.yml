@@ -12,6 +12,13 @@
 # so it is stable across deploys without a second secret. The committed
 # declare_id is a localnet placeholder and is rewritten here, on the runner only.
 #
+# Circuits are not stored on chain (that would cost ≈ 75 SOL in rent). The build
+# compiles each comp def to fetch `{base}/{name}.arcis` and to check it against
+# the hash compiled in; the files are pushed to the `mxe-circuits` branch under
+# this commit's SHA, and served from raw.githubusercontent.com. A comp def is
+# immutable once initialized, so a changed circuit needs a fresh program id
+# (bump the seed version in scripts/derive-program-keypair.js).
+#
 # Results — program id, deploy mode, SOL spent, test outcome, latency — are
 # emitted as annotations, the one part of a run the development session can read.
 
@@ -24,7 +31,8 @@ on:
       - ".github/workflows/arcium-devnet.yml"
 
 permissions:
-  contents: read
+  # write: to publish the compiled circuits on the mxe-circuits branch.
+  contents: write
 
 concurrency:
   # One deployment at a time across branches, and never cancel one midway.
@@ -38,6 +46,7 @@ jobs:
     timeout-minutes: 90
     env:
       CLUSTER_OFFSET: "456"
+      AA_MXE_CIRCUIT_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/mxe-circuits/${{ github.sha }}
     defaults:
       run:
         working-directory: mxe
@@ -111,15 +120,45 @@ jobs:
           set -o pipefail
           arcium build 2>&1 | tee ci-build.log
 
+      - name: Publish circuits
+        run: |
+          set -e
+          pub=$(mktemp -d)
+          git -C "$pub" init -q
+          git -C "$pub" remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git -C "$pub" fetch -q --depth 1 origin mxe-circuits; then
+            git -C "$pub" checkout -q -b mxe-circuits FETCH_HEAD
+          else
+            git -C "$pub" checkout -q --orphan mxe-circuits
+          fi
+          mkdir -p "$pub/$GITHUB_SHA"
+          cp build/*.arcis "$pub/$GITHUB_SHA/"
+          git -C "$pub" add "$GITHUB_SHA"
+          # A re-run of the same commit finds its files already published.
+          if ! git -C "$pub" diff --cached --quiet; then
+            git -C "$pub" -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+              commit -q -m "circuits for $GITHUB_SHA"
+            git -C "$pub" push -q origin mxe-circuits
+          fi
+          # Fail now, not inside the cluster, if a file is not reachable.
+          for f in build/*.arcis; do
+            n=$(basename "$f")
+            for i in 1 2 3 4 5 6; do
+              curl -fsS -o /tmp/got "$AA_MXE_CIRCUIT_BASE_URL/$n" && break
+              sleep 10
+            done
+            cmp -s "$f" /tmp/got || { echo "::error title=circuit not served::$AA_MXE_CIRCUIT_BASE_URL/$n"; exit 1; }
+          done
+          echo "::notice title=circuits::published to $AA_MXE_CIRCUIT_BASE_URL"
+
       # Devnet SOL is free but rationed. What the deploy needs scales with the
-      # binary (programdata + a same-size buffer while it uploads) and the
-      # circuits the tests upload; check before spending a deploy on it.
+      # binary (programdata + a same-size buffer while it uploads); circuits are
+      # off chain. Check before spending a deploy on it.
       - name: Fund the deploy key
         run: |
           lamports() { awk -v b="$1" 'BEGIN { printf "%d", (b + 128) * 6960 }'; }
           so=$(stat -c %s target/deploy/aa_mxe.so)
-          circuits=0; for f in build/*.arcis; do circuits=$((circuits + $(stat -c %s "$f"))); done
-          need=$(( $(lamports $((so + 45))) * 2 + $(lamports $circuits) + 1000000000 ))
+          need=$(( $(lamports $((so + 45))) * 2 + 1000000000 ))
           sol() { awk -v l="$1" 'BEGIN { printf "%.3f", l / 1e9 }'; }
           need_sol=$(sol "$need")
           bal() { solana balance "$AUTHORITY" --lamports --url "$RPC_URL" | awk '{print $1}'; }
@@ -135,7 +174,7 @@ jobs:
             echo "::error title=devnet SOL short::have ${have_sol} SOL, need ≈ ${need_sol} SOL. Send devnet SOL to ${AUTHORITY} (https://faucet.solana.com)."
             exit 1
           fi
-          echo "::notice title=devnet SOL::have ${have_sol} SOL, need ≈ ${need_sol} SOL (program ${so} B, circuits ${circuits} B)"
+          echo "::notice title=devnet SOL::have ${have_sol} SOL, need ≈ ${need_sol} SOL (program ${so} B)"
 
       - name: Deploy
         run: |

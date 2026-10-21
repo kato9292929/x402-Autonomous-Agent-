@@ -38,7 +38,27 @@
 
 use anchor_lang::prelude::*;
 use arcium_anchor::prelude::*;
-use arcium_client::idl::arcium::types::CallbackAccount;
+use arcium_client::idl::arcium::types::{CallbackAccount, CircuitSource, OffChainCircuitSource};
+
+/// Where the Arx nodes fetch a circuit from.
+///
+/// Unset (localnet), the comp def falls back to the on-chain upload the tests
+/// do. Set at build time — `AA_MXE_CIRCUIT_BASE_URL=https://… arcium build` —
+/// it points at `{base}/{name}.arcis`, and the nodes check what they fetch
+/// against the hash compiled in here, so the host cannot swap the circuit.
+/// Storing every circuit on chain would cost tens of SOL in rent; off chain it
+/// costs nothing.
+macro_rules! circuit_source {
+    ($name:literal) => {
+        match option_env!("AA_MXE_CIRCUIT_BASE_URL") {
+            Some(base) => Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/{}.arcis", base.trim_end_matches('/'), $name),
+                hash: arcium_macros::circuit_hash!($name),
+            })),
+            None => None,
+        }
+    };
+}
 
 const COMP_DEF_OFFSET_SEAL_FLOOR: u32 = comp_def_offset("seal_floor");
 const COMP_DEF_OFFSET_MATCH_CEILING: u32 = comp_def_offset("match_ceiling");
@@ -108,27 +128,27 @@ pub mod aa_mxe {
     // ── Computation definitions ─────────────────────────────────────────────
 
     pub fn init_seal_floor_comp_def(ctx: Context<InitSealFloorCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("seal_floor"))?;
         Ok(())
     }
 
     pub fn init_match_ceiling_comp_def(ctx: Context<InitMatchCeilingCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("match_ceiling"))?;
         Ok(())
     }
 
     pub fn init_open_rfq_state_comp_def(ctx: Context<InitOpenRfqStateCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("open_rfq_state"))?;
         Ok(())
     }
 
     pub fn init_place_quote_comp_def(ctx: Context<InitPlaceQuoteCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("place_quote"))?;
         Ok(())
     }
 
     pub fn init_award_rfq_comp_def(ctx: Context<InitAwardRfqCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("award_rfq"))?;
         Ok(())
     }
 
@@ -530,42 +550,42 @@ pub mod aa_mxe {
     // ── Functions 3–5: computation definitions ──────────────────────────────
 
     pub fn init_open_scoreboard_comp_def(ctx: Context<InitOpenScoreboardCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("open_scoreboard"))?;
         Ok(())
     }
 
     pub fn init_submit_rating_comp_def(ctx: Context<InitSubmitRatingCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("submit_rating"))?;
         Ok(())
     }
 
     pub fn init_reveal_scores_comp_def(ctx: Context<InitRevealScoresCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("reveal_scores"))?;
         Ok(())
     }
 
     pub fn init_joint_purchase_comp_def(ctx: Context<InitJointPurchaseCompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("joint_purchase"))?;
         Ok(())
     }
 
     pub fn init_search_catalog_8_comp_def(ctx: Context<InitSearchCatalog8CompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("search_catalog_8"))?;
         Ok(())
     }
 
     pub fn init_search_catalog_16_comp_def(ctx: Context<InitSearchCatalog16CompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("search_catalog_16"))?;
         Ok(())
     }
 
     pub fn init_search_catalog_32_comp_def(ctx: Context<InitSearchCatalog32CompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("search_catalog_32"))?;
         Ok(())
     }
 
     pub fn init_search_catalog_64_comp_def(ctx: Context<InitSearchCatalog64CompDef>) -> Result<()> {
-        init_computation_def(ctx.accounts, None)?;
+        init_computation_def(ctx.accounts, circuit_source!("search_catalog_64"))?;
         Ok(())
     }
 

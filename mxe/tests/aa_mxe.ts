@@ -695,6 +695,10 @@ describe("AaMxe", () => {
       .signers([owner])
       .rpc({ preflightCommitment: "confirmed", commitment: "confirmed" });
 
+    // Built with AA_MXE_CIRCUIT_BASE_URL (devnet), the comp def already points
+    // at the hosted circuit and its hash; only a localnet build uploads it.
+    if (process.env.AA_MXE_CIRCUIT_BASE_URL) return sig;
+
     const rawCircuit = fs.readFileSync(`build/${circuitName}.arcis`);
     await uploadCircuit(
       provider as anchor.AnchorProvider,

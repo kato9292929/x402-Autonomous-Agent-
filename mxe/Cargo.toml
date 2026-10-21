@@ -4,6 +4,9 @@ resolver = "2"
 
 [profile.release]
 overflow-checks = true
+# Size over speed: program rent is ≈ 7 SOL per MB, and a deploy holds a second,
+# same-size buffer while it uploads. The callbacks are not compute-bound.
+opt-level = "s"
 lto = "fat"
 codegen-units = 1
 [profile.release.build-override]
