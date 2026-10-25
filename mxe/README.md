@@ -92,8 +92,7 @@ passed explicitly.
 
 ## In the AA
 
-`src/jobs/mxe-trades.ts` runs each enabled function daily (07:30 JST,
-`MXE_ENABLED` and `MXE_F1…F5_ENABLED`) or on demand (`npm run mxe:run`), and
+`src/jobs/mxe-trades.ts` runs each enabled function (`MXE_F1…F5_ENABLED`) and
 appends one record per function to `mxe_trades` (see `src/mxe/record.ts` for
 the fields). Internal trades (functions 1, 2, 4) are then paid over x402 on
 Solana mainnet, buyer agent to seller agent; functions 1, 2 and 5 run the
@@ -101,6 +100,14 @@ public method beside the sealed one. `/api/mxe` serves the records and the
 per-function aggregates; `POST /api/mxe/ratings` is function 3's intake, which
 accepts ciphertext only (`npm run mxe:rate` seals a rating on the evaluator's
 side).
+
+It runs off Railway, in GitHub Actions: `.github/workflows/mxe-daily.yml`,
+daily at 07:30 JST and on demand, in the `mxe` Environment (default branch
+only, no reviewer, so the schedule is never held). The internal sellers need
+no host — the job serves them on 127.0.0.1 for the length of the run. The
+devnet deploy runs in a separate `mxe-deploy` Environment, the one with a
+reviewer. `npm run mxe:setup` prints the variables and secret names for both.
+Only function 3's intake needs a public server, and waits for one.
 
 ## Provenance
 

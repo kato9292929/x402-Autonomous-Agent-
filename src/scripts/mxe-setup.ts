@@ -17,7 +17,7 @@
  *      `arcium deploy --keypair-path` はファイルの鍵を要求し、Circle DCW は使えない。
  *      実行時の署名(計算の投入・x402 支払い)はすべて Circle DCW のまま。
  *
- * 実行(AA コンテナで):
+ * 実行(手元のターミナルで。Railway には置かない):
  *   npm run build && npm run mxe:setup                 # ウォレットの作成だけ
  *   npm run mxe:setup -- --deploy-key                  # + devnet 管理鍵を出力
  *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10、売り手A・Bへ各 $0.01 送る
@@ -198,7 +198,8 @@ async function setupDevnet(): Promise<string[]> {
     walletSetId = res.data?.walletSet?.id;
     if (!walletSetId) throw new Error(`TEST の wallet set 作成に失敗: ${JSON.stringify(res.data)}`);
     console.log(`\n[TEST] wallet set を作成: ${walletSetId}`);
-    lines.push(`CIRCLE_WALLET_SET_ID_TEST=${walletSetId}`);
+    // GitHub には要らない。次にこのスクリプトを回すとき、手元の .env で使う。
+    console.log(`        手元の .env に CIRCLE_WALLET_SET_ID_TEST=${walletSetId} を足してください`);
   } else {
     console.log(`\n[TEST] wallet set ${walletSetId}`);
   }
@@ -227,25 +228,40 @@ async function main(): Promise<void> {
     console.log("--fund: 買い手 A・B に各 $0.10、売り手 A・B に各 $0.01 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ。売り手分は x402 の受取口座を作るため)");
   }
 
-  const railway = [...(await setupLive(fund)), ...(await setupDevnet())];
+  const variables = [...(await setupLive(fund)), ...(await setupDevnet())];
   const key = wantKey ? generateDeployKey() : undefined;
-  if (key) {
-    railway.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
-    // Flags last, so turning the integration on is a visible, separate step.
-    railway.push("MXE_ENABLED=true", ...[1, 2, 3, 4, 5].map((n) => `MXE_F${n}_ENABLED=true`));
-  }
+  if (key) variables.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
+  // Flags last, so turning a function on is a visible, separate step.
+  variables.push(...[1, 2, 3, 4, 5].map((n) => `MXE_F${n}_ENABLED=true`));
 
-  console.log("\n==== Railway Variables に設定 ====");
-  for (const l of railway) console.log(l);
+  console.log("\n==== GitHub Environment「mxe」の Variables に登録(秘密ではない)====");
+  for (const l of variables) console.log(l);
+
+  console.log("\n==== GitHub Environment「mxe」の Secrets に登録(値は手元のものを使う。ここには出さない)====");
+  for (const n of MXE_SECRETS) console.log(n);
 
   if (key) {
-    console.log("\n==== GitHub の Actions secret に設定(Railway には入れない)====");
+    console.log("\n==== GitHub Environment「mxe-deploy」の Secrets に登録 ====");
     console.log("名前: ARCIUM_DEVNET_DEPLOY_KEY");
     console.log(`値  : ${key.json}`);
-    console.log(`(この鍵のアドレス: ${key.address} — devnet の upgrade authority)`);
+    console.log("名前: HELIUS_API_KEY(mxe と同じキー)");
+    console.log(`(この鍵のアドレス: ${key.address} — devnet の upgrade authority。デプロイ用の devnet SOL はここへ)`);
     console.log("※ 実行するたびに新しい鍵になります。登録は1回だけ。devnet 専用で、mainnet には使わない");
   }
 }
+
+/** Secrets the daily workflow (.github/workflows/mxe-daily.yml) reads. */
+export const MXE_SECRETS = [
+  "CIRCLE_API_KEY",
+  "CIRCLE_ENTITY_SECRET",
+  "CIRCLE_API_KEY_TEST",
+  "CIRCLE_ENTITY_SECRET_TEST",
+  "PAYAI_API_KEY_ID",
+  "PAYAI_API_KEY_SECRET",
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "HELIUS_API_KEY",
+];
 
 // Run only when invoked as a script, so the tests can import the helpers.
 if (require.main === module) {
