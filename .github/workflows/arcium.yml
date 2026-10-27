@@ -72,10 +72,11 @@ jobs:
 
       # What a deployment would cost in rent. The docs' "2-5 SOL" is for a small
       # program; rent scales with the binary, and circuits uploaded on chain pay
-      # rent too. Rent-exempt minimum = (bytes + 128) × 3480 × 2 lamports.
+      # rent too. The rate is asked of mainnet, not assumed: SIMD-0437 lowers it
+      # in steps (6960 → 5080 lamports per byte so far, 696 targeted).
       - name: Sizes and rent
         run: |
-          rent() { awk -v b="$1" 'BEGIN { printf "%.4f", (b + 128) * 6960 / 1e9 }'; }
+          rent() { solana rent "$1" --lamports --url https://api.mainnet-beta.solana.com | awk '/Rent-exempt minimum/ { printf "%.4f", $3 / 1e9 }'; }
           so=$(stat -c %s target/deploy/aa_mxe.so)
           {
             echo "program aa_mxe.so: ${so} bytes, rent ≈ $(rent $((so + 45))) SOL (programdata; a deploy also needs a same-size buffer temporarily)"

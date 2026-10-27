@@ -26,6 +26,18 @@ export function mxeNetwork(env: NodeJS.ProcessEnv = process.env): MxeNetwork {
   throw new Error(`MXE_NETWORK must be arcium-devnet, arcium-mainnet or arcium-localnet (got ${JSON.stringify(v)})`);
 }
 
+/**
+ * The devnet deployment's program id. Derived from the devnet deploy key
+ * (mxe/scripts/derive-program-keypair.js) — public, so it lives here rather
+ * than in configuration. MXE_PROGRAM_ID overrides it.
+ */
+export const DEVNET_PROGRAM_ID = "B2nEZuSActZNBkcVPmo1eJeHQgToDmrHuBkZk52kZsUd";
+
+export function mxeProgramId(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.MXE_PROGRAM_ID) return env.MXE_PROGRAM_ID;
+  return mxeNetwork(env) === "arcium-devnet" ? DEVNET_PROGRAM_ID : undefined;
+}
+
 /** Arcium cluster offsets (docs: devnet 456, mainnet 2026). */
 export const CLUSTER_OFFSET: Record<Exclude<MxeNetwork, "arcium-localnet">, number> = {
   "arcium-devnet": 456,

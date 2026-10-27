@@ -1,0 +1,49 @@
+# One-off setup for the MXE job, run from the Actions tab (no local .env):
+# creates the Circle wallets it needs, idempotently by refId —
+#   LIVE (Solana mainnet): seller A, seller B, buyer A, buyer B
+#   TEST (Solana devnet):  the computation queuer, plus a devnet SOL faucet request
+# and, with "fund" ticked, sends buyer A/B $0.10 and seller A/B $0.01 USDC from
+# the AA's Circle Solana wallet (a seller's $0.01 creates the USDC account an
+# x402 payment needs). Re-running creates nothing twice and funds only wallets
+# below their amount.
+#
+# Same Environment and secrets as the daily job. Prints only public addresses.
+
+name: mxe-setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      fund:
+        description: "Send the agents their USDC (buyers $0.10, sellers $0.01)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: mxe
+    env:
+      CIRCLE_API_KEY: ${{ secrets.CIRCLE_API_KEY }}
+      CIRCLE_ENTITY_SECRET: ${{ secrets.CIRCLE_ENTITY_SECRET }}
+      CIRCLE_API_KEY_TEST: ${{ secrets.CIRCLE_API_KEY_TEST }}
+      CIRCLE_ENTITY_SECRET_TEST: ${{ secrets.CIRCLE_ENTITY_SECRET_TEST }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+      - name: Set up wallets
+        run: |
+          set -o pipefail
+          node dist/scripts/mxe-setup.js ${{ inputs.fund && '--fund' || '' }} 2>&1 | tee setup.log
+          echo "::notice title=mxe-setup::$(grep -E '作成|既存|送金|保有済み|faucet' setup.log | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"

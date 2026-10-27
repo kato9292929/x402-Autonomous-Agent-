@@ -23,9 +23,12 @@
  *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10、売り手A・Bへ各 $0.01 送る
  *
  * 必要 env(既存):
- *   LIVE: CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, CIRCLE_SOLANA_WALLET_ID
+ *   LIVE: CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET
  *   TEST: CIRCLE_API_KEY_TEST, CIRCLE_ENTITY_SECRET_TEST
- *   任意: CIRCLE_WALLET_SET_ID_TEST(無ければ TEST 環境に wallet set を作り、ID を出力する)
+ *   任意: CIRCLE_SOLANA_WALLET_ID(無ければ AA の Solana ウォレットの公開アドレスで探す)、
+ *         CIRCLE_WALLET_SET_ID_TEST(無ければ devnet 署名者の set か、名前 aa-mxe-devnet の set を探し、
+ *         それも無ければ作る)
+ *   GitHub Actions の mxe-setup ワークフローからも回せる(手元に .env を作らなくてよい)
  *
  * 資金が動くのは --fund を付けたときだけ。それ以外は作成と読み取りのみ。
  */
@@ -35,29 +38,12 @@ import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-
 import { base58 } from "@scure/base";
 import { Keypair } from "@solana/web3.js";
 import { SOLANA_USDC_MINT } from "../balance-guard";
+import { DEVNET_QUEUER, LIVE_AGENTS, findWalletByRef, type AgentSpec } from "../mxe/wallets";
 
 type Client = ReturnType<typeof initiateDeveloperControlledWalletsClient>;
 
-interface AgentSpec {
-  env: string;
-  refId: string;
-  role: string;
-  /** USDC to hold, when --fund is given. */
-  fund?: string;
-}
-
-const LIVE_AGENTS: AgentSpec[] = [
-  { env: "CIRCLE_MXE_SELLER_A", refId: "aa-mxe-seller-a", role: "内部の売り手 A(機能1・2・4)", fund: "0.01" },
-  { env: "CIRCLE_MXE_SELLER_B", refId: "aa-mxe-seller-b", role: "内部の売り手 B(機能2)", fund: "0.01" },
-  { env: "CIRCLE_MXE_BUYER_A", refId: "aa-mxe-buyer-a", role: "内部の買い手 A(機能1・2・4)", fund: "0.10" },
-  { env: "CIRCLE_MXE_BUYER_B", refId: "aa-mxe-buyer-b", role: "内部の買い手 B(機能4)", fund: "0.10" },
-];
-
-const DEVNET_QUEUER: AgentSpec = {
-  env: "CIRCLE_MXE_DEVNET_QUEUER",
-  refId: "aa-mxe-devnet-queuer",
-  role: "devnet で MXE の計算を投入する署名者",
-};
+/** AA's Circle Solana wallet (public address; README "Circle DCW 7PV…L6tY"). */
+export const AA_SOLANA_WALLET = "7PVToVBASYgo7c7BfqdditPgud1xnDrSpCgCBaQyL6tY";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -82,11 +68,9 @@ async function ensureWallet(
   blockchain: "SOL" | "SOL-DEVNET",
   spec: AgentSpec
 ): Promise<{ id: string; address: string; created: boolean }> {
-  const found = await client.listWallets({ walletSetId, blockchain, refId: spec.refId });
-  const existing = found.data?.wallets?.[0];
-  if (existing?.id && existing.address) {
-    return { id: existing.id, address: existing.address, created: false };
-  }
+  // Any set: the job finds wallets by refId alone, so there must be one per refId.
+  const existing = await findWalletByRef(client, spec.refId, blockchain);
+  if (existing) return { id: existing.id, address: existing.address, created: false };
   const res = await client.createWallets({
     walletSetId,
     blockchains: [blockchain],
@@ -147,10 +131,16 @@ async function setupLive(fund: boolean): Promise<string[]> {
 
   // 既存の Solana ウォレット(7PVTo…)と同じ wallet set に置く。set ID を env に
   // 持たせなくて済むよう、既知のウォレットから引く。
-  const payerId = required("CIRCLE_SOLANA_WALLET_ID");
+  // By id when given, else by its (public) address, so CI needs no wallet id.
+  let payerId = process.env.CIRCLE_SOLANA_WALLET_ID;
+  if (!payerId) {
+    const addr = process.env.CIRCLE_SOLANA_WALLET_ADDRESS ?? AA_SOLANA_WALLET;
+    payerId = (await client.listWallets({ address: addr, blockchain: "SOL" })).data?.wallets?.[0]?.id;
+    if (!payerId) throw new Error(`Circle に ${addr} の Solana ウォレットが見つかりません`);
+  }
   const payer = (await client.getWallet({ id: payerId })).data?.wallet;
   if (!payer?.walletSetId || !payer.address) {
-    throw new Error(`CIRCLE_SOLANA_WALLET_ID(${payerId})の wallet set を取得できません`);
+    throw new Error(`AA の Solana ウォレット(${payerId})の wallet set を取得できません`);
   }
   console.log(`\n[LIVE] wallet set ${payer.walletSetId}(${payer.address} と同じ set)`);
 
@@ -192,14 +182,16 @@ async function setupDevnet(): Promise<string[]> {
   });
 
   const lines: string[] = [];
-  let walletSetId = process.env.CIRCLE_WALLET_SET_ID_TEST;
+  let walletSetId =
+    process.env.CIRCLE_WALLET_SET_ID_TEST ??
+    (await findWalletByRef(client, DEVNET_QUEUER.refId, "SOL-DEVNET"))?.walletSetId ??
+    (await client.listWalletSets({})).data?.walletSets?.find((w) => (w as { name?: string }).name === "aa-mxe-devnet")?.id;
   if (!walletSetId) {
     const res = await client.createWalletSet({ name: "aa-mxe-devnet" });
     walletSetId = res.data?.walletSet?.id;
     if (!walletSetId) throw new Error(`TEST の wallet set 作成に失敗: ${JSON.stringify(res.data)}`);
     console.log(`\n[TEST] wallet set を作成: ${walletSetId}`);
-    // GitHub には要らない。次にこのスクリプトを回すとき、手元の .env で使う。
-    console.log(`        手元の .env に CIRCLE_WALLET_SET_ID_TEST=${walletSetId} を足してください`);
+    // 次回からは名前(または devnet 署名者の所属)で見つかるので、ID を控える必要はない。
   } else {
     console.log(`\n[TEST] wallet set ${walletSetId}`);
   }
@@ -231,10 +223,10 @@ async function main(): Promise<void> {
   const variables = [...(await setupLive(fund)), ...(await setupDevnet())];
   const key = wantKey ? generateDeployKey() : undefined;
   if (key) variables.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
-  // Flags last, so turning a function on is a visible, separate step.
-  variables.push(...[1, 2, 3, 4, 5].map((n) => `MXE_F${n}_ENABLED=true`));
 
-  console.log("\n==== GitHub Environment「mxe」の Variables に登録(秘密ではない)====");
+  // Not to be registered: the job finds the wallets by refId and carries the
+  // devnet program id in src/mxe/flags.ts. Shown so the run can be checked.
+  console.log("\n==== 参考(登録は不要。ジョブが refId で見つける)====");
   for (const l of variables) console.log(l);
 
   console.log("\n==== GitHub Environment「mxe」の Secrets に登録(値は手元のものを使う。ここには出さない)====");

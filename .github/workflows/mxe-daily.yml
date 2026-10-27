@@ -13,8 +13,8 @@
 # run until someone approved it. The devnet deploy has its own Environment
 # (`mxe-deploy`), which is where a reviewer belongs.
 #
-# Turning it off: set the MXE_F*_ENABLED variables to anything but "true" (the
-# job then records nothing and exits), or disable this workflow.
+# Turning it off: set an MXE_F*_ENABLED variable to "false" for one function,
+# or disable this workflow for all of them.
 
 name: mxe-daily
 
@@ -50,25 +50,19 @@ jobs:
       # Mainnet for the x402 payments; the job points the same key at devnet
       # for the computations (src/jobs/mxe-trades.ts devnetRpcUrl).
       SOLANA_RPC_URL: https://mainnet.helius-rpc.com/?api-key=${{ secrets.HELIUS_API_KEY }}
-      # Variables (not secret: wallet ids, addresses, the program id, flags)
+      # Nothing else to configure. The agent wallets are found in Circle by
+      # refId (src/mxe/wallets.ts), the devnet program id is in the code
+      # (src/mxe/flags.ts). Optional Environment variables:
+      #   MXE_F1_ENABLED … MXE_F5_ENABLED   "false" turns a function off (default on)
+      #   MXE_PROGRAM_ID, MXE_SCOREBOARD_ID overrides
+      MXE_NETWORK: arcium-devnet
       MXE_PROGRAM_ID: ${{ vars.MXE_PROGRAM_ID }}
-      MXE_NETWORK: ${{ vars.MXE_NETWORK || 'arcium-devnet' }}
-      CIRCLE_MXE_DEVNET_QUEUER_WALLET_ID: ${{ vars.CIRCLE_MXE_DEVNET_QUEUER_WALLET_ID }}
-      CIRCLE_MXE_DEVNET_QUEUER_WALLET_ADDRESS: ${{ vars.CIRCLE_MXE_DEVNET_QUEUER_WALLET_ADDRESS }}
-      CIRCLE_MXE_SELLER_A_WALLET_ID: ${{ vars.CIRCLE_MXE_SELLER_A_WALLET_ID }}
-      CIRCLE_MXE_SELLER_A_WALLET_ADDRESS: ${{ vars.CIRCLE_MXE_SELLER_A_WALLET_ADDRESS }}
-      CIRCLE_MXE_SELLER_B_WALLET_ID: ${{ vars.CIRCLE_MXE_SELLER_B_WALLET_ID }}
-      CIRCLE_MXE_SELLER_B_WALLET_ADDRESS: ${{ vars.CIRCLE_MXE_SELLER_B_WALLET_ADDRESS }}
-      CIRCLE_MXE_BUYER_A_WALLET_ID: ${{ vars.CIRCLE_MXE_BUYER_A_WALLET_ID }}
-      CIRCLE_MXE_BUYER_A_WALLET_ADDRESS: ${{ vars.CIRCLE_MXE_BUYER_A_WALLET_ADDRESS }}
-      CIRCLE_MXE_BUYER_B_WALLET_ID: ${{ vars.CIRCLE_MXE_BUYER_B_WALLET_ID }}
-      CIRCLE_MXE_BUYER_B_WALLET_ADDRESS: ${{ vars.CIRCLE_MXE_BUYER_B_WALLET_ADDRESS }}
-      MXE_F1_ENABLED: ${{ vars.MXE_F1_ENABLED }}
-      MXE_F2_ENABLED: ${{ vars.MXE_F2_ENABLED }}
-      MXE_F3_ENABLED: ${{ vars.MXE_F3_ENABLED }}
-      MXE_F4_ENABLED: ${{ vars.MXE_F4_ENABLED }}
-      MXE_F5_ENABLED: ${{ vars.MXE_F5_ENABLED }}
       MXE_SCOREBOARD_ID: ${{ vars.MXE_SCOREBOARD_ID }}
+      MXE_F1_ENABLED: ${{ vars.MXE_F1_ENABLED || 'true' }}
+      MXE_F2_ENABLED: ${{ vars.MXE_F2_ENABLED || 'true' }}
+      MXE_F3_ENABLED: ${{ vars.MXE_F3_ENABLED || 'true' }}
+      MXE_F4_ENABLED: ${{ vars.MXE_F4_ENABLED || 'true' }}
+      MXE_F5_ENABLED: ${{ vars.MXE_F5_ENABLED || 'true' }}
     steps:
       - uses: actions/checkout@v7
 

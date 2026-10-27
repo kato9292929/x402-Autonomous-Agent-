@@ -20,6 +20,8 @@ import { isExpectedLeg } from "../mxe/buyer";
 import { handleMxeSell, openTrade, useFacilitatorForTests, SOLANA_MAINNET, SOLANA_USDC_MINT } from "../mxe/seller";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { devnetRpcUrl, runMxeJob } from "../jobs/mxe-trades";
+import { hydrateAgentWallets } from "../mxe/wallets";
+import { DEVNET_PROGRAM_ID, mxeProgramId } from "../mxe/flags";
 import type { PaymentRequirements } from "@x402/core/types";
 
 test("public negotiation deals iff the limits overlap, and discloses every offer", () => {
@@ -156,7 +158,7 @@ test("job with the MXE unreachable records each enabled function as failed, with
   const cwd = process.cwd();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mxe-job-"));
   const keep = { ...process.env };
-  for (const k of Object.keys(process.env)) if (k.startsWith("MXE_") || k.startsWith("UPSTASH_")) delete process.env[k];
+  for (const k of Object.keys(process.env)) if (k.startsWith("MXE_") || k.startsWith("UPSTASH_") || k.startsWith("CIRCLE_")) delete process.env[k];
   process.env.MXE_F1_ENABLED = "true";
   process.env.MXE_F5_ENABLED = "true";
   process.chdir(tmp);
@@ -165,7 +167,8 @@ test("job with the MXE unreachable records each enabled function as failed, with
     assert.deepEqual(recs.map((r) => r.fn), [1, 5]);
     for (const r of recs) {
       assert.equal(r.status, "failed");
-      assert.match(r.error!, /MXE unavailable: .*MXE_PROGRAM_ID/);
+      // The program id has a devnet default; what is missing here is the signer.
+      assert.match(r.error!, /MXE unavailable: .*devnet signer not configured/);
       assert.equal(r.computationOffset, undefined);
       assert.equal(r.result, undefined);
       assert.equal(r.network, "arcium-devnet");
@@ -212,4 +215,28 @@ test("seller route challenges for exactly the decided amount, to the decided sel
     close();
     useFacilitatorForTests(undefined);
   }
+});
+
+test("agent wallets are found in Circle by refId; explicit env wins; missing ones stay unset", async () => {
+  const env: NodeJS.ProcessEnv = { CIRCLE_MXE_SELLER_B_WALLET_ID: "explicit", CIRCLE_MXE_SELLER_B_WALLET_ADDRESS: "ExplicitAddr" };
+  const fake = (known: Record<string, string>) => ({
+    listWallets: async (q: { refId?: string }) =>
+      ({ data: { wallets: known[q.refId!] ? [{ id: `id-${q.refId}`, address: known[q.refId!], refId: q.refId, walletSetId: "set" }] : [] } }) as never,
+  });
+  const notes = await hydrateAgentWallets(env, {
+    live: fake({ "aa-mxe-seller-a": "SellerA", "aa-mxe-buyer-a": "BuyerA", "aa-mxe-seller-b": "WrongB" }),
+    test: fake({ "aa-mxe-devnet-queuer": "Queuer" }),
+  });
+  assert.equal(env.CIRCLE_MXE_SELLER_A_WALLET_ADDRESS, "SellerA");
+  assert.equal(env.CIRCLE_MXE_SELLER_A_WALLET_ID, "id-aa-mxe-seller-a");
+  assert.equal(env.CIRCLE_MXE_SELLER_B_WALLET_ADDRESS, "ExplicitAddr", "explicit env is not overwritten");
+  assert.equal(env.CIRCLE_MXE_DEVNET_QUEUER_WALLET_ADDRESS, "Queuer");
+  assert.equal(env.CIRCLE_MXE_BUYER_B_WALLET_ID, undefined);
+  assert.ok(notes.some((n) => n.startsWith("aa-mxe-buyer-b: not found")));
+});
+
+test("program id: devnet default, env override, none for mainnet", () => {
+  assert.equal(mxeProgramId({}), DEVNET_PROGRAM_ID);
+  assert.equal(mxeProgramId({ MXE_PROGRAM_ID: "X" }), "X");
+  assert.equal(mxeProgramId({ MXE_NETWORK: "arcium-mainnet" }), undefined);
 });

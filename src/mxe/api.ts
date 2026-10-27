@@ -14,7 +14,7 @@ import type * as http from "http";
 import * as anchor from "@anchor-lang/core";
 import { deserializeLE } from "@arcium-hq/client";
 import { aggregateByFunction, MXE_FUNCTION_LABELS, type MxeFunction, type MxeTradeRecord } from "./record";
-import { functionEnabled, mxeJobEnabled, mxeNetwork, CLUSTER_OFFSET } from "./flags";
+import { functionEnabled, mxeJobEnabled, mxeNetwork, mxeProgramId, CLUSTER_OFFSET } from "./flags";
 import { loadMxeRecords, saveMxeRecord } from "../store/mxe-store";
 import { RateLimiter, INTAKE_LIMITS } from "./rate-limit";
 import { SCOREBOARD_SLOTS } from "./slots";
@@ -89,7 +89,7 @@ export async function handleMxeApi(req: http.IncomingMessage, res: http.ServerRe
     let boardId: string | undefined;
     try {
       boardId = await storedScoreboardId();
-      if (!mxeKeyHex && process.env.MXE_PROGRAM_ID) {
+      if (!mxeKeyHex && mxeProgramId()) {
         mxeKeyHex = Buffer.from(await buildChain().mxePublicKey()).toString("hex");
       }
     } catch {
@@ -99,7 +99,7 @@ export async function handleMxeApi(req: http.IncomingMessage, res: http.ServerRe
       accepting: functionEnabled(3) && Boolean(boardId && mxeKeyHex),
       network,
       clusterOffset: network === "arcium-localnet" ? undefined : CLUSTER_OFFSET[network],
-      programId: process.env.MXE_PROGRAM_ID ?? null,
+      programId: mxeProgramId() ?? null,
       mxeX25519PublicKey: mxeKeyHex ?? null,
       scoreboardId: boardId ?? null,
       slots: SCOREBOARD_SLOTS,

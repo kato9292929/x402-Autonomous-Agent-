@@ -32,7 +32,8 @@ import {
 } from "../mxe/functions";
 import { publicNegotiation, publicRfq } from "../mxe/compare";
 import { catalogOf, catalogVersion, knownEndpoints, queryFor } from "../mxe/catalog";
-import { CLUSTER_OFFSET, functionEnabled, mxeNetwork } from "../mxe/flags";
+import { CLUSTER_OFFSET, functionEnabled, mxeNetwork, mxeProgramId } from "../mxe/flags";
+import { hydrateAgentWallets } from "../mxe/wallets";
 import { devnetQueuerFromEnv } from "../mxe/wallet";
 import { agentWallet, payInternal, type AgentWallet, type Payment } from "../mxe/buyer";
 import { handleMxeSell, openTrade, SELL_PREFIX, SOLANA_MAINNET } from "../mxe/seller";
@@ -52,7 +53,6 @@ import { loadRuns } from "../store/run-store";
 import { upstashCommand, upstashConfigured } from "../store/upstash-rest";
 import { SCOREBOARD_SLOTS, slotFor } from "../mxe/slots";
 
-const DEFAULT_PROGRAM_ID_ENV = "MXE_PROGRAM_ID";
 const SCOREBOARD_KEY = "mxe_scoreboard_id";
 
 /** Devnet RPC: MXE_RPC_URL, else the Helius key from SOLANA_RPC_URL pointed at devnet, else the public one. */
@@ -66,8 +66,8 @@ export function devnetRpcUrl(env = process.env): string {
 export function buildChain(env = process.env): MxeChain {
   const network = mxeNetwork(env);
   if (network === "arcium-localnet") throw new Error("the job does not run against localnet");
-  const programId = env[DEFAULT_PROGRAM_ID_ENV];
-  if (!programId) throw new Error(`${DEFAULT_PROGRAM_ID_ENV} is not set (the devnet deploy job prints it)`);
+  const programId = mxeProgramId(env);
+  if (!programId) throw new Error("MXE_PROGRAM_ID is not set, and there is no default outside devnet");
   if (network === "arcium-mainnet") {
     throw new Error("arcium-mainnet is not wired: the payer and RPC here are devnet-only");
   }
@@ -403,6 +403,8 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
     return [];
   }
   const network = mxeNetwork();
+  // Agent wallets come from Circle by refId unless set explicitly.
+  for (const note of await hydrateAgentWallets()) console.log(`[MXE] wallet ${note}`);
   let chain: MxeChain;
   try {
     chain = buildChain();

@@ -70,8 +70,8 @@ Weights per circuit are printed by CI's "Sizes and rent" step.
 
 ## Where the circuits live
 
-Stored on chain, the circuits would cost ≈ 28 SOL of rent (CI prints the
-figure). The devnet build instead sets `AA_MXE_CIRCUIT_BASE_URL`: each comp def
+Stored on chain, the circuits would cost tens of SOL of rent (CI prints the
+figure at the current rate). The devnet build instead sets `AA_MXE_CIRCUIT_BASE_URL`: each comp def
 then points at `{base}/{name}.arcis` with the circuit's hash compiled in, and
 the nodes check what they fetch against it, so the host cannot substitute a
 circuit. The deploy job publishes the files on the `mxe-circuits` branch under
@@ -105,8 +105,16 @@ It runs off Railway, in GitHub Actions: `.github/workflows/mxe-daily.yml`,
 daily at 07:30 JST and on demand, in the `mxe` Environment (default branch
 only, no reviewer, so the schedule is never held). The internal sellers need
 no host — the job serves them on 127.0.0.1 for the length of the run. The
-devnet deploy runs in a separate `mxe-deploy` Environment, the one with a
-reviewer. `npm run mxe:setup` prints the variables and secret names for both.
+agent wallets are found in Circle by refId and the devnet program id is in
+`src/mxe/flags.ts`, so the Environment holds only secrets. The wallets are
+created by the `mxe-setup` workflow (Actions tab, "fund" to send their USDC).
+The devnet deploy runs in a separate `mxe-deploy` Environment, the one with a
+reviewer.
+
+Rent on Solana is falling in steps (SIMD-0437: 6,960 → 5,080 lamports per byte
+live, 696 targeted). The deploy job asks the cluster for the current rate.
+Devnet SOL costs nothing but faucet time; the rate matters for a mainnet
+deploy.
 Only function 3's intake needs a public server, and waits for one.
 
 ## Provenance
