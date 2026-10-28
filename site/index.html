@@ -200,6 +200,25 @@
     </div>
   </section>
 
+  <!-- ── Arcium MXE ─────────────────────────────────────────────────────────
+       Sealed trades. Where each computation ran and where any payment settled
+       are shown apart ("判定は devnet、支払いは mainnet"); a failed run is shown
+       as failed, with its error. Reuses the probe section's styles. -->
+  <section class="probe" id="mxe" aria-label="Arcium MXE" hidden>
+    <div class="probe__inner">
+      <header class="probe__head">
+        <div>
+          <h2 class="probe__title">Arcium MXE</h2>
+          <p class="probe__sub" id="mxe-sub"></p>
+        </div>
+      </header>
+      <p class="probe__scope" id="mxe-scope"></p>
+      <ul class="probe__sellers" id="mxe-functions"></ul>
+      <ol class="probe__list" id="mxe-list"></ol>
+      <p class="probe__note" id="mxe-note"></p>
+    </div>
+  </section>
+
   <!-- ── Endpoints overlay ─────────────────────────────────────────────────
        The hero itself never scrolls; the catalog lives in an overlay that
        scrolls internally. -->

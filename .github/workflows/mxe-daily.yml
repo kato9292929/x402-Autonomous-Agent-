@@ -1,0 +1,102 @@
+# The MXE job, off Railway: runs each enabled function on the Arcium devnet
+# cluster, settles the internal trades over x402 on Solana mainnet, and appends
+# the records to Upstash (the same store the AA reads).
+#
+# Daily at 07:30 JST (22:30 UTC), after the AA's 06:00 run, and on demand.
+# Scheduled runs use the default branch only, so this starts once merged.
+#
+# The internal sellers need no host: the job starts them on 127.0.0.1 for the
+# length of the run and the buyer agents pay them there (src/mxe/seller.ts).
+#
+# Secrets and variables live in the `mxe` Environment, restricted to the default
+# branch and WITHOUT required reviewers — a reviewer would hold every scheduled
+# run until someone approved it. The devnet deploy has its own Environment
+# (`mxe-deploy`), which is where a reviewer belongs.
+#
+# Turning it off: set an MXE_F*_ENABLED variable to "false" for one function,
+# or disable this workflow for all of them.
+
+name: mxe-daily
+
+on:
+  schedule:
+    - cron: "30 22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mxe-daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    # Function 2 waits out its RFQ deadline (MXE_RFQ_DURATION_SEC, 240 s by
+    # default) and every computation waits for devnet MPC.
+    timeout-minutes: 60
+    environment: mxe
+    env:
+      # Secrets
+      CIRCLE_API_KEY: ${{ secrets.CIRCLE_API_KEY }}
+      CIRCLE_ENTITY_SECRET: ${{ secrets.CIRCLE_ENTITY_SECRET }}
+      CIRCLE_API_KEY_TEST: ${{ secrets.CIRCLE_API_KEY_TEST }}
+      CIRCLE_ENTITY_SECRET_TEST: ${{ secrets.CIRCLE_ENTITY_SECRET_TEST }}
+      PAYAI_API_KEY_ID: ${{ secrets.PAYAI_API_KEY_ID }}
+      PAYAI_API_KEY_SECRET: ${{ secrets.PAYAI_API_KEY_SECRET }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      # Mainnet for the x402 payments; the job points the same key at devnet
+      # for the computations (src/jobs/mxe-trades.ts devnetRpcUrl).
+      SOLANA_RPC_URL: https://mainnet.helius-rpc.com/?api-key=${{ secrets.HELIUS_API_KEY }}
+      # Nothing else to configure. The agent wallets are found in Circle by
+      # refId (src/mxe/wallets.ts), the devnet program id is in the code
+      # (src/mxe/flags.ts). Optional Environment variables:
+      #   MXE_F1_ENABLED … MXE_F5_ENABLED   "false" turns a function off (default on)
+      #   MXE_PROGRAM_ID, MXE_SCOREBOARD_ID overrides
+      MXE_NETWORK: arcium-devnet
+      MXE_PROGRAM_ID: ${{ vars.MXE_PROGRAM_ID }}
+      MXE_SCOREBOARD_ID: ${{ vars.MXE_SCOREBOARD_ID }}
+      MXE_F1_ENABLED: ${{ vars.MXE_F1_ENABLED || 'true' }}
+      MXE_F2_ENABLED: ${{ vars.MXE_F2_ENABLED || 'true' }}
+      MXE_F3_ENABLED: ${{ vars.MXE_F3_ENABLED || 'true' }}
+      MXE_F4_ENABLED: ${{ vars.MXE_F4_ENABLED || 'true' }}
+      MXE_F5_ENABLED: ${{ vars.MXE_F5_ENABLED || 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run the MXE job
+        run: |
+          set -o pipefail
+          node dist/index.js --mxe-run 2>&1 | tee mxe-run.log
+
+      # One line per record, as an annotation; a run with any failed record
+      # fails the workflow, so it is noticed rather than read about later.
+      - name: Report
+        if: always()
+        run: |
+          f=data/mxe/mxe-trades.jsonl
+          if [ ! -s "$f" ]; then
+            echo "::notice title=mxe::no record written (no function enabled?)"
+            exit 0
+          fi
+          node -e '
+            const lines = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse);
+            const row = (r) => [`#${r.fn}`, r.status, r.network, r.computationOffset ? `comp ${r.computationOffset}` : "no computation",
+              r.latencyMs != null ? `${r.latencyMs} ms` : "", r.costSol != null ? `${r.costSol.toFixed(6)} SOL` : "",
+              (r.paymentTxs || []).length ? `paid ${r.paymentTxs.length}` : "", r.error || ""].filter(Boolean).join(" · ");
+            console.log("::notice title=mxe records::" + lines.map(row).join("%0A").replace(/\r/g, ""));
+            const failed = lines.filter((r) => r.status !== "ok");
+            if (failed.length) { console.log(`::error title=mxe::${failed.length} of ${lines.length} records failed`); process.exit(1); }
+          ' "$f"

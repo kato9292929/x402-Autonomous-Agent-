@@ -34,3 +34,30 @@ test("stableUuid: 同じ入力から同じ UUID(再実行で二重送金しな�
   // Circle は UUID 形式を要求する(v4 の version/variant ビットを立てる)。
   assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
+
+test("programIdFor matches the deploy job's derive-program-keypair.js", async () => {
+  const { generateDeployKey, programIdFor } = await import("../scripts/mxe-setup");
+  const { execFileSync } = await import("node:child_process");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const key = generateDeployKey();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mxe-pid-"));
+  fs.writeFileSync(path.join(dir, "deploy.json"), key.json);
+  const script = path.join(__dirname, "..", "..", "mxe", "scripts", "derive-program-keypair.js");
+  const out = execFileSync(process.execPath, [script, path.join(dir, "deploy.json"), path.join(dir, "prog.json")], {
+    encoding: "utf-8",
+    env: { ...process.env, NODE_PATH: path.join(__dirname, "..", "..", "node_modules") },
+  }).trim();
+  assert.equal(programIdFor(key.json), out.split("\n").pop());
+  assert.notEqual(out, key.address);
+});
+
+test("the setup's secret list is exactly what the daily workflow reads", async () => {
+  const { MXE_SECRETS } = await import("../scripts/mxe-setup");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const wf = fs.readFileSync(path.join(__dirname, "..", "..", ".github", "workflows", "mxe-daily.yml"), "utf-8");
+  const read = [...new Set([...wf.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]))].sort();
+  assert.deepEqual([...MXE_SECRETS].sort(), read);
+});

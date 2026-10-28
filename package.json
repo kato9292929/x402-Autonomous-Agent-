@@ -12,6 +12,8 @@
     "arc:create-wallets": "node dist/scripts/arc-create-wallets.js",
     "arc:derive-mainnet-wallet": "node dist/scripts/arc-derive-mainnet-wallet.js",
     "mxe:setup": "node dist/scripts/mxe-setup.js",
+    "mxe:run": "node dist/index.js --mxe-run",
+    "mxe:rate": "node dist/scripts/mxe-rate.js",
     "arc:register": "node dist/scripts/arc-register-agent.js",
     "probe:run0": "node dist/index.js --probe-run0",
     "probe:sweep": "node dist/index.js --probe-sweep",
@@ -30,9 +32,13 @@
     "test": "npm run build && node --test dist/__tests__/**/*.test.js"
   },
   "dependencies": {
+    "@anchor-lang/core": "1.1.2",
     "@anthropic-ai/sdk": "^0.98.0",
+    "@arcium-hq/client": "0.15.0",
     "@circle-fin/developer-controlled-wallets": "^10.8.0",
+    "@payai/facilitator": "2.4.3",
     "@solana/kit": "6.9.0",
+    "@solana/web3.js": "1.98.4",
     "@types/node": "22.10.7",
     "@types/node-cron": "3.0.11",
     "@worldcoin/idkit-core": "^4.1.8",

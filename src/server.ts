@@ -17,6 +17,7 @@ import { loadSweepItems } from "./store/sweep-items";
 import { loadProbeRuns } from "./store/probe-store";
 import { PROBE_TARGETS } from "./probe/targets";
 import { buildDashboardPage } from "./dashboard";
+import { handleMxeApi } from "./mxe/api";
 import type { WorldIdVerifyResponse } from "./world-id/types";
 import type { IDKitResult } from "@worldcoin/idkit-core";
 // Re-export IDKitRequest in idkit-sessions.ts uses this type too
@@ -657,6 +658,19 @@ export function startHttpServer(): void {
       return;
     }
 
+    // MXE records, aggregates and function 3's sealed-rating intake.
+    if (urlPath === "/api/mxe" || urlPath.startsWith("/api/mxe/")) {
+      handleMxeApi(req, res)
+        .then((handled) => {
+          if (!handled && !res.headersSent) sendJson(res, 404, { error: "not found" });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/mxe error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
     res.writeHead(404);
     res.end("Not Found");
   });
@@ -668,6 +682,8 @@ export function startHttpServer(): void {
     console.log(`[SERVER] GET  /api/runs?limit=N            — Recent run summaries (JSON)`);
     console.log(`[SERVER] GET  /api/decisions               — Recent Mode A decisions (JSON)`);
     console.log(`[SERVER] GET  /api/probes?limit=N          — External x402 probe runs (JSON)`);
+    console.log(`[SERVER] GET  /api/mxe                     — MXE records + per-function aggregates`);
+    console.log(`[SERVER] POST /api/mxe/ratings             — Function 3 sealed-rating intake (rate-limited)`);
     console.log(`[SERVER] GET  /api/latest-external-data`);
     console.log(`[SERVER] GET  /.well-known/agent-card.json`);
     console.log(`[SERVER] GET  /approve?id={queueId}        — World ID approval page`);

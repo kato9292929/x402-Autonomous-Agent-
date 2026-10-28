@@ -11,6 +11,8 @@ import { runOsdConsumption } from "./jobs/osd-consumption";
 import { runExternalProbe } from "./jobs/external-probe";
 import { runCatalystSweep, runEdinetSweep } from "./jobs/catalyst-sweep";
 import { runCatalystAutopilot, runEdinetAutopilot } from "./jobs/catalyst-autopilot";
+import { runMxeJob } from "./jobs/mxe-trades";
+import { mxeJobEnabled } from "./mxe/flags";
 import { startHttpServer } from "./server";
 
 async function dailyRun(): Promise<void> {
@@ -56,6 +58,7 @@ const ONE_SHOT_FLAGS = [
   "--catalyst-sweep",
   "--edinet-run0",
   "--edinet-sweep",
+  "--mxe-run",
 ];
 
 /** Dispatch the requested one-shot command(s). Paid ones need paymentsReady. */
@@ -102,6 +105,12 @@ async function runOneShots(paymentsReady: boolean): Promise<void> {
   if (process.argv.includes("--edinet-sweep") && requirePayments("--edinet-sweep")) {
     console.log("\n[AGENT] EDINET sweep — weekly (paid, Solana)");
     await runEdinetSweep({ mode: "sweep" });
+  }
+  // The MXE job builds its own signers (devnet queuer, internal agent wallets),
+  // so it does not wait on the daily run's payment layer.
+  if (process.argv.includes("--mxe-run")) {
+    console.log("\n[AGENT] MXE job — functions enabled by MXE_F1…F5_ENABLED");
+    await runMxeJob();
   }
   if (process.argv.includes("--run-mode-d") && requirePayments("--run-mode-d")) {
     console.log("\n[AGENT] Manual Mode D (osd alpha consumption) run triggered");
@@ -256,12 +265,29 @@ async function main(): Promise<void> {
     scheduleEdinetWeekly();
   }
 
+  // MXE job: daily at 07:30 JST (22:30 UTC), after the 06:00 run and apart
+  // from it. Off unless MXE_ENABLED=true; each function has its own flag.
+  if (mxeJobEnabled()) {
+    cron.schedule("30 22 * * *", async () => {
+      try {
+        await runMxeJob();
+      } catch (err) {
+        console.error("[MXE] job failed:", err);
+      }
+    });
+  }
+
   console.log("x402 Autonomous Agent started");
   console.log("  Mode A + B + D + osd:      daily   at 06:00 JST (21:00 UTC)");
   console.log("  Mode C:                    Mondays at 06:00 JST (21:00 UTC)");
   console.log(
     `  External probe:            Mondays at 09:00 JST (00:00 UTC) — ${
       process.env.PROBE_ENABLED === "true" ? "enabled" : "disabled (PROBE_ENABLED)"
+    }`
+  );
+  console.log(
+    `  MXE (Arcium):              daily   at 07:30 JST (22:30 UTC) — ${
+      mxeJobEnabled() ? "enabled" : "disabled (MXE_ENABLED)"
     }`
   );
   console.log(

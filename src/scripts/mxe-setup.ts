@@ -9,22 +9,26 @@
  *      Circle のウォレットは作成時のチェーンに紐づく(Arc で 155801 として実測済み)ので、
  *      mainnet の 7PVTo… で devnet の tx を署名できるとは仮定しない。
  *   2. Circle LIVE の Solana ウォレット4つ — AA 内に置く内部エージェント。
- *        売り手 A・B(機能1・2):x402 の受取先。作るだけで資金は不要
- *        買い手 A・B(機能4):共同購入の参加者。--fund で少額を入れる
+ *        売り手 A・B(機能1・2・4):x402 の受取先。--fund で $0.01 を入れて USDC の
+ *          受取口座(ATA)を作る。口座のない宛先への x402 送金は失敗する
+ *        買い手 A・B(機能1・2・4):支払う側。--fund で少額を入れる
  *      いずれも「内部取引」の相手方で、外部の需要の証拠にはしない。
  *   3. (--deploy-key)devnet のプログラム管理鍵(upgrade authority)。
  *      `arcium deploy --keypair-path` はファイルの鍵を要求し、Circle DCW は使えない。
  *      実行時の署名(計算の投入・x402 支払い)はすべて Circle DCW のまま。
  *
- * 実行(AA コンテナで):
+ * 実行(手元のターミナルで。Railway には置かない):
  *   npm run build && npm run mxe:setup                 # ウォレットの作成だけ
  *   npm run mxe:setup -- --deploy-key                  # + devnet 管理鍵を出力
- *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10 送る
+ *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10、売り手A・Bへ各 $0.01 送る
  *
  * 必要 env(既存):
- *   LIVE: CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, CIRCLE_SOLANA_WALLET_ID
+ *   LIVE: CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET
  *   TEST: CIRCLE_API_KEY_TEST, CIRCLE_ENTITY_SECRET_TEST
- *   任意: CIRCLE_WALLET_SET_ID_TEST(無ければ TEST 環境に wallet set を作り、ID を出力する)
+ *   任意: CIRCLE_SOLANA_WALLET_ID(無ければ AA の Solana ウォレットの公開アドレスで探す)、
+ *         CIRCLE_WALLET_SET_ID_TEST(無ければ devnet 署名者の set か、名前 aa-mxe-devnet の set を探し、
+ *         それも無ければ作る)
+ *   GitHub Actions の mxe-setup ワークフローからも回せる(手元に .env を作らなくてよい)
  *
  * 資金が動くのは --fund を付けたときだけ。それ以外は作成と読み取りのみ。
  */
@@ -32,30 +36,14 @@ import "dotenv/config";
 import * as crypto from "node:crypto";
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import { base58 } from "@scure/base";
+import { Keypair } from "@solana/web3.js";
 import { SOLANA_USDC_MINT } from "../balance-guard";
+import { DEVNET_QUEUER, LIVE_AGENTS, findWalletByRef, type AgentSpec } from "../mxe/wallets";
 
 type Client = ReturnType<typeof initiateDeveloperControlledWalletsClient>;
 
-interface AgentSpec {
-  env: string;
-  refId: string;
-  role: string;
-  /** USDC to hold, when --fund is given. */
-  fund?: string;
-}
-
-const LIVE_AGENTS: AgentSpec[] = [
-  { env: "CIRCLE_MXE_SELLER_A", refId: "aa-mxe-seller-a", role: "内部の売り手 A(機能1・2)" },
-  { env: "CIRCLE_MXE_SELLER_B", refId: "aa-mxe-seller-b", role: "内部の売り手 B(機能2)" },
-  { env: "CIRCLE_MXE_BUYER_A", refId: "aa-mxe-buyer-a", role: "内部の買い手 A(機能4)", fund: "0.10" },
-  { env: "CIRCLE_MXE_BUYER_B", refId: "aa-mxe-buyer-b", role: "内部の買い手 B(機能4)", fund: "0.10" },
-];
-
-const DEVNET_QUEUER: AgentSpec = {
-  env: "CIRCLE_MXE_DEVNET_QUEUER",
-  refId: "aa-mxe-devnet-queuer",
-  role: "devnet で MXE の計算を投入する署名者",
-};
+/** AA's Circle Solana wallet (public address; README "Circle DCW 7PV…L6tY"). */
+export const AA_SOLANA_WALLET = "7PVToVBASYgo7c7BfqdditPgud1xnDrSpCgCBaQyL6tY";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -80,11 +68,9 @@ async function ensureWallet(
   blockchain: "SOL" | "SOL-DEVNET",
   spec: AgentSpec
 ): Promise<{ id: string; address: string; created: boolean }> {
-  const found = await client.listWallets({ walletSetId, blockchain, refId: spec.refId });
-  const existing = found.data?.wallets?.[0];
-  if (existing?.id && existing.address) {
-    return { id: existing.id, address: existing.address, created: false };
-  }
+  // Any set: the job finds wallets by refId alone, so there must be one per refId.
+  const existing = await findWalletByRef(client, spec.refId, blockchain);
+  if (existing) return { id: existing.id, address: existing.address, created: false };
   const res = await client.createWallets({
     walletSetId,
     blockchains: [blockchain],
@@ -120,6 +106,19 @@ export function generateDeployKey(): { json: string; address: string } {
   return { json: JSON.stringify([...d, ...x]), address: base58.encode(x) };
 }
 
+/**
+ * The aa_mxe program id the devnet deploy job will use for this deploy key.
+ * Same derivation as mxe/scripts/derive-program-keypair.js (kept in step by a
+ * test), so MXE_PROGRAM_ID can go into Railway together with everything else
+ * instead of waiting for the first deploy.
+ */
+export function programIdFor(deployKeyJson: string): string {
+  const deploy = JSON.parse(deployKeyJson) as number[];
+  if (!Array.isArray(deploy) || deploy.length !== 64) throw new Error("deploy key must be a 64-byte JSON array");
+  const seed = crypto.createHash("sha256").update("aa-mxe/program-id/v1").update(Buffer.from(deploy.slice(0, 32))).digest();
+  return Keypair.fromSeed(seed).publicKey.toBase58();
+}
+
 async function setupLive(fund: boolean): Promise<string[]> {
   const apiKey = required("CIRCLE_API_KEY");
   if (apiKey.startsWith("TEST_API_KEY")) {
@@ -132,10 +131,16 @@ async function setupLive(fund: boolean): Promise<string[]> {
 
   // 既存の Solana ウォレット(7PVTo…)と同じ wallet set に置く。set ID を env に
   // 持たせなくて済むよう、既知のウォレットから引く。
-  const payerId = required("CIRCLE_SOLANA_WALLET_ID");
+  // By id when given, else by its (public) address, so CI needs no wallet id.
+  let payerId = process.env.CIRCLE_SOLANA_WALLET_ID;
+  if (!payerId) {
+    const addr = process.env.CIRCLE_SOLANA_WALLET_ADDRESS ?? AA_SOLANA_WALLET;
+    payerId = (await client.listWallets({ address: addr, blockchain: "SOL" })).data?.wallets?.[0]?.id;
+    if (!payerId) throw new Error(`Circle に ${addr} の Solana ウォレットが見つかりません`);
+  }
   const payer = (await client.getWallet({ id: payerId })).data?.wallet;
   if (!payer?.walletSetId || !payer.address) {
-    throw new Error(`CIRCLE_SOLANA_WALLET_ID(${payerId})の wallet set を取得できません`);
+    throw new Error(`AA の Solana ウォレット(${payerId})の wallet set を取得できません`);
   }
   console.log(`\n[LIVE] wallet set ${payer.walletSetId}(${payer.address} と同じ set)`);
 
@@ -177,13 +182,16 @@ async function setupDevnet(): Promise<string[]> {
   });
 
   const lines: string[] = [];
-  let walletSetId = process.env.CIRCLE_WALLET_SET_ID_TEST;
+  let walletSetId =
+    process.env.CIRCLE_WALLET_SET_ID_TEST ??
+    (await findWalletByRef(client, DEVNET_QUEUER.refId, "SOL-DEVNET"))?.walletSetId ??
+    (await client.listWalletSets({})).data?.walletSets?.find((w) => (w as { name?: string }).name === "aa-mxe-devnet")?.id;
   if (!walletSetId) {
     const res = await client.createWalletSet({ name: "aa-mxe-devnet" });
     walletSetId = res.data?.walletSet?.id;
     if (!walletSetId) throw new Error(`TEST の wallet set 作成に失敗: ${JSON.stringify(res.data)}`);
     console.log(`\n[TEST] wallet set を作成: ${walletSetId}`);
-    lines.push(`CIRCLE_WALLET_SET_ID_TEST=${walletSetId}`);
+    // 次回からは名前(または devnet 署名者の所属)で見つかるので、ID を控える必要はない。
   } else {
     console.log(`\n[TEST] wallet set ${walletSetId}`);
   }
@@ -209,23 +217,43 @@ async function main(): Promise<void> {
   const wantKey = process.argv.includes("--deploy-key");
 
   if (fund) {
-    console.log("--fund: 買い手 A・B に各 $0.10 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ)");
+    console.log("--fund: 買い手 A・B に各 $0.10、売り手 A・B に各 $0.01 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ。売り手分は x402 の受取口座を作るため)");
   }
 
-  const railway = [...(await setupLive(fund)), ...(await setupDevnet())];
+  const variables = [...(await setupLive(fund)), ...(await setupDevnet())];
+  const key = wantKey ? generateDeployKey() : undefined;
+  if (key) variables.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
 
-  console.log("\n==== Railway Variables に設定 ====");
-  for (const l of railway) console.log(l);
+  // Not to be registered: the job finds the wallets by refId and carries the
+  // devnet program id in src/mxe/flags.ts. Shown so the run can be checked.
+  console.log("\n==== 参考(登録は不要。ジョブが refId で見つける)====");
+  for (const l of variables) console.log(l);
 
-  if (wantKey) {
-    const key = generateDeployKey();
-    console.log("\n==== GitHub の Actions secret に設定(Railway には入れない)====");
+  console.log("\n==== GitHub Environment「mxe」の Secrets に登録(値は手元のものを使う。ここには出さない)====");
+  for (const n of MXE_SECRETS) console.log(n);
+
+  if (key) {
+    console.log("\n==== GitHub Environment「mxe-deploy」の Secrets に登録 ====");
     console.log("名前: ARCIUM_DEVNET_DEPLOY_KEY");
     console.log(`値  : ${key.json}`);
-    console.log(`(この鍵のアドレス: ${key.address} — devnet の upgrade authority)`);
+    console.log("名前: HELIUS_API_KEY(mxe と同じキー)");
+    console.log(`(この鍵のアドレス: ${key.address} — devnet の upgrade authority。デプロイ用の devnet SOL はここへ)`);
     console.log("※ 実行するたびに新しい鍵になります。登録は1回だけ。devnet 専用で、mainnet には使わない");
   }
 }
+
+/** Secrets the daily workflow (.github/workflows/mxe-daily.yml) reads. */
+export const MXE_SECRETS = [
+  "CIRCLE_API_KEY",
+  "CIRCLE_ENTITY_SECRET",
+  "CIRCLE_API_KEY_TEST",
+  "CIRCLE_ENTITY_SECRET_TEST",
+  "PAYAI_API_KEY_ID",
+  "PAYAI_API_KEY_SECRET",
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "HELIUS_API_KEY",
+];
 
 // Run only when invoked as a script, so the tests can import the helpers.
 if (require.main === module) {
