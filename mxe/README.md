@@ -101,15 +101,15 @@ per-function aggregates; `POST /api/mxe/ratings` is function 3's intake, which
 accepts ciphertext only (`npm run mxe:rate` seals a rating on the evaluator's
 side).
 
-It runs off Railway, in GitHub Actions: `.github/workflows/mxe-daily.yml`,
-daily at 07:30 JST and on demand, in the `mxe` Environment (default branch
-only, no reviewer, so the schedule is never held). The internal sellers need
-no host — the job serves them on 127.0.0.1 for the length of the run. The
-agent wallets are found in Circle by refId and the devnet program id is in
-`src/mxe/flags.ts`, so the Environment holds only secrets. The wallets are
-created by the `mxe-setup` workflow (Actions tab, "fund" to send their USDC).
-The devnet deploy runs in a separate `mxe-deploy` Environment, the one with a
-reviewer.
+It runs in the AA on Railway: the AA's cron fires it daily at 07:30 JST
+when `MXE_ENABLED=true`. The internal sellers need no host — the job serves
+them on 127.0.0.1 for the length of the run. The agent wallets are found in
+Circle by refId; missing ones are created by the job itself, and
+`MXE_FUND_AGENTS=true` tops them up once (buyers $0.10, sellers $0.01 — a
+seller's $0.01 creates the USDC account an x402 payment needs). The devnet
+program id is in `src/mxe/flags.ts`. Only the devnet deploy stays in GitHub
+Actions (`arcium-devnet.yml`, a `[devnet]` commit), because the Arcium CLI
+needs Docker.
 
 Rent on Solana is falling in steps (SIMD-0437: 6,960 → 5,080 lamports per byte
 live, 696 targeted). The deploy job asks the cluster for the current rate.

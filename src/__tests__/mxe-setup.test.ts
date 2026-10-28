@@ -52,12 +52,3 @@ test("programIdFor matches the deploy job's derive-program-keypair.js", async ()
   assert.equal(programIdFor(key.json), out.split("\n").pop());
   assert.notEqual(out, key.address);
 });
-
-test("the setup's secret list is exactly what the daily workflow reads", async () => {
-  const { MXE_SECRETS } = await import("../scripts/mxe-setup");
-  const fs = await import("node:fs");
-  const path = await import("node:path");
-  const wf = fs.readFileSync(path.join(__dirname, "..", "..", ".github", "workflows", "mxe-daily.yml"), "utf-8");
-  const read = [...new Set([...wf.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]))].sort();
-  assert.deepEqual([...MXE_SECRETS].sort(), read);
-});
