@@ -167,7 +167,10 @@ jobs:
           # fixed constant here would overstate it.
           lamports() { solana rent "$1" --lamports --url "$RPC_URL" | awk '/Rent-exempt minimum/ {print $3}'; }
           so=$(stat -c %s target/deploy/aa_mxe.so)
-          need=$(( $(lamports $((so + 45))) * 2 + 1000000000 ))
+          # Programdata plus the same-size upload buffer (returned after the
+          # deploy), plus 0.3 SOL for upload fees, the MXE's accounts and the
+          # test computations — those come to well under that.
+          need=$(( $(lamports $((so + 45))) * 2 + 300000000 ))
           sol() { awk -v l="$1" 'BEGIN { printf "%.3f", l / 1e9 }'; }
           need_sol=$(sol "$need")
           bal() { solana balance "$AUTHORITY" --lamports --url "$RPC_URL" | awk '{print $1}'; }
