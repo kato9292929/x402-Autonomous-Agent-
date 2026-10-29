@@ -33,7 +33,8 @@ import {
 import { publicNegotiation, publicRfq } from "../mxe/compare";
 import { catalogOf, catalogVersion, knownEndpoints, queryFor } from "../mxe/catalog";
 import { CLUSTER_OFFSET, functionEnabled, mxeNetwork, mxeProgramId } from "../mxe/flags";
-import { hydrateAgentWallets } from "../mxe/wallets";
+import { DEVNET_QUEUER, LIVE_AGENTS, hydrateAgentWallets } from "../mxe/wallets";
+import { ensureAgents } from "../scripts/mxe-setup";
 import { devnetQueuerFromEnv } from "../mxe/wallet";
 import { agentWallet, payInternal, type AgentWallet, type Payment } from "../mxe/buyer";
 import { handleMxeSell, openTrade, SELL_PREFIX, SOLANA_MAINNET } from "../mxe/seller";
@@ -403,8 +404,23 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
     return [];
   }
   const network = mxeNetwork();
-  // Agent wallets come from Circle by refId unless set explicitly.
-  for (const note of await hydrateAgentWallets()) console.log(`[MXE] wallet ${note}`);
+  // Agent wallets come from Circle by refId unless set explicitly. Missing ones
+  // are created here (no money moves); MXE_FUND_AGENTS=true also tops the LIVE
+  // ones up to their small amounts, once (fixed idempotency keys).
+  let notes = await hydrateAgentWallets();
+  const missing = (ref: string) => notes.some((n) => n.startsWith(`${ref}: not found`));
+  const liveMissing = LIVE_AGENTS.some((a) => missing(a.refId));
+  const devnetMissing = missing(DEVNET_QUEUER.refId);
+  const fund = process.env.MXE_FUND_AGENTS === "true";
+  if (liveMissing || devnetMissing || fund) {
+    try {
+      await ensureAgents({ live: liveMissing || fund, devnet: devnetMissing, fund });
+      notes = await hydrateAgentWallets();
+    } catch (err) {
+      console.error(`[MXE] agent setup failed: ${String(err)}`);
+    }
+  }
+  for (const note of notes) console.log(`[MXE] wallet ${note}`);
   let chain: MxeChain;
   try {
     chain = buildChain();

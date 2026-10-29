@@ -17,7 +17,8 @@
  *      `arcium deploy --keypair-path` はファイルの鍵を要求し、Circle DCW は使えない。
  *      実行時の署名(計算の投入・x402 支払い)はすべて Circle DCW のまま。
  *
- * 実行(手元のターミナルで。Railway には置かない):
+ * 通常は実行不要: MXE ジョブが起動時に、足りないウォレットを作り、MXE_FUND_AGENTS=true なら
+ * 入金もする(ensureAgents)。手で回すとき(手元のターミナル):
  *   npm run build && npm run mxe:setup                 # ウォレットの作成だけ
  *   npm run mxe:setup -- --deploy-key                  # + devnet 管理鍵を出力
  *   npm run mxe:setup -- --fund                        # + 買い手A・Bへ各 $0.10、売り手A・Bへ各 $0.01 送る
@@ -229,31 +230,25 @@ async function main(): Promise<void> {
   console.log("\n==== 参考(登録は不要。ジョブが refId で見つける)====");
   for (const l of variables) console.log(l);
 
-  console.log("\n==== GitHub Environment「mxe」の Secrets に登録(値は手元のものを使う。ここには出さない)====");
-  for (const n of MXE_SECRETS) console.log(n);
-
   if (key) {
-    console.log("\n==== GitHub Environment「mxe-deploy」の Secrets に登録 ====");
+    console.log("\n==== GitHub の Actions secret に登録(devnet デプロイ用。Railway には入れない)====");
     console.log("名前: ARCIUM_DEVNET_DEPLOY_KEY");
     console.log(`値  : ${key.json}`);
-    console.log("名前: HELIUS_API_KEY(mxe と同じキー)");
     console.log(`(この鍵のアドレス: ${key.address} — devnet の upgrade authority。デプロイ用の devnet SOL はここへ)`);
     console.log("※ 実行するたびに新しい鍵になります。登録は1回だけ。devnet 専用で、mainnet には使わない");
   }
 }
 
-/** Secrets the daily workflow (.github/workflows/mxe-daily.yml) reads. */
-export const MXE_SECRETS = [
-  "CIRCLE_API_KEY",
-  "CIRCLE_ENTITY_SECRET",
-  "CIRCLE_API_KEY_TEST",
-  "CIRCLE_ENTITY_SECRET_TEST",
-  "PAYAI_API_KEY_ID",
-  "PAYAI_API_KEY_SECRET",
-  "UPSTASH_REDIS_REST_URL",
-  "UPSTASH_REDIS_REST_TOKEN",
-  "HELIUS_API_KEY",
-];
+/**
+ * Create whatever agent wallets are missing (by refId) and, with `fund`, top
+ * the LIVE ones up to their amount. Called by the MXE job itself, so a
+ * deployment needs no separate setup step. Idempotent: nothing is created
+ * twice, and a funding transfer reuses a fixed idempotency key.
+ */
+export async function ensureAgents(opts: { live: boolean; devnet: boolean; fund: boolean }): Promise<void> {
+  if (opts.live) await setupLive(opts.fund);
+  if (opts.devnet) await setupDevnet();
+}
 
 // Run only when invoked as a script, so the tests can import the helpers.
 if (require.main === module) {
