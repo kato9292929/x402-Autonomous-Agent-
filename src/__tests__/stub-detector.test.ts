@@ -74,3 +74,8 @@ test("degraded markers with non-matching values are clean", () => {
   assert.equal(detectDegraded({ source: "live" }).degraded, false);
   assert.equal(detectDegraded({ dataMode: "live" }).degraded, false);
 });
+
+test("empty array response is not degraded", () => {
+  assert.equal(detectDegraded({ items: [], total: 0 }).degraded, false);
+  assert.equal(detectDegraded({ movers: [] }).degraded, false);
+});

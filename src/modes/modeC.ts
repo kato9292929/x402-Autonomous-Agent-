@@ -11,8 +11,8 @@ const FAILURE_ALERT_THRESHOLD = 3;
  * Queue Mode C for human approval instead of running it directly.
  * The Monday cron calls this; actual execution is triggered via /approve after World ID verification.
  */
-export function queueModeC(): string {
-  const item = enqueueApproval();
+export async function queueModeC(): Promise<string> {
+  const item = await enqueueApproval();
   const baseUrl =
     process.env.RAILWAY_PUBLIC_DOMAIN
       ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`

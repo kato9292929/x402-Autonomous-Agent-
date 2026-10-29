@@ -6,6 +6,14 @@ export interface EndpointResult {
   costUsdc: number;
   responsePeek: string;
   txHash?: string;
+  /**
+   * Network the payment actually settled on, read back from the settlement
+   * response — not the `chain` label in the endpoint config. The two can
+   * diverge: the seller decides which legs it advertises and the client picks
+   * `accepts[0]`, so a config labelled "solana" can settle on Base without
+   * anything in the logs saying so.
+   */
+  settledNetwork?: string;
   error?: string;
   degradedReason?: string;
   durationMs: number;
@@ -16,7 +24,7 @@ export interface EndpointResult {
 
 export interface RunLog {
   timestamp: string;
-  mode: "A" | "B" | "C";
+  mode: "A" | "B" | "C" | "D";
   results: EndpointResult[];
   totalCostUsdc: number;
   totalTxCount: number;

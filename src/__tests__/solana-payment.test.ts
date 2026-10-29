@@ -8,31 +8,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-test("MODE B has 5 osd Solana endpoints (osd-ipo, osd-holders, osd-liquidity, osd-jin-latest, osd-jin-movers)", async () => {
+test("MODE B has 2 JIN Solana endpoints; the removed osd routes are gone", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
   const solanaEndpoints = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEndpoints.length, 5, "Should have exactly 5 osd Solana endpoints");
+  assert.equal(solanaEndpoints.length, 2, "Should have exactly 2 Solana endpoints");
 
   const ids = solanaEndpoints.map((e) => e.id);
-  assert.ok(ids.includes("osd-ipo"), "osd-ipo should be present");
-  assert.ok(ids.includes("osd-holders"), "osd-holders should be present");
-  assert.ok(ids.includes("osd-liquidity"), "osd-liquidity should be present");
   assert.ok(ids.includes("osd-jin-latest"), "osd-jin-latest should be present");
   assert.ok(ids.includes("osd-jin-movers"), "osd-jin-movers should be present");
 
-  // osd endpoints point to osd-coral; JIN endpoints point to jin-orcin-pi
-  const osdEps = solanaEndpoints.filter((e) => ["osd-ipo", "osd-holders", "osd-liquidity"].includes(e.id));
-  for (const ep of osdEps) {
-    assert.ok(ep.url.includes("osd-coral.vercel.app"), `${ep.id} must point to osd-coral`);
-    assert.equal(ep.method, "GET");
-    assert.equal(ep.cost, 0.01);
+  // /api/ipo, /api/holders and /api/liquidity were deliberately removed from osd
+  // (PR #29) and 404 on the new domain, so the agent must not call them.
+  for (const gone of ["osd-ipo", "osd-holders", "osd-liquidity"]) {
+    assert.ok(!ids.includes(gone), `${gone} was deleted upstream and must not be called`);
   }
 
-  const jinEps = solanaEndpoints.filter((e) => e.id.startsWith("osd-jin-"));
-  for (const ep of jinEps) {
-    assert.ok(ep.url.includes("jin-orcin-pi.vercel.app"), `${ep.id} must point to jin-orcin-pi`);
+  // JIN prices come from the published catalog: latest is free, movers is $0.02.
+  const jinCost: Record<string, number> = { "osd-jin-latest": 0, "osd-jin-movers": 0.02 };
+  for (const ep of solanaEndpoints) {
+    assert.ok(ep.url.includes("jin.x402jp.com"), `${ep.id} must point to jin.x402jp.com`);
     assert.equal(ep.method, "GET");
-    assert.equal(ep.cost, 0.01);
+    assert.equal(ep.cost, jinCost[ep.id], `${ep.id} cost must match the published catalog`);
   }
 });
 
@@ -49,7 +45,7 @@ test("PMI (private-market) is not in MODE B", async () => {
   assert.ok(!ids.includes("private-market"), "PMI should have been removed");
 });
 
-test("MODE B has 14 endpoints total", async () => {
+test("MODE B has 11 endpoints total", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 14, "Should have 9 Base + 5 Solana = 14 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 11, "Should have 9 Base + 2 JIN Solana = 11 endpoints");
 });

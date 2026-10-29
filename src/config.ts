@@ -7,8 +7,8 @@ export interface EndpointConfig {
   url: string;
   method: "GET" | "POST";
   cost: number;
-  chain: "base" | "solana" | "polygon" | "bnb";
-  mode: "B" | "C";
+  chain: "base" | "solana" | "arc" | "polygon" | "bnb";
+  mode: "B" | "C" | "D";
   captureFullData?: boolean;
 }
 
@@ -30,6 +30,8 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     cost: 0.20,
     chain: "base",
     mode: "B",
+    // 実レスポンスから apyResolved / liveSources / smartMoney を観測ログに出すため保持
+    captureFullData: true,
   },
   {
     id: "portfolio-intelligence",
@@ -60,25 +62,29 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     // Mode A reuses this full response as its decision input (no re-fetch, no double charge)
     captureFullData: true,
   },
-  {
-    id: "hyperliquid-intelligence",
-    name: "Hyperliquid Intelligence",
-    url: getEnvOrDefault("HYPERLIQUID_INTELLIGENCE_URL", "https://x402-hl.vercel.app/api/hyperliquid/scan"),
-    method: "GET",
-    cost: 0.20,
-    chain: "base",
-    mode: "B",
-    // Mode A reuses this full response as its conviction input (no re-fetch, no double charge)
-    captureFullData: true,
-  },
+  // Hyperliquid Intelligence ($0.20/day) was bought only as Mode A's conviction
+  // input. Mode A now decides from the Smart Money Screener alone and nothing
+  // else read the response, so the fetch was stopped rather than left paying for
+  // data no one opens. Restore by re-adding this entry — nothing else changed.
   {
     id: "smart-money-screener",
     name: "Smart Money Screener",
-    url: getEnvOrDefault("SMART_MONEY_SCREENER_URL", "https://smartmoneyscreener.vercel.app/api/screener/smart-money"),
+    url: getEnvOrDefault(
+      "SMART_MONEY_SCREENER_URL",
+      // Base, not Solana: the screener covers both, but Nansen does not cover
+      // Solana and every run came back `tokens: [], total_scanned: 0` with a
+      // warning saying so. If `chain` turns out not to be the parameter name,
+      // set the full URL in SMART_MONEY_SCREENER_URL — the next run's log
+      // prints the rows, so a wrong name shows up as an empty response again.
+      "https://smartmoneyscreener.vercel.app/api/screener/smart-money?chain=base"
+    ),
     method: "GET",
     cost: 0.05,
     chain: "base",
     mode: "B",
+    // Mode A reuses this full response as its only candidate source
+    // (no re-fetch, no double charge)
+    captureFullData: true,
   },
   {
     id: "onchain-feed-apac",
@@ -98,42 +104,27 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     chain: "base",
     mode: "B",
   },
+  {
+    id: "odo-funding-nowcast",
+    name: "ODO Onchain Funding Nowcast",
+    url: getEnvOrDefault("ODO_FUNDING_URL", "https://odo-gamma.vercel.app/funding/nowcast/current"),
+    method: "GET",
+    cost: 0.01,
+    chain: "base",
+    mode: "B",
+  },
   // ── osd Solana endpoints (manual 402 via Circle DCW Solana wallet) ────────
   // network: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (Solana mainnet CAIP-2)
   // payTo + amount resolved from 402 challenge (never hardcoded)
   {
-    id: "osd-ipo",
-    name: "OSD IPO Data (Solana)",
-    url: getEnvOrDefault("OSD_IPO_URL", "https://osd-coral.vercel.app/api/ipo"),
-    method: "GET",
-    cost: 0.01,
-    chain: "solana",
-    mode: "B",
-  },
-  {
-    id: "osd-holders",
-    name: "OSD Holders Data (Solana)",
-    url: getEnvOrDefault("OSD_HOLDERS_URL", "https://osd-coral.vercel.app/api/holders"),
-    method: "GET",
-    cost: 0.01,
-    chain: "solana",
-    mode: "B",
-  },
-  {
-    id: "osd-liquidity",
-    name: "OSD Liquidity Data (Solana)",
-    url: getEnvOrDefault("OSD_LIQUIDITY_URL", "https://osd-coral.vercel.app/api/liquidity"),
-    method: "GET",
-    cost: 0.01,
-    chain: "solana",
-    mode: "B",
-  },
-  {
     id: "osd-jin-latest",
     name: "JIN Index Latest (Solana)",
-    url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://jin-orcin-pi.vercel.app/api/jin/latest"),
+    url: getEnvOrDefault("OSD_JIN_LATEST_URL", "https://jin.x402jp.com/api/jin/latest"),
     method: "GET",
-    cost: 0.01,
+    // Free per the published catalog (200, no 402 challenge). `cost` is the
+    // recorded spend, not the amount paid, so charging it $0.01 overstated the
+    // daily total for a call that costs nothing.
+    cost: 0,
     chain: "solana",
     mode: "B",
     captureFullData: true,
@@ -141,9 +132,10 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "osd-jin-movers",
     name: "JIN Movers (Solana)",
-    url: getEnvOrDefault("OSD_JIN_MOVERS_URL", "https://jin-orcin-pi.vercel.app/api/jin/movers"),
+    url: getEnvOrDefault("OSD_JIN_MOVERS_URL", "https://jin.x402jp.com/api/jin/movers"),
     method: "GET",
-    cost: 0.01,
+    // $0.02 per the published catalog, not $0.01.
+    cost: 0.02,
     chain: "solana",
     mode: "B",
     captureFullData: true,
@@ -195,5 +187,72 @@ export const ENDPOINTS_MODE_C: EndpointConfig[] = [
     cost: 0.50,
     chain: "base",
     mode: "C",
+  },
+];
+
+/**
+ * Mode D — daily consumption of osd's published alpha + track-record endpoints
+ * (Onchain Stock Data / AlternaData for agents). Read-only GETs, settled per call
+ * in Solana USDC over x402. captureFullData persists each daily snapshot as
+ * append-only provenance (the immutable track record).
+ *
+ * cost is a budget label; the real amount is taken from the 402 challenge and
+ * capped by the payment policy (withinMicroUsdcCap). chain is a log label —
+ * fetchWithPayment auto-selects the settlement leg from the 402.
+ */
+const OSD_ALPHA_BASE = process.env.OSD_API_BASE ?? "https://osd.x402jp.com";
+const alphaUrl = (envName: string, path: string): string =>
+  process.env[envName] || `${OSD_ALPHA_BASE}${path}`;
+
+export const ENDPOINTS_MODE_D: EndpointConfig[] = [
+  {
+    id: "alpha-us-portfolio",
+    name: "OSD Alpha — US Portfolio (current 10)",
+    url: alphaUrl("ALPHA_US_PORTFOLIO_URL", "/api/alpha/portfolio/current"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-us-scorecard",
+    name: "OSD Alpha — US Scorecard (hit-rate vs SPY/QQQ)",
+    url: alphaUrl("ALPHA_US_SCORECARD_URL", "/api/alpha/portfolio/scorecard"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-jp-portfolio",
+    name: "OSD Alpha — JP Portfolio (current 10)",
+    url: alphaUrl("ALPHA_JP_PORTFOLIO_URL", "/api/alpha/jp/portfolio/current"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-jp-scorecard",
+    name: "OSD Alpha — JP Scorecard (hit-rate vs benchmark)",
+    url: alphaUrl("ALPHA_JP_SCORECARD_URL", "/api/alpha/jp/scorecard"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
+  },
+  {
+    id: "alpha-jp-catalysts",
+    name: "OSD Alpha — JP Catalysts (list)",
+    url: alphaUrl("ALPHA_JP_CATALYSTS_URL", "/api/alpha/jp/catalysts"),
+    method: "GET",
+    cost: 0.01,
+    chain: "solana",
+    mode: "D",
+    captureFullData: true,
   },
 ];

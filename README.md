@@ -1,229 +1,217 @@
 # x402 Autonomous Agent
 
-An autonomous trading-intelligence agent that traverses x402 Inc.'s API stack daily,
-detects smart-money signals, and records a bounded daily decision using x402
-micropayments. It does not place live trades.
-Runs daily at 06:00 JST via node-cron on Railway.
+An autonomous agent with an on-chain identity (ERC-8004) that **pays for data per call in USDC over the x402 protocol**, signing every settlement with **Circle Developer-Controlled Wallets (DCW)** on **Base** and **Solana**. It runs on a daily schedule on Railway, buys machine-readable market data from x402-gated endpoints, and records each decision to an append-only, on-chain-anchored store.
 
-自律型トレーディングインテリジェンスエージェント。毎朝6時JSTにx402 Inc.のAPIスタックを横断し、スマートマネーシグナルを検出してx402マイクロペイメントでデータを取得し、判断を追記記録します。実売買は行いません。
+This repository is the **CONSUME** layer of a three-layer stack (details below). Every claim in this README is backed by real on-chain transactions listed in **[On-chain evidence](#on-chain-evidence)** — nothing here is a mock or a testnet-only simulation unless explicitly labelled.
 
-![Node.js](https://img.shields.io/badge/Node.js-20-green) ![Railway](https://img.shields.io/badge/Railway-deployed-blueviolet)
+![Node.js](https://img.shields.io/badge/Node.js-20-green) ![Railway](https://img.shields.io/badge/Railway-deployed-blueviolet) ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
-## How It Works / 動作フロー
+## Why this is relevant to Circle
 
-毎朝、Mode B（日次ブリーフィング）→ Mode A（日次判断ループ）の順に自動実行されます。
-
-### Mode A — 日次判断ループ
-
-Mode A は早期終了せず、毎ラン必ず一つの日次 call（買い / 見送り ＋ 方向 ＋ サイズ案）を出します。
-判断入力は Mode B が既に取得済みの実データを再利用し（二重課金しない）、方向解釈にのみ Whale Intent Decoder を新規に支払います。
-
-| 役割 | シグナル源 | 取得 |
-|------|-----------|------|
-| 起点（strength） | Divergence Analyzer（`nansenNetFlowUsd`） | Mode B の結果を再利用 |
-| 確度（conviction） | Hyperliquid Intelligence（建玉の偏り） | Mode B の結果を再利用 |
-| 方向（direction） | Whale Intent Decoder（intent / confidence） | Mode A が新規に支払い（$0.30） |
-
-3つのシグナルを `score ∈ [-1, 1]` にスコア化し、`|score| ≥ 閾値` なら BUY、未満なら SKIP（見送り）。
-方向（long / short）とサイズ案、判断根拠（使った各シグナル値）を、ERC-8004 agentId に紐付けて追記専用ストア（Upstash Redis または ローカル JSONL `data/decisions/mode-a-decisions.jsonl`）に記録します。
-
-> **実発注は結線していません。** smct `/api/execute` は呼ばれず、記録は「エージェントがこう判断した」までに限定されます（`executed: false`）。約定・P&L は含みません。Smart Money Screener は候補ゼロ（Nansen が Solana 未対応）のため判断入力から外しています。
-
-> All payments are handled automatically via the x402 protocol.
+- **Circle DCW is the signer of record.** In production the agent's Base (EVM) x402 payments are signed by a Circle Developer-Controlled Wallet (`0xAE7C34B72D0f49605ee2448C5f0D0eCFB4fcfeC8`) — no raw private key in the hot path. Entity-secret encryption (RSA-OAEP) and Circle's signing APIs are used directly.
+- **Circle DCW signing extended to Solana — proven end-to-end.** `@x402/svm` expects a local `@solana/kit` transaction signer; Circle DCW is MPC/custodial and signs *externally-built* transactions via its `signTransaction` API. We built a thin adapter (`src/poc/circle-solana-signer.ts`) that presents Circle DCW as a `@solana/kit` `TransactionPartialSigner`, and settled a real Solana USDC x402 payment with it on mainnet (tx `3ccb95…`, payer = Circle DCW wallet `7PV…`). This is, to our knowledge, a novel integration path and the mechanism to unify agent signing on Circle across EVM, Solana, and Arc.
+- **USDC micropayments are the product, not a demo.** The agent pays $0.01–$0.50 per call over x402 and receives HTTP 200 + data. Payments settle on-chain in USDC (Base and Solana SPL), verifiable on Basescan / Solscan.
+- **On-chain identity via Circle.** The agent's ERC-8004 identities (Base agentId `55560`, Arc Testnet agentId `845265`) are registered through Circle DCW wallets.
+- **Verifiable, immutable track record.** Every decision and every settlement reference is written to an append-only store; on-chain settlements are the ground truth. We do not delete records.
 
 ---
 
-## x402 Payment Flow
+## Three-layer stack
+
+| Layer | Role | This repo |
+|---|---|---|
+| **MAP** | A daily-updated directory of x402-gated endpoints, aggregated and normalized from multiple sources, served over REST + MCP so agents can discover payable APIs. | — |
+| **CONSUME** | This agent: an ERC-8004 identity that pays per call in USDC (Circle DCW) and records daily decisions. | **✓ this repo** |
+| **PRODUCE** | Proprietary agent-facing data + dated, scored predictions (US/JP equity catalysts; a daily store-price inflation nowcast), served as x402 endpoints. | — |
+
+**Honest framing:** today the agent consumes the stack's *own* endpoints — a self-contained loop that validates the payment-and-observation round-trip end to end. It is a working payment loop, **not** evidence of external demand, and we say so plainly.
+
+---
+
+## On-chain evidence
+
+All settlements below are real, on mainnet, and independently verifiable. USDC recipient (supply side): `4s8XQC2WzRfgH8Xiep7ybnCW11VKRCMwxQF6jknx3VPf`. Solana USDC mint: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`.
+
+| What it proves | Chain | Payer | Tx |
+|---|---|---|---|
+| **Circle DCW signs a Solana USDC x402 payment** (the novel integration) | Solana | Circle DCW `7PV…L6tY` | `3ccb95HKM3a9e2WsSgy6vhvsTJqqunBjnz58qjeEfoSrD3rCzhE7RcBksQ4Q1hwGwohgpA7V6hW1CcVe3fFzfynx` |
+| Autonomous agent per-call payment via production path (`pay-once`) | Solana | agent keypair `6JKV…vEzA` | `2LS9cuXRn6nuay3N2XB3nMrE7HJ2fzTjdi1ndnfW237nxmX3BWd7r3vjsTSoUqDf8UrsTM4JRjQLdfG89AKmhtwU` |
+| Agent pays a live PRODUCE endpoint (Japan Inflation Nowcast) → 200 + data | Solana | agent keypair `6JKV…vEzA` | `gkBs7zRZvbwBEVCb5R7p9FadVaZQsytEVkxbrqHUmg7ASSyiB8bH6cEC5dGoNtcaUDCvi3XoNhF446nAavWgL3V` |
+
+> Additional Base (EVM, Circle DCW) and Solana settlements exist in the daily/consumption logs; the three above are the load-bearing proofs for this submission. Open any signature on [Solscan](https://solscan.io) to confirm `SUCCESS / Finalized`, the USDC transfer to the recipient, and that it is a Solana SPL `TransferChecked` (not an EVM transfer).
+
+---
+
+## How it works
+
+The agent runs a daily loop on Railway (`0 21 * * *` UTC = 06:00 JST) and a weekly, human-gated loop.
+
+### Daily: Mode B → Mode A → osd consumption
+
+1. **Mode B — briefing.** Fetches the day's market data from x402 endpoints (paying per call in USDC) and caches it so Mode A does not double-pay.
+2. **Mode A — decision.** Never early-exits: every run emits exactly one decision (BUY/SKIP + direction + size proposal). It reuses Mode B's data and pays only for one new signal (Whale Intent, ~$0.30) to resolve direction. The three signals are scored to `score ∈ [-1, 1]`; `|score| ≥ threshold` → BUY, else SKIP. The decision — with the exact signal values used as rationale — is appended to a per-agent store keyed by ERC-8004 agentId (`trade_agent_daily:55560`, Upstash Redis with a local JSONL fallback).
+3. **osd consumption.** Exercises live x402 endpoints on Base and Solana (per-call USDC), within a per-run budget cap, and appends each call's settlement reference to a provenance log.
+
+> **Execution is intentionally not wired.** The agent records *what it decided* (`executed: false`); it does not place trades and reports no P&L. This keeps the artifact an honest record of autonomous **payment + decision**, not a trading-performance claim.
+
+### Weekly: Mode C — human-gated action
+
+High-impact actions are queued for **human approval gated by World ID** (proof-of-personhood) before anything executes.
+
+---
+
+## x402 payment flow
 
 ```
-Agent → GET /api/signals
-      ← 402 Payment Required  (x-payment-required header)
-Agent → signs USDC payment with PAYMENT_PRIVATE_KEY (EOA on Base mainnet)
-      → GET /api/signals  (X-PAYMENT header attached)
-      ← 200 OK + data
+Agent → GET /endpoint
+      ← 402 Payment Required   (PAYMENT-REQUIRED header, v2)
+Agent → builds & signs a USDC payment
+        · Base:   Circle DCW (SIGNER_BACKEND=circle)  — EIP-3009 / typed-data signing
+        · Solana: @x402/svm exact scheme               — SPL TransferChecked, facilitator fee-payer
+      → GET /endpoint          (X-PAYMENT / PAYMENT-SIGNATURE header attached)
+      ← 200 OK + data          (PAYMENT-RESPONSE header carries the settlement tx)
 ```
 
-`x402-fetch` handles this automatically — no manual payment logic needed.
-
-### 買う前の照会（x402 Seller Probe）
-
-第三者の売り手から買う直前に `https://probe.x402jp.com/scores/{ホスト名}` を引く（`src/probe-gate.ts`）。
-
-- 直近の有料測定が `not_delivered`（払ったのに届かなかった）→ 買わない
-- `buyable_without_input: false` で、こちらが入力なし（GET）で呼ぶ → 買わない（POST で本文を送るエンドポイントには当てない）
-- Probe が応答しない・記録がない → 従来どおり買う
-- 自社の OSD・JIN（osd / jin の x402jp.com と vercel.app のホスト）は照会しない。`PROBE_EXEMPT_HOSTS` で足せる
-
-買わなかった回は結果が `status: "skipped"`（支払いなし）になり、理由と照会結果（`probe`）が実行ログ（日次の記録）に残る。買った回にも照会結果を残す。
+`@x402/fetch` drives the round trip. The client auto-selects the Base or Solana leg from the 402 challenge and pays **within a per-call USDC ceiling enforced in the payment-selection policy** — the agent transacts autonomously but only inside a predefined spending limit (`DEFAULT_MAX_BASE_MICRO_USDC = $3.00`, `src/circle/spending-controls.ts`, applied by `withinMicroUsdcCap` in `src/x402.ts`). The Solana leg uses the [PayAI facilitator](https://facilitator.payai.network) as the transaction fee-payer, so the agent needs no SOL for gas.
 
 ---
 
-## Tech Stack
+### Pre-purchase check (x402 Seller Probe)
 
-- **Node.js 20 + TypeScript**
-- **x402-fetch** — automatic HTTP 402 micropayment handling
-- **node-cron** — `0 21 * * *` (06:00 JST)
-- **Railway** — always-on Node.js process
+Before paying a third-party seller — Mode B/C endpoints and the weekly external probe sweep — the agent looks up `https://probe.x402jp.com/scores/{host}` (`src/probe-gate.ts`):
+
+- latest paid measurement `not_delivered` (paid, nothing delivered) → not bought
+- `buyable_without_input: false` and the agent calls it with a bare GET → not bought (POST endpoints the agent sends a body to are not affected)
+- the Probe not answering, or no record of the host → bought as before; only the lookup is recorded
+
+Own sellers (OSD, JIN — `osd`/`jin` on x402jp.com and their vercel.app hosts) are never looked up; `PROBE_EXEMPT_HOSTS` adds more. A purchase not made is recorded as `status: "skipped"` / `outcome: "skipped"` with the reason and the lookup (`probe`) in the run log; bought calls keep the lookup too. `PROBE_URL` overrides the Probe URL.
+
+## Architecture
+
+- **Node.js 20 + TypeScript** (strict), compiled to `dist/`.
+- **`@x402/fetch` / `@x402/core` / `@x402/evm` / `@x402/svm`** — x402 v1/v2 client, EVM and Solana (SVM) exact schemes. Versions are pinned so the shipped `dist/` is the single source of truth.
+- **Circle Developer-Controlled Wallets** — `@circle-fin/developer-controlled-wallets`; entity-secret RSA-OAEP encryption; EVM typed-data signing in production, Solana `signTransaction` via the adapter (proven).
+- **ERC-8004** — on-chain agent identity on Base (`register()`) and Arc Testnet (`register(string)`).
+- **Upstash Redis (REST)** with local JSONL fallback — append-only decision + consumption stores.
+- **node-cron on Railway** — always-on daily/weekly scheduler; an HTTP server exposes status endpoints and the World ID approval flow.
 
 ---
 
-## Environment Variables
+## Diagnostics & reproducibility
 
-### Base (EVM) — 必須
+Standalone scripts (built to `dist/`, never part of the daily loop) let an operator reproduce every claim on a real network:
 
-| Variable | Description |
+| Script | Purpose |
 |---|---|
-| `PAYMENT_PRIVATE_KEY` | EOA wallet 秘密鍵（Base mainnet の USDC を保有すること） |
-| `ANTHROPIC_API_KEY` | Claude API key（analyst-daily-note 用） |
+| `dist/pay-once.js` | Pay any `TEST_URL` **once** through the *production* x402 client (policy + Circle DCW + Solana), print the 402, the settlement, and the base58 tx. The proof that the production path works, not a stripped-down mock. |
+| `dist/poc/run-circle-poc.js` | Build an x402 payment payload using **Circle DCW as the Solana signer** (no real payment). |
+| `dist/poc/run-circle-pay.js` | Same, but settle for real → 200 → base58 tx (produced tx `3ccb95…`). |
 
-### Solana — Solana endpoint を使う場合に必須
+```bash
+TEST_URL=https://<x402-endpoint> node dist/pay-once.js
+```
 
-| Variable | Description |
+---
+
+## Configuration
+
+Signer backend is selected by `SIGNER_BACKEND` (`circle` in production, `privatekey` for local dev).
+
+| Variable | Purpose |
 |---|---|
-| `CIRCLE_API_KEY` | Circle Developer-Controlled Wallets API key |
-| `CIRCLE_ENTITY_SECRET` | Circle entity secret（32 バイト hex。Circle dashboard で登録） |
-| `CIRCLE_SOLANA_WALLET_ID` | Circle が発行した Solana wallet の ID |
-| `SOLANA_WALLET_ADDRESS` | Solana wallet address（Circle console で確認） |
-| `SOLANA_MAX_USDC_MICRO` | 1 回の支払い上限 micro-USDC（デフォルト: 1000000 = $1.00） |
+| `SIGNER_BACKEND` | `circle` → Base payments signed by Circle DCW (production). `privatekey` → local EOA. |
+| `CIRCLE_API_KEY`, `CIRCLE_ENTITY_SECRET` | Circle DCW credentials (LIVE). Used for EVM signing and identity registration. |
+| `CIRCLE_EVM_WALLET_ID`, `CIRCLE_EVM_WALLET_ADDRESS` | Circle DCW EVM wallet used to sign Base payments. |
+| `PAYMENT_PRIVATE_KEY` | EOA private key holding Base USDC (only when `SIGNER_BACKEND=privatekey`). |
+| `SOLANA_PRIVATE_KEY` | Solana keypair for the SVM payment leg (optional; absent → Solana endpoints skipped). |
+| `CIRCLE_SOLANA_WALLET_ID`, `CIRCLE_SOLANA_WALLET_ADDRESS` | Circle DCW Solana wallet (Circle-DCW Solana signing / PoC). |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Append-only store (falls back to local JSONL if unset). |
+| `WLD_APP_ID`, `WLD_RP_ID`, `WLD_SIGNING_KEY` | World ID (Mode C human approval). |
+| `ANTHROPIC_API_KEY` | Claude API (note generation). |
 
-### その他（任意）
+See `.env.example` for the complete list. Secrets are never logged.
 
-| Variable | Description |
-|---|---|
-| `PORTFOLIO_ANALYZE_TARGET` | Portfolio Intelligence 分析対象 wallet address |
-| `INTERNAL_API_KEY` | Onchain Stock Data Analyst API key |
-| `ANALYST_API_BASE` | Analyst API ベース URL（デフォルト: https://osd-coral.vercel.app） |
-| `PORT` | HTTP server ポート（Railway が自動設定。デフォルト: 3000） |
-| `PROBE_URL` | x402 Seller Probe の URL（デフォルト: https://probe.x402jp.com） |
-| `PROBE_EXEMPT_HOSTS` | 照会しない自社ホスト（カンマ区切り。OSD・JIN は既定で含む） |
-
-全変数は `.env.example` を参照してください。
+> **LIVE vs TEST separation.** Mainnet uses the LIVE Circle credentials above. Arc Testnet work uses separate `*_TEST` credentials and never touches LIVE — this separation is enforced in code (`src/circle/arc-test-client.ts`).
 
 ---
 
 ## Deployment (Railway)
 
-1. Fork this repo
-2. Create a new project on [Railway](https://railway.app)
-3. Connect your GitHub repo, select the `main` branch
-4. Add environment variables in the **Variables** tab
-5. Deploy — `railway.json` handles build and start automatically
-
-The service runs as an always-on process. node-cron fires at 21:00 UTC (06:00 JST) daily.  
-HTTP server listens on `$PORT` (Railway sets this automatically) and exposes `GET /api/latest-external-data`.
-
----
-
-## Solana 対応セットアップ
-
-AA は Base（EVM）と Solana の両方の x402 endpoint を叩けます。Solana は Circle DCW を通じた manual 402 フローで支払います（`withX402` は Solana 非対応）。
-
-### 1. Circle Solana Wallet の発行
-
-Circle console または API で、既存の wallet set の下に Solana EOA wallet を発行します：
+1. Connect this repo, select `main`.
+2. Set the environment variables above in **Variables**.
+3. Deploy — `railway.json` handles build and start. node-cron fires at 21:00 UTC daily; the HTTP server listens on `$PORT`.
 
 ```bash
-# Circle DCW API（POST /developer/v1/wallets）
-curl -X POST https://api.circle.com/v1/w3s/developer/wallets \
-  -H "Authorization: Bearer $CIRCLE_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "idempotencyKey": "<uuid>",
-    "walletSetId": "<your-wallet-set-id>",
-    "accountType": "EOA",
-    "blockchains": ["SOL"],
-    "count": 1,
-    "entitySecretCiphertext": "<encrypted-entity-secret>"
-  }'
-```
-
-発行された wallet ID と address を Railway の環境変数に設定：
-- `CIRCLE_SOLANA_WALLET_ID` = wallet ID
-- `SOLANA_WALLET_ADDRESS` = Solana address
-
-### 2. Wallet への入金
-
-Solana wallet に以下を入金してください：
-- **USDC on Solana**：支払いに使用（Mint: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`）
-- **SOL（少量）**：初回 ATA 作成時の追加ガス代用（~0.002 SOL）。Gas Station が設定されていてもバッファとして必要
-
-### 3. Gas Station（feePayer）設定
-
-Circle console で Solana mainnet 用の Gas Station policy を作成し、Solana wallet のガス代をスポンサーします。設定後は AA wallet に SOL を持たせなくてもトランザクション送信が可能です（ただし初回 ATA 作成分の SOL は必要）。
-
-### 4. Hyre エンドポイント URL の確認と設定
-
-Hyre/PayAI の実際のエンドポイント URL を確認し、Railway の環境変数に設定します：
-- `HYRE_DEFI_INTELLIGENCE_URL` = 確認した URL
-- `HYRE_MARKET_SIGNALS_URL` = 確認した URL
-
-URL は [pay.sh カタログ](https://pay.sh) または Hyre 公式ドキュメントで確認してください。設定しない場合はコードの TODO プレースホルダー URL が使用されます（404 になります）。
-
-### 5. 動作確認
-
-```bash
-# Solana endpoint への支払いテスト（Railway log で確認）
-# [SOLANA] Initial request → https://api.hyre.ai/api/defi/intelligence
-# [SOLANA] Challenge parsed — payTo: <addr>, amount: 0.050000 USDC, network: solana
-# [CIRCLE] Transfer 0.050000 USDC → <addr> (idempotency: <uuid>)
-# [CIRCLE] Transaction confirmed: <signature>
-# [SOLANA] Retrying with payment proof — signature: <sig...>
-# [SOLANA] Second response: HTTP 200
-```
-
----
-
-## Local Development
-
-```bash
+# Local
 npm install
-cp .env.example .env
-# Fill in .env values
-
-npm run build       # Compile TypeScript
-npm run run-now     # Manual one-shot test run
-npm start           # Start cron scheduler
+cp .env.example .env      # fill in values
+npm run build
+npm run run-now           # one-shot manual daily run
+npm start                 # start the scheduler
 ```
 
 ---
 
-## APIs Used
+## ERC-8004 identity (Base + Arc Testnet)
 
-| API | URL |
-|-----|-----|
-| Smart Money Copy Terminal | https://x402smct.vercel.app |
-| Whale Intent Decoder | https://x402wid.vercel.app |
-| Divergence Analyzer | https://x402nansenpolymarket.vercel.app |
-| Alpha Memo Protocol | https://x402amp.vercel.app |
-| Onchain Stock Data Analyst | https://osd-coral.vercel.app/api/analyst |
+- **Base** — agentId `55560`, `IdentityRegistry.register()`.
+- **Arc Testnet** — agentId `845265`, `IdentityRegistry.register(string metadataURI)`; registered via Circle DCW wallets on the `ARC-TESTNET` blockchain (gas paid in USDC, sponsorable via Circle Gas Station). Independent scripts under `src/scripts/` and `src/erc8004/` handle registration, reputation, and validation; they are decoupled from the daily payment loop. See `src/erc8004/arc-contract.ts` for the pinned contract addresses and ABIs.
 
 ---
 
-## Analyst Daily Note Job
+## EDINET financial schema (osd #51)
 
-毎朝 06:00 JST に Onchain Stock Data の Analyst API を叩き、日次ノート記事を自動生成します。
+`/api/edinet/{code}` (osd, the seller) returns a company's real financials from
+its latest 有報／四半期報告書 — not document metadata. The field names are the
+single source of truth in `src/edinet/schema.ts` (`EDINET_FINANCIAL_FIELDS`),
+referenced by the UI, the sweep, and the consumption side:
 
-- **実行時刻**: 毎朝 06:00 JST（node-cron）
-- **対象銘柄**: `config/analyst-tickers.json` で管理
-- **同期必須**: `config/analyst-tickers.json` は Onchain Stock Data リポジトリの `data/stocks.json` と必ず同期させること。同期していない銘柄は `ticker_not_found` エラーとなります。
-- **銘柄追加手順**: 新しい銘柄を追加するときは、**先に Onchain Stock Data 側の `data/stocks.json` に追加** してから、本リポジトリの `config/analyst-tickers.json` に追加してください。
-- **Onchain Stock Data リポジトリ**: https://github.com/kato9292929/onchain-stock-data
-
----
-
-## Cost Per Run
-
-| Condition | Estimated Cost |
+| field | meaning |
 |---|---|
-| No signals found (early exit) | ~$0.05 |
-| Signals found, intent check only | ~$0.50 |
-| Full decision run (no trade execution) | ~$1.60–$2.10 |
+| `sales` / `operating_income` / `net_income` | 当期・連結・**raw JPY**, or `null` |
+| `period` | accounting period |
+| `doc_id` | source EDINET document id |
+| `submit_datetime` | filing datetime |
+| `financials_available` | `true` = extracted; `false` = document found but financials not extracted |
+| `source` | `出典：金融庁 EDINET` |
+
+- **Unit discipline:** EDINET values are raw JPY; the display unit is **百万円**,
+  so the consumption side converts via `jpyToMillions()` (÷1e6). Catalyst's
+  financial column is already 百万円 and is used as-is. The unit label (百万円)
+  is always shown, so digits never misalign.
+- **No market data:** price / market cap are not returned.
+- **Fail loud:** `parseEdinetFinancials()` throws when `financials_available` is
+  missing (a legacy type=2/14-day-window response, or an unexpected shape) rather
+  than swallowing it. Non-numeric financial values become `null`, never a guess.
+- **`financials_available:false`** renders honestly ("書類は特定・財務は未取得"),
+  never as if a figure were present.
+
+### 区分A (done here) vs 区分B (Railway, real values)
+
+- **区分A (this repo, sandbox):** schema constant + `parseEdinetFinancials` +
+  `jpyToMillions`; the hero sweep section's EDINET copy names the real fields and
+  the honest `false` display; `SweepItem` carries a financial slot
+  (`salesM` / `operatingIncomeM` / `financialsAvailable`, 百万円) that the row UI
+  renders when present. **Real values are not populated here.**
+- **区分B (Railway, keys + egress):** `npm run edinet:inspect -- 7203 6501 6758`
+  confirms the real JSON; the next weekly sweep wires the parsed
+  `sales`/`operating_income` into `SweepItem` (via `jpyToMillions`). Until then
+  the rows show ticker · tx only — no synthetic financials are shown, and any
+  placeholder must carry a "未検証" label (see `src/store/sweep-items.ts`).
+- **Article** ("日本株の財務データ on Solana") is written only after 区分B/M1
+  confirms 7203's real values — not before (捏造回避).
+
+## Scope & honesty notes
+
+- The agent **pays and decides**; it does **not** execute trades (`executed: false`) and makes no performance claims.
+- Current daily **Solana** settlements are signed by a native keypair; **Circle DCW Solana signing is proven end-to-end** (tx `3ccb95…`) and is the roadmap to unify signing on Circle across all chains.
+- The consumption loop is **self-contained** (the agent buys from the stack's own endpoints) — a validated payment round-trip, not external demand.
+- Nothing is called "done" until the base58 tx is confirmed on-chain; this discipline is reflected throughout the codebase and its diagnostics.
 
 ---
 
 ## License
 
-No open-source license has been published for this repository yet. Reuse is
-not granted until a license file is added.
+MIT

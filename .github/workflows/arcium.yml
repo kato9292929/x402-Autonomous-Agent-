@@ -1,0 +1,138 @@
+# Arcium MXE: build the circuits and the Solana program, then run the tests on
+# a localnet cluster (validator + Arx nodes in Docker).
+#
+# This runs in CI rather than locally because the Arcium CLI needs a running
+# Docker daemon (`arcup install` refuses without /var/run/docker.sock), which the
+# development container does not have.
+#
+# Job logs are not readable from the development session, but check-run
+# annotations are. So the steps tee their output, and on failure the tail of the
+# log is emitted as an error annotation — that is how the failure gets read.
+
+name: arcium-mxe
+
+on:
+  push:
+    paths:
+      - "mxe/**"
+      - ".github/workflows/arcium.yml"
+  pull_request:
+    paths:
+      - "mxe/**"
+      - ".github/workflows/arcium.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arcium-${{ github.ref }}
+  # Queue rather than cancel: each commit's result is read from its own
+  # check-run, so a newer push must not discard the one still being waited on.
+  cancel-in-progress: false
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to Ubuntu 26 from 2026-10-19
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mxe
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # Versions pinned to match mxe/Cargo.lock and mxe/yarn.lock. Arcium tests
+      # and supports only a single coordinated release across all components.
+      - uses: arcium-hq/setup-arcium@v0.15.0
+        with:
+          runner-arch-os: x86_64_linux
+          arcium-version: "0.15.0"
+          anchor-version: "1.0.2"
+          solana-cli-version: "3.1.10"
+          node-version: "24.10.0"
+
+      - name: Versions
+        run: |
+          {
+            echo "arcium: $(arcium --version 2>&1)"
+            echo "anchor: $(anchor --version 2>&1)"
+            echo "solana: $(solana --version 2>&1)"
+            echo "rustc:  $(rustc --version 2>&1)"
+          } | tee ci-versions.log
+          echo "::notice title=toolchain::$(paste -sd ' | ' ci-versions.log)"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile 2>&1 | tee ci-install.log
+
+      - name: Build
+        id: build
+        run: |
+          set -o pipefail
+          arcium build 2>&1 | tee ci-build.log
+
+      # What a deployment would cost in rent. The docs' "2-5 SOL" is for a small
+      # program; rent scales with the binary, and circuits uploaded on chain pay
+      # rent too. The rate is asked of mainnet, not assumed: SIMD-0437 lowers it
+      # in steps (6960 → 5080 lamports per byte so far, 696 targeted).
+      - name: Sizes and rent
+        run: |
+          rent() { solana rent "$1" --lamports --url https://api.mainnet-beta.solana.com | awk '/Rent-exempt minimum/ { printf "%.4f", $3 / 1e9 }'; }
+          so=$(stat -c %s target/deploy/aa_mxe.so)
+          {
+            echo "program aa_mxe.so: ${so} bytes, rent ≈ $(rent $((so + 45))) SOL (programdata; a deploy also needs a same-size buffer temporarily)"
+            total=0
+            for f in build/*.arcis; do
+              b=$(stat -c %s "$f"); total=$((total + b))
+              echo "$(basename "$f"): ${b} bytes, rent ≈ $(rent $b) SOL if stored on chain"
+            done
+            echo "all circuits: ${total} bytes, rent ≈ $(rent $total) SOL if stored on chain"
+            # The weight is the CU amount a comp def registers; the Arcium program
+            # rejects one above its maximum (InvalidCUAmount, 6304).
+            for f in build/*.weight; do
+              [ -e "$f" ] || continue
+              echo "$(basename "$f" .weight): weight $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["weight"])' "$f")"
+            done
+          } | tee ci-sizes.log
+          echo "::notice title=sizes and rent::$(sed -e 's/%/%25/g' ci-sizes.log | awk 'BEGIN{ORS="%0A"} {print}')"
+
+      - name: Test
+        run: |
+          set -o pipefail
+          sudo prlimit --pid $$ --nofile=1048576:1048576
+          arcium test 2>&1 | tee ci-test.log
+          echo "::notice title=arcium test::$(grep -E 'passing|failing|pending' ci-test.log | paste -sd ' ' -)"
+
+      # The tests print one line per MPC round trip ("[latency] …") and per
+      # sealed-vs-plain comparison ("[compare] …"). Those are the measurements
+      # the integration records, so they go into an annotation too — pass or fail.
+      - name: Report latency
+        if: always()
+        run: |
+          [ -s ci-test.log ] || exit 0
+          grep -E '\[(latency|compare)\]' ci-test.log | sed -e 's/^ *//' -e 's/ (finalize .*)$//' > latency.txt || true
+          [ -s latency.txt ] || exit 0
+          echo "::notice title=MPC latency (localnet)::$(sed -e 's/%/%25/g' latency.txt | awk 'BEGIN{ORS="%0A"} {print}')"
+
+      # The AA client builds instructions from the committed mxe/idl/aa_mxe.json
+      # (assembled without the Arcium toolchain). Fail if it no longer matches
+      # the program — after the tests, so a drift does not hide their results —
+      # and put the differences where the session can read them.
+      - name: IDL matches the committed copy
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          if ! python3 scripts/assemble-idl.py --compare idl/aa_mxe.json target/idl/aa_mxe.json > idl-compare.log 2>&1; then
+            echo "::error title=IDL drift::$(head -c 60000 idl-compare.log | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"
+            exit 1
+          fi
+          cat idl-compare.log
+
+      # Surface the failure where the session can read it. Annotation messages
+      # are capped, so take the tail; %0A keeps the line breaks.
+      - name: Report failure
+        if: failure()
+        run: |
+          for f in ci-test.log ci-build.log ci-install.log; do
+            [ -s "$f" ] || continue
+            tail -n 80 "$f" | sed -e 's/%/%25/g' -e 's/\r//g' | awk 'BEGIN{ORS="%0A"} {print}' > tail.txt
+            echo "::error title=$f (last 80 lines)::$(cat tail.txt)"
+          done

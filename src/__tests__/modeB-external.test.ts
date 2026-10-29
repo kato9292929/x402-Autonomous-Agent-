@@ -78,11 +78,18 @@ test("config/portfolio.json contains expected tickers", () => {
   }
 });
 
-test("MODE B has 14 endpoints (9 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI removed)", async () => {
+test("MODE B has 11 endpoints (9 base + 2 JIN Solana; Hyperliquid の fetch 停止後)", async () => {
   const { ENDPOINTS_MODE_B } = await import("../config");
-  assert.equal(ENDPOINTS_MODE_B.length, 14, "MODE B should have exactly 14 endpoints");
+  assert.equal(ENDPOINTS_MODE_B.length, 11, "MODE B should have exactly 11 endpoints");
 
   const ids = ENDPOINTS_MODE_B.map((e) => e.id);
+
+  // Mode A 専用の材料だった Hyperliquid は、Mode A が SMS 起点になった時点で
+  // 読み手がいなくなったので購入も止めた。
+  assert.ok(!ids.includes("hyperliquid-intelligence"), "hyperliquid should NOT be in MODE B");
+
+  // ODO 有償エンドポイント(base)が追加されている
+  assert.ok(ids.includes("odo-funding-nowcast"), "odo-funding-nowcast should be in MODE B");
 
   // PMI must be removed
   assert.ok(!ids.includes("private-market"), "private-market (PMI) should NOT be in MODE B");
@@ -95,21 +102,23 @@ test("MODE B has 14 endpoints (9 base + 5 Solana, Birdeye/Perplexity/Hyre/PMI re
   assert.ok(!ids.includes("birdeye-ohlcv"), "birdeye-ohlcv should NOT be in MODE B (removed)");
   assert.ok(!ids.includes("perplexity-research"), "perplexity-research should NOT be in MODE B (removed)");
 
-  // osd Solana endpoints
-  assert.ok(ids.includes("osd-ipo"), "osd-ipo should be in MODE B");
-  assert.ok(ids.includes("osd-holders"), "osd-holders should be in MODE B");
-  assert.ok(ids.includes("osd-liquidity"), "osd-liquidity should be in MODE B");
+  // JIN Solana endpoints
   assert.ok(ids.includes("osd-jin-latest"), "osd-jin-latest should be in MODE B");
   assert.ok(ids.includes("osd-jin-movers"), "osd-jin-movers should be in MODE B");
 
-  const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
-  assert.equal(solanaEps.length, 5, "Should have exactly 5 Solana endpoints");
+  // Deleted upstream (osd PR #29) — these 404 on the new domain.
+  assert.ok(!ids.includes("osd-ipo"), "osd-ipo was deleted upstream");
+  assert.ok(!ids.includes("osd-holders"), "osd-holders was deleted upstream");
+  assert.ok(!ids.includes("osd-liquidity"), "osd-liquidity was deleted upstream");
 
+  const solanaEps = ENDPOINTS_MODE_B.filter((e) => e.chain === "solana");
+  assert.equal(solanaEps.length, 2, "Should have exactly 2 Solana endpoints");
+
+  // Prices per the published catalog: jin/latest is free, jin/movers is $0.02.
+  const expectedCost: Record<string, number> = { "osd-jin-latest": 0, "osd-jin-movers": 0.02 };
   for (const ep of solanaEps) {
-    // osd endpoints → osd-coral; JIN endpoints → jin-orcin-pi
-    const expectedHost = ep.id.startsWith("osd-jin-") ? "jin-orcin-pi.vercel.app" : "osd-coral.vercel.app";
-    assert.ok(ep.url.includes(expectedHost), `${ep.id} should point to ${expectedHost}`);
+    assert.ok(ep.url.includes("jin.x402jp.com"), `${ep.id} should point to jin.x402jp.com`);
     assert.equal(ep.method, "GET");
-    assert.equal(ep.cost, 0.01);
+    assert.equal(ep.cost, expectedCost[ep.id]);
   }
 });

@@ -6,9 +6,18 @@ import { IDKit, proofOfHuman, type IDKitRequest } from "@worldcoin/idkit-core";
 import { signRequest } from "@worldcoin/idkit-core/signing";
 import { IDENTITY_REGISTRY, AGENT_REGISTRY_ID } from "./erc8004/contract";
 import { findPendingItem, markApproved, listItems } from "./world-id/queue";
-import { isNullifierUsed, recordNullifier } from "./world-id/nullifier-store";
+import { claimNullifier } from "./world-id/nullifier-store";
 import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessions";
 import { runModeC } from "./modes/modeC";
+import { loadRuns } from "./store/run-store";
+import { buildSamples } from "./store/samples";
+import { loadDecisions } from "./store/decision-store";
+import { loadSweepSummaries } from "./store/sweep-summary";
+import { loadSweepItems } from "./store/sweep-items";
+import { loadProbeRuns } from "./store/probe-store";
+import { PROBE_TARGETS } from "./probe/targets";
+import { buildDashboardPage } from "./dashboard";
+import { handleMxeApi } from "./mxe/api";
 import type { WorldIdVerifyResponse } from "./world-id/types";
 import type { IDKitResult } from "@worldcoin/idkit-core";
 // Re-export IDKitRequest in idkit-sessions.ts uses this type too
@@ -121,6 +130,13 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * Assets the landing page requests from the root. The page is served at "/", so
+ * its relative "./styles.css" resolves to "/styles.css" — these must be served
+ * from site/ rather than falling through to 404.
+ */
+const SITE_ASSETS = new Set(["/styles.css", "/glass-card.js", "/ui.js"]);
+
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
   res.setHeader("Content-Type", "application/json");
@@ -218,7 +234,7 @@ async function handleApproveGet(
     return;
   }
 
-  const item = findPendingItem(queueId);
+  const item = await findPendingItem(queueId);
   if (!item) {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Queue item not found or already approved");
@@ -299,7 +315,7 @@ async function handleVerify(
     return;
   }
 
-  const item = findPendingItem(queueId);
+  const item = await findPendingItem(queueId);
   if (!item) {
     sendJson(res, 409, { error: "Queue item not found or already approved" });
     return;
@@ -343,13 +359,14 @@ async function handleVerify(
     return;
   }
 
-  if (isNullifierUsed(nullifier, expectedAction)) {
+  // Atomic claim (SET NX): rejects a replayed / double (nullifier, action).
+  const claimed = await claimNullifier(nullifier, expectedAction);
+  if (!claimed) {
     sendJson(res, 409, { error: "Nullifier already used for this action" });
     return;
   }
 
-  recordNullifier(nullifier, expectedAction);
-  markApproved(queueId);
+  await markApproved(queueId);
 
   console.log(`[WORLD-ID] Verified — queueId=${queueId}, nullifier=${nullifier.slice(0, 16)}…`);
 
@@ -434,6 +451,167 @@ export function startHttpServer(): void {
       return;
     }
 
+    // Static preview of the new hero design (site/). Railway gives no PR preview
+    // URLs, so the agent serves the candidate design itself at /preview.
+    // Landing page (site/) at "/", plus its assets. /preview/ is kept as an
+    // alias. The daily-records dashboard moves to /dashboard.
+    const isSiteAsset = SITE_ASSETS.has(urlPath);
+    if (
+      req.method === "GET" &&
+      (urlPath === "/" || isSiteAsset || urlPath.startsWith("/preview"))
+    ) {
+      // Without the trailing slash the browser resolves the page's relative
+      // "./styles.css" against /, not /preview/, and every asset 404s.
+      if (urlPath === "/preview") {
+        res.writeHead(301, { Location: "/preview/" });
+        res.end();
+        return;
+      }
+      const rel =
+        urlPath === "/" || urlPath === "/preview/"
+          ? "index.html"
+          : isSiteAsset
+            ? urlPath.slice(1)
+            : urlPath.slice("/preview/".length);
+      const root = path.join(process.cwd(), "site");
+      const filePath = path.normalize(path.join(root, rel));
+      if (!filePath.startsWith(root)) {
+        res.writeHead(404);
+        res.end("not found");
+        return;
+      }
+      const types: Record<string, string> = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".mjs": "text/javascript; charset=utf-8",
+        ".svg": "image/svg+xml",
+      };
+      try {
+        const body = fs.readFileSync(filePath);
+        res.setHeader("Content-Type", types[path.extname(filePath)] ?? "application/octet-stream");
+        res.setHeader("Cache-Control", "no-store");
+        res.writeHead(200);
+        res.end(body);
+      } catch {
+        res.writeHead(404);
+        res.end("not found");
+      }
+      return;
+    }
+
+    // Daily-records dashboard (served by the agent itself) + its data endpoints
+    if (urlPath === "/dashboard" && req.method === "GET") {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.writeHead(200);
+      res.end(buildDashboardPage());
+      return;
+    }
+
+    if (urlPath === "/api/runs" && req.method === "GET") {
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
+      const limit = Math.min(200, Math.max(1, parseInt(q ?? "60", 10) || 60));
+      loadRuns(limit)
+        .then((runs) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { runs });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/runs error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // Latest weekly sweep per surface (catalyst / EDINET), newest first —
+    // the "毎週N社 per-call 決済" evidence shown at the top of the card.
+    if (urlPath === "/api/sweeps" && req.method === "GET") {
+      loadSweepSummaries()
+        .then((sweeps) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { sweeps });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/sweeps error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // External x402 probe runs, newest first — what third-party sellers were
+    // paid, what they quoted, and what they actually returned. Separate from
+    // /api/sweeps, which is our own surfaces (EDINET / catalyst).
+    if (urlPath === "/api/probes" && req.method === "GET") {
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
+      const limit = Math.min(60, Math.max(1, parseInt(q ?? "12", 10) || 12));
+      loadProbeRuns(limit)
+        .then((probes) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          // Records carry the seller id only. Ship the id→name map with them so
+          // the dashboard never has to keep its own copy: a hardcoded one drifts
+          // the moment a seller is added, which is how Exa first rendered as
+          // "exa". Suspended sellers are named too — their rows are still shown.
+          const targets = Object.fromEntries(
+            PROBE_TARGETS.map((t) => [t.id, t.name])
+          );
+          sendJson(res, 200, { probes, targets });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/probes error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // Full per-company settlement list of one sweep (paged):
+    //   GET /api/sweeps/{surface}/{week}/items?offset=&limit=
+    if (req.method === "GET" && /^\/api\/sweeps\/[^/]+\/[^/]+\/items$/.test(urlPath)) {
+      const parts = urlPath.split("/"); // ["", "api", "sweeps", surface, week, "items"]
+      const surface = decodeURIComponent(parts[3]);
+      const week = decodeURIComponent(parts[4]);
+      const qp = new URL(req.url ?? "/", "http://localhost").searchParams;
+      const offset = Math.max(0, parseInt(qp.get("offset") ?? "0", 10) || 0);
+      const limit = Math.min(500, Math.max(1, parseInt(qp.get("limit") ?? "50", 10) || 50));
+      loadSweepItems(surface, week, offset, limit)
+        .then((page) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { surface, week, ...page });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/sweeps items error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // Per-endpoint sample of what the agent actually received on its last call.
+    if (urlPath === "/api/samples" && req.method === "GET") {
+      loadRuns(60)
+        .then((runs) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { samples: buildSamples(runs) });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/samples error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    if (urlPath === "/api/decisions" && req.method === "GET") {
+      const agentId = process.env.ERC8004_AGENT_ID ?? "55560";
+      loadDecisions(agentId)
+        .then((all) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { decisions: all.slice(-60).reverse() });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/decisions error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
     // World ID routes
     if (urlPath === "/approve" && req.method === "GET") {
       handleApproveGet(req, res).catch((err: unknown) => {
@@ -471,7 +649,25 @@ export function startHttpServer(): void {
     }
 
     if (urlPath === "/api/world-id/queue" && req.method === "GET") {
-      sendJson(res, 200, { items: listItems() });
+      listItems()
+        .then((items) => sendJson(res, 200, { items }))
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/world-id/queue error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
+    // MXE records, aggregates and function 3's sealed-rating intake.
+    if (urlPath === "/api/mxe" || urlPath.startsWith("/api/mxe/")) {
+      handleMxeApi(req, res)
+        .then((handled) => {
+          if (!handled && !res.headersSent) sendJson(res, 404, { error: "not found" });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/mxe error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
       return;
     }
 
@@ -481,6 +677,13 @@ export function startHttpServer(): void {
 
   server.listen(port, () => {
     console.log(`[SERVER] HTTP server listening on port ${port}`);
+    console.log(`[SERVER] GET  /                            — Daily-records dashboard`);
+    console.log(`[SERVER] GET  /preview                     — Hero design preview (site/)`);
+    console.log(`[SERVER] GET  /api/runs?limit=N            — Recent run summaries (JSON)`);
+    console.log(`[SERVER] GET  /api/decisions               — Recent Mode A decisions (JSON)`);
+    console.log(`[SERVER] GET  /api/probes?limit=N          — External x402 probe runs (JSON)`);
+    console.log(`[SERVER] GET  /api/mxe                     — MXE records + per-function aggregates`);
+    console.log(`[SERVER] POST /api/mxe/ratings             — Function 3 sealed-rating intake (rate-limited)`);
     console.log(`[SERVER] GET  /api/latest-external-data`);
     console.log(`[SERVER] GET  /.well-known/agent-card.json`);
     console.log(`[SERVER] GET  /approve?id={queueId}        — World ID approval page`);

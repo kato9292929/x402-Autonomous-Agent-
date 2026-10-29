@@ -12,7 +12,30 @@
 import * as fs from "fs";
 import * as path from "path";
 
+/**
+ * Signals behind one decision.
+ *
+ * Shape as of 2026-09: the Smart Money Screener is the candidate source, and
+ * the Hyperliquid / Whale Intent fields are gone with the endpoints. Records
+ * written before that keep their own shape — the store is append-only and old
+ * records are never rewritten, so a reader spanning the change sees both.
+ */
 export interface DecisionSignals {
+  smartMoney: {
+    available: boolean;
+    /** How many rows the screener returned (0 is the finding, not an error). */
+    rowCount: number;
+    token?: string;
+    chain?: string;
+    /** 24h net flow, USD. Its sign is the recorded direction. */
+    netFlowUsd?: number;
+    score?: number;
+    /** Divisor used to map `score` onto 0..1, so the mapping is auditable. */
+    scoreScale?: number;
+    smWallets?: number;
+    source: "mode-b-reuse" | "unavailable";
+    peek?: string;
+  };
   divergence: {
     available: boolean;
     token?: string;
@@ -20,20 +43,6 @@ export interface DecisionSignals {
     netFlowUsd?: number;
     source: "mode-b-reuse" | "unavailable";
     peek?: string;
-  };
-  hyperliquid: {
-    available: boolean;
-    bias?: number;
-    biasField?: string;
-    source: "mode-b-reuse" | "unavailable";
-    peek?: string;
-  };
-  whaleIntent: {
-    available: boolean;
-    intent?: string;
-    confidence?: number;
-    source: "wid" | "unavailable";
-    costUsdc: number;
   };
 }
 
@@ -98,4 +107,40 @@ async function appendUpstash(record: DecisionRecord): Promise<void> {
 export async function appendDecision(record: DecisionRecord): Promise<void> {
   appendLocal(record);
   await appendUpstash(record);
+}
+
+/**
+ * Read all Mode A daily decisions for an agent (trade_agent_daily:{agentId}).
+ * Upstash(LRANGE) が使えればそれ、無ければローカル JSONL を読む。読み取り専用。
+ */
+export async function loadDecisions(agentId: string): Promise<DecisionRecord[]> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    const key = `trade_agent_daily:${agentId}`;
+    const endpoint = `${url.replace(/\/$/, "")}/lrange/${encodeURIComponent(key)}/0/-1`;
+    try {
+      const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const json = (await res.json()) as { result?: string[] };
+        return (json.result ?? [])
+          .map((s) => JSON.parse(s) as DecisionRecord)
+          .filter((r) => r.agentId === agentId);
+      }
+      console.warn(`[MODE A] Upstash LRANGE failed: HTTP ${res.status}`);
+    } catch (err) {
+      console.warn(`[MODE A] Upstash LRANGE error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  // local fallback
+  try {
+    return fs
+      .readFileSync(localFilePath(), "utf-8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as DecisionRecord)
+      .filter((r) => r.agentId === agentId);
+  } catch {
+    return [];
+  }
 }

@@ -1,0 +1,233 @@
+# Deploy aa_mxe to Arcium devnet (cluster 456) and run the whole suite there,
+# against the real cluster.
+#
+# Runs only when the head commit's subject line starts with "[devnet]", from any
+# branch, so a deployment can be tried without merging. "Starts with", not
+# "contains": a commit that merely describes this workflow mentioned the tag in
+# its body and set a deploy off.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   ARCIUM_DEVNET_DEPLOY_KEY  Solana CLI keypair JSON (devnet only)
+#   HELIUS_API_KEY            Helius key (devnet RPC)
+# Everything else — the daily MXE job — runs in the AA on Railway.
+#
+# The program id is derived from the deploy key (scripts/derive-program-keypair.js),
+# so it is stable across deploys without a second secret. The committed
+# declare_id is a localnet placeholder and is rewritten here, on the runner only.
+#
+# Circuits are not stored on chain (that would cost ≈ 75 SOL in rent). The build
+# compiles each comp def to fetch `{base}/{name}.arcis` and to check it against
+# the hash compiled in; the files are pushed to the `mxe-circuits` branch under
+# this commit's SHA, and served from raw.githubusercontent.com. A comp def is
+# immutable once initialized, so a changed circuit needs a fresh program id
+# (bump the seed version in scripts/derive-program-keypair.js).
+#
+# Results — program id, deploy mode, SOL spent, test outcome, latency — are
+# emitted as annotations, the one part of a run the development session can read.
+
+name: arcium-devnet
+
+on:
+  push:
+    paths:
+      - "mxe/**"
+      - ".github/workflows/arcium-devnet.yml"
+  # Also from the Actions tab, once this file is on the default branch.
+  workflow_dispatch:
+
+permissions:
+  # write: to publish the compiled circuits on the mxe-circuits branch.
+  contents: write
+
+concurrency:
+  # One deployment at a time across branches, and never cancel one midway.
+  group: arcium-devnet
+  cancel-in-progress: false
+
+jobs:
+  deploy-test:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[devnet]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CLUSTER_OFFSET: "456"
+      AA_MXE_CIRCUIT_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/mxe-circuits/${{ github.sha }}
+    defaults:
+      run:
+        working-directory: mxe
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: arcium-hq/setup-arcium@v0.15.0
+        with:
+          runner-arch-os: x86_64_linux
+          arcium-version: "0.15.0"
+          anchor-version: "1.0.2"
+          solana-cli-version: "3.1.10"
+          node-version: "24.10.0"
+
+      - name: Secrets present
+        env:
+          DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY }}
+        run: |
+          missing=""
+          [ -n "$DEPLOY_KEY" ] || missing="$missing ARCIUM_DEVNET_DEPLOY_KEY"
+          [ -n "$HELIUS" ] || missing="$missing HELIUS_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error title=devnet secrets missing::$missing"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Keys and program id
+        env:
+          DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY }}
+        run: |
+          mkdir -p ~/.config/solana target/deploy
+          printf '%s' "$DEPLOY_KEY" > ~/.config/solana/id.json
+          chmod 600 ~/.config/solana/id.json
+          program_id=$(node scripts/derive-program-keypair.js ~/.config/solana/id.json target/deploy/aa_mxe-keypair.json 2>/dev/null | tail -1)
+          authority=$(solana-keygen pubkey ~/.config/solana/id.json)
+          {
+            echo "PROGRAM_ID=$program_id"
+            echo "AUTHORITY=$authority"
+            # The API key is a registered secret, so it is masked wherever this appears.
+            echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$HELIUS"
+          } >> "$GITHUB_ENV"
+          echo "::notice title=devnet identities::program $program_id | upgrade authority $authority"
+
+      # Rewrite the localnet placeholder on the runner only; nothing is committed.
+      - name: Point the build at devnet
+        run: |
+          sed -i "s/declare_id!(\"[^\"]*\")/declare_id!(\"$PROGRAM_ID\")/" programs/aa_mxe/src/lib.rs
+          python3 - <<'PY'
+          import os, re
+          pid, rpc = os.environ["PROGRAM_ID"], os.environ["RPC_URL"]
+          a = open("Anchor.toml").read()
+          a = re.sub(r'^aa_mxe = ".*"$', f'aa_mxe = "{pid}"', a, flags=re.M)
+          a += f'\n[programs.devnet]\naa_mxe = "{pid}"\n'
+          a = re.sub(r'(?ms)^\[provider\].*?(?=^\[|\Z)',
+                     f'[provider]\ncluster = "{rpc}"\nwallet = "~/.config/solana/id.json"\n\n', a)
+          open("Anchor.toml", "w").write(a)
+          t = open("Arcium.toml").read()
+          t += f'\n[clusters.devnet]\noffset = {os.environ["CLUSTER_OFFSET"]}\n'
+          open("Arcium.toml", "w").write(t)
+          PY
+          grep -n "declare_id" programs/aa_mxe/src/lib.rs
+
+      - name: Build
+        run: |
+          set -o pipefail
+          arcium build 2>&1 | tee ci-build.log
+
+      - name: Publish circuits
+        run: |
+          set -e
+          pub=$(mktemp -d)
+          git -C "$pub" init -q
+          git -C "$pub" remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git -C "$pub" fetch -q --depth 1 origin mxe-circuits; then
+            git -C "$pub" checkout -q -b mxe-circuits FETCH_HEAD
+          else
+            git -C "$pub" checkout -q --orphan mxe-circuits
+          fi
+          mkdir -p "$pub/$GITHUB_SHA"
+          cp build/*.arcis "$pub/$GITHUB_SHA/"
+          git -C "$pub" add "$GITHUB_SHA"
+          # A re-run of the same commit finds its files already published.
+          if ! git -C "$pub" diff --cached --quiet; then
+            git -C "$pub" -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+              commit -q -m "circuits for $GITHUB_SHA"
+            git -C "$pub" push -q origin mxe-circuits
+          fi
+          # Fail now, not inside the cluster, if a file is not reachable.
+          for f in build/*.arcis; do
+            n=$(basename "$f")
+            for i in 1 2 3 4 5 6; do
+              curl -fsS -o /tmp/got "$AA_MXE_CIRCUIT_BASE_URL/$n" && break
+              sleep 10
+            done
+            cmp -s "$f" /tmp/got || { echo "::error title=circuit not served::$AA_MXE_CIRCUIT_BASE_URL/$n"; exit 1; }
+          done
+          echo "::notice title=circuits::published to $AA_MXE_CIRCUIT_BASE_URL"
+
+      # Devnet SOL is free but rationed. What the deploy needs scales with the
+      # binary (programdata + a same-size buffer while it uploads); circuits are
+      # off chain. Check before spending a deploy on it.
+      - name: Fund the deploy key
+        run: |
+          # Ask the cluster: rent per byte is falling in steps (SIMD-0437), so a
+          # fixed constant here would overstate it.
+          lamports() { solana rent "$1" --lamports --url "$RPC_URL" | awk '/Rent-exempt minimum/ {print $3}'; }
+          so=$(stat -c %s target/deploy/aa_mxe.so)
+          # Programdata plus the same-size upload buffer (returned after the
+          # deploy), plus 0.3 SOL for upload fees, the MXE's accounts and the
+          # test computations — those come to well under that.
+          need=$(( $(lamports $((so + 45))) * 2 + 300000000 ))
+          sol() { awk -v l="$1" 'BEGIN { printf "%.3f", l / 1e9 }'; }
+          need_sol=$(sol "$need")
+          bal() { solana balance "$AUTHORITY" --lamports --url "$RPC_URL" | awk '{print $1}'; }
+          have=$(bal)
+          echo "BAL_BEFORE=$have" >> "$GITHUB_ENV"
+          for i in 1 2 3; do
+            [ "$have" -ge "$need" ] && break
+            solana airdrop 2 "$AUTHORITY" --url https://api.devnet.solana.com || true
+            sleep 15; have=$(bal)
+          done
+          have_sol=$(sol "$have")
+          if [ "$have" -lt "$need" ]; then
+            echo "::error title=devnet SOL short::have ${have_sol} SOL, need ≈ ${need_sol} SOL. Send devnet SOL to ${AUTHORITY} (https://faucet.solana.com)."
+            exit 1
+          fi
+          echo "::notice title=devnet SOL::have ${have_sol} SOL, need ≈ ${need_sol} SOL (program ${so} B)"
+
+      - name: Deploy
+        run: |
+          set -o pipefail
+          if solana program show "$PROGRAM_ID" --url "$RPC_URL" >/dev/null 2>&1; then
+            mode=upgrade; extra="--skip-init"
+          else
+            mode=fresh; extra=""
+          fi
+          echo "DEPLOY_MODE=$mode" >> "$GITHUB_ENV"
+          arcium deploy \
+            --cluster-offset "$CLUSTER_OFFSET" \
+            --recovery-set-size 4 \
+            --keypair-path ~/.config/solana/id.json \
+            --program-keypair target/deploy/aa_mxe-keypair.json \
+            --rpc-url "$RPC_URL" \
+            $extra 2>&1 | tee ci-deploy.log
+          echo "::notice title=deploy::${mode} → ${PROGRAM_ID} on cluster ${CLUSTER_OFFSET}"
+
+      - name: Test on devnet
+        run: |
+          set -o pipefail
+          arcium test --cluster devnet 2>&1 | tee ci-test.log
+          echo "::notice title=arcium test (devnet)::$(grep -E 'passing|failing|pending' ci-test.log | paste -sd ' ' -)"
+
+      - name: Report latency and spend
+        if: always()
+        run: |
+          if [ -s ci-test.log ]; then
+            grep -E '\[(latency|compare)\]' ci-test.log | sed -e 's/^ *//' -e 's/ (finalize .*)$//' > latency.txt || true
+            [ -s latency.txt ] && echo "::notice title=MPC latency (devnet)::$(sed -e 's/%/%25/g' latency.txt | awk 'BEGIN{ORS="%0A"} {print}')"
+          fi
+          if [ -n "${BAL_BEFORE:-}" ]; then
+            after=$(solana balance "$AUTHORITY" --lamports --url "$RPC_URL" | awk '{print $1}')
+            spent=$(awk -v b="$BAL_BEFORE" -v a="$after" 'BEGIN { printf "%.6f", (b - a) / 1e9 }')
+            echo "::notice title=devnet SOL spent::${spent} SOL this run (deploy mode: ${DEPLOY_MODE:-none})"
+          fi
+
+      - name: Report failure
+        if: failure()
+        run: |
+          for f in ci-test.log ci-deploy.log ci-build.log; do
+            [ -s "$f" ] || continue
+            tail -n 80 "$f" | sed -e 's/%/%25/g' -e 's/\r//g' | awk 'BEGIN{ORS="%0A"} {print}' > tail.txt
+            echo "::error title=$f (last 80 lines)::$(cat tail.txt)"
+          done

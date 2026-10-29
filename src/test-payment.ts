@@ -1,33 +1,29 @@
 /**
  * Payment diagnostics script for @x402/fetch v2.
  * Run: node dist/test-payment.js
+ *
+ * 署名バックエンドは本番(initX402Fetch)と同じ SIGNER_BACKEND 分岐を共有する
+ * (buildEvmSchemeWithInfo)。SIGNER_BACKEND=circle なら本番の Circle DCW ウォレット、
+ * 既定(privatekey)なら PAYMENT_PRIVATE_KEY の EOA。テストと本番で署名ウォレットが
+ * 取り違わないようにするため。
  */
 import "dotenv/config";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
-import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
-import { privateKeyToAccount } from "viem/accounts";
+import { buildEvmSchemeWithInfo } from "./x402";
 
 const TARGET_URL =
   process.env.TEST_URL ??
   "https://x402yi.vercel.app/api/yield/scan"; // Yield Intelligence $0.20
 
 async function diagnose(): Promise<void> {
-  const privateKey = process.env.PAYMENT_PRIVATE_KEY;
-  if (!privateKey) {
-    console.error("ERROR: PAYMENT_PRIVATE_KEY is not set");
-    process.exit(1);
-  }
-
   console.log("=== x402 v2 Payment Diagnostics ===");
   console.log(`Target URL: ${TARGET_URL}`);
 
-  // ── Step 1: Build signer ────────────────────────────────────────
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
-  const signer = toClientEvmSigner(account);
-  console.log(`\n[1] Signer address: ${account.address}`);
+  // ── Step 1: Build signer (本番と同一の SIGNER_BACKEND 分岐) ──────────
+  const { scheme: evmScheme, address, backend } = buildEvmSchemeWithInfo();
+  console.log(`\n[1] Signer backend: ${backend}, address: ${address}`);
 
   // ── Step 2: Build x402Client ────────────────────────────────────
-  const evmScheme = new ExactEvmScheme(signer);
   const client = new x402Client()
     .register("eip155:8453", evmScheme)  // v2
     .registerV1("base", evmScheme);       // v1 compat

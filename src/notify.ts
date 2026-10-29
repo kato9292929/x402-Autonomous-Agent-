@@ -1,5 +1,16 @@
 import type { RunLog } from "./types";
 
+/**
+ * Balance warnings from the pre-flight check, surfaced in the next webhook.
+ * A low wallet is exactly the thing that should reach a human, and the log
+ * alone did not (the Solana payer sat empty for a week).
+ */
+let pendingBalanceWarnings: string[] = [];
+
+export function setBalanceWarnings(warnings: string[]): void {
+  pendingBalanceWarnings = warnings;
+}
+
 export async function sendWebhookSummary(log: RunLog): Promise<void> {
   const webhookUrl =
     process.env.DISCORD_WEBHOOK_URL ?? process.env.SLACK_WEBHOOK_URL;
@@ -18,6 +29,11 @@ export async function sendWebhookSummary(log: RunLog): Promise<void> {
     `💰 Total spent: $${log.totalCostUsdc.toFixed(3)} USDC`,
     `⏱ Execution time: ${secs}s`,
   ];
+
+  if (pendingBalanceWarnings.length > 0) {
+    lines.push(``, `🪫 Wallet:`);
+    pendingBalanceWarnings.forEach((w) => lines.push(`  • ${w}`));
+  }
 
   if (log.errors.length > 0) {
     lines.push(``, `⚠️ Errors:`);

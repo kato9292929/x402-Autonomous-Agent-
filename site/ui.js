@@ -1,0 +1,582 @@
+/** Menu, endpoints overlay, and the live "latest run" card. */
+
+/* ── Endpoint catalog ──────────────────────────────────────────────────────
+   Hosts are the x402jp.com custom domains. Prices and descriptions match the
+   published catalog on x402jp.com/products.html. `daily` marks the endpoints
+   this agent calls on its 06:00 JST schedule. */
+const GROUPS = [
+  {
+    name: 'Japan Inflation Nowcast',
+    host: 'jin.x402jp.com',
+    note: '決済は Solana USDC（x402 v2）。discovery は /.well-known/x402.json。',
+    eps: [
+      { method: 'GET', path: '/api/jin/latest', free: true, daily: true, desc: '最新観測日の指数（excl_promo / incl_promo・matched・base_date・coverage・passthrough_gap）。' },
+      { method: 'GET', path: '/api/jin/series', price: '$0.01', desc: '指数の時系列（from / to は任意）。' },
+      { method: 'GET', path: '/api/jin/movers', price: '$0.02', daily: true, desc: 'その日動いた品目（特売タグ付き。date は任意）。' },
+    ],
+  },
+  {
+    name: 'Onchain Stock Data',
+    host: 'osd.x402jp.com',
+    note: '決済は Base または Solana USDC（dual）。402が両方のチェーンを提示するので、クライアントがどちらかを選ぶ。discovery は /.well-known/x402.json。',
+    eps: [
+      { method: 'GET', path: '/api/alpha/catalysts/physical-ai', free: true, desc: 'Physical-AI スコアボード（hit-rate・全86条件・記事別、機械可読 JSON）。' },
+      { method: 'GET', path: '/api/alpha/portfolio/current', price: '$0.01', daily: true, desc: '米ポートフォリオ 現在10銘柄（ticker / weight / thesis）。' },
+      { method: 'GET', path: '/api/alpha/portfolio/scorecard', price: '$0.01', daily: true, desc: '米 catalyst hit-rate ＋ SPY / QQQ 累積リターン。' },
+      { method: 'GET', path: '/api/alpha/jp/portfolio/current', price: '$0.01', daily: true, desc: '日本ポートフォリオ 現在10銘柄。' },
+      { method: 'GET', path: '/api/alpha/jp/scorecard', price: '$0.01', daily: true, desc: '日本 hit-rate（ベンチ指数なし）。' },
+      { method: 'GET', path: '/api/alpha/jp/catalysts', price: '$0.01', daily: true, desc: '日本 dated catalysts 一覧。' },
+      { method: 'POST', path: '/api/alpha/catalyst/submit', price: '$0.01', desc: '外部 catalyst 投稿（→ id ＋ score_lookup）。' },
+      { method: 'GET', path: '/api/alpha/catalyst/:catalyst_id/score', price: '$0.01', desc: '投稿 catalyst の Claude 判定（pending / hit / partial / miss / na）。' },
+    ],
+  },
+  {
+    name: 'Intelligence',
+    note: '決済は Base USDC。',
+    eps: [
+      { method: 'GET', path: 'x402amd.vercel.app/api/macro/dashboard', price: '$0.30', daily: true, desc: 'APACマクロ。金利・為替・フロー・リスク regime。' },
+      { method: 'GET', path: 'x402yi.vercel.app/api/yield/scan', price: '$0.20', daily: true, desc: 'DeFiの利回りスキャン。プール別のAPYとスマートマネー残高。' },
+      { method: 'POST', path: 'x402pi.vercel.app/api/portfolio/analyze', price: '$0.50', daily: true, desc: 'ウォレットアドレスを渡すとポートフォリオを分析。' },
+      { method: 'GET', path: 'x402-jrey.vercel.app/api/realestate/yield?area=tokyo', price: '$0.30', daily: true, desc: '日本の不動産利回り。エリア指定。' },
+      { method: 'GET', path: 'x402nansenpolymarket.vercel.app/api/divergence/scan', price: '$0.15', daily: true, desc: '予測市場とオンチェーンフローの乖離スキャン。' },
+      { method: 'GET', path: 'x402-hl.vercel.app/api/hyperliquid/scan', price: '$0.20', desc: 'Hyperliquidの建玉・ファンディングとスマートマネーの偏り。' },
+      { method: 'GET', path: 'smartmoneyscreener.vercel.app/api/screener/smart-money', price: '$0.05', daily: true, desc: 'スマートマネーが買っているトークンのスクリーニング。' },
+      { method: 'GET', path: 'x402oif.vercel.app/api/feed/apac-daily', price: '$0.10', daily: true, desc: 'APACの日次オンチェーンサマリー。' },
+      { method: 'GET', path: 'x402oif.vercel.app/api/feed/whale-alert', price: '$0.20', daily: true, desc: '大口転送のアラート。' },
+      { method: 'GET', path: 'odo-gamma.vercel.app/funding/nowcast/current', price: '$0.01', daily: true, desc: 'perpのファンディング・ナウキャスト。バスケット別。' },
+    ],
+  },
+];
+
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Path key used to match a catalog row against a captured sample. */
+function pathKey(p) {
+  const withoutHost = p.startsWith('/') ? p : '/' + p.split('/').slice(1).join('/');
+  return withoutHost.split('?')[0];
+}
+
+function renderGroups() {
+  const host = document.getElementById('groups');
+  if (!host) return;
+  host.innerHTML = GROUPS.map((g) => {
+    const rows = g.eps.map((ep) => {
+      const key = pathKey(ep.path);
+      return `
+      <div class="ep" data-path="${esc(key)}">
+        <div class="ep__top">
+          <code class="ep__code"><span class="ep__m">${esc(ep.method)}</span> <span class="ep__p">${esc(ep.path)}</span></code>
+          <span class="pill ${ep.free ? 'pill--ok' : 'pill--pay'}">${ep.free ? '200' : '402'}</span>
+          <span class="ep__price">${ep.free ? 'free' : esc(ep.price)}</span>
+          ${ep.daily ? '<span class="chip-on">daily ✓</span>' : '<span class="chip-off">—</span>'}
+        </div>
+        <p class="ep__desc">${esc(ep.desc)}</p>
+        <div class="ep__sample" data-sample></div>
+      </div>`;
+    }).join('');
+    return `
+      <section class="grp">
+        <div class="grp__head">
+          <h3 class="grp__name">${esc(g.name)}</h3>
+          ${g.host ? `<code class="grp__host">host: ${esc(g.host)}</code>` : ''}
+        </div>
+        ${rows}
+        <p class="grp__note">${esc(g.note)}</p>
+      </section>`;
+  }).join('');
+}
+renderGroups();
+
+/* ── Response samples: what the agent actually got back ───────────────────
+   Real captured bodies from /api/samples. Rows the agent has never called
+   simply say so rather than showing an invented example. */
+async function loadSamples() {
+  let samples = [];
+  try {
+    const res = await fetch('/api/samples');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    samples = (await res.json()).samples || [];
+  } catch {
+    document.querySelectorAll('[data-sample]').forEach((el) => {
+      el.innerHTML = '<p class="sample__none">Response data unavailable.</p>';
+    });
+    return;
+  }
+
+  const byPath = new Map(samples.map((s) => [s.path, s]));
+
+  document.querySelectorAll('.ep').forEach((row) => {
+    const slot = row.querySelector('[data-sample]');
+    if (!slot) return;
+    const key = row.getAttribute('data-path');
+    let s = byPath.get(key);
+    // ":ticker" style rows match whatever concrete path the agent actually used.
+    if (!s && key.includes(':')) {
+      const prefix = key.slice(0, key.indexOf(':'));
+      for (const [p, v] of byPath) if (p.startsWith(prefix)) { s = v; break; }
+    }
+    if (!s) {
+      slot.innerHTML = '<p class="sample__none">Not called by this agent — no captured response.</p>';
+      return;
+    }
+
+    const when = new Date(s.at).toLocaleDateString('ja-JP');
+    const tx = s.txHash
+      ? `<a class="sample__tx" href="${txUrl(s.txHash)}" target="_blank" rel="noopener">${esc(shortTx(s.txHash))}</a>`
+      : '';
+    const body = s.sample !== undefined
+      ? `<pre class="sample__pre">${esc(JSON.stringify(s.sample, null, 2))}</pre>`
+        + (s.truncated ? '<p class="sample__note">Trimmed for display — the agent stored the full body.</p>' : '')
+      : `<p class="sample__note">Body not captured for this endpoint. Logged excerpt: <code>${esc(s.peek || '—')}</code></p>`;
+
+    slot.innerHTML = `
+      <details class="sample">
+        <summary class="sample__sum">
+          <span>Response data</span>
+          <span class="sample__meta">${esc(when)} · ${esc(s.status)}${tx ? ' · ' : ''}${tx}</span>
+        </summary>
+        ${body}
+      </details>`;
+  });
+}
+
+/* ── Live "latest run" card ─────────────────────────────────────────────── */
+const money = (n) => '$' + (Number(n) || 0).toFixed(3);
+/** 百万円の表示。null/未取得は「—」(0で埋めない)。 */
+const fmtM = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : Number(n).toLocaleString('ja-JP'));
+const shortTx = (t) => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
+const txUrl = (t) => (t && t.startsWith('0x') ? 'https://basescan.org/tx/' + t : 'https://solscan.io/tx/' + t);
+/** Path of a called URL, to match a settlement against its captured sample. */
+const pathOf = (u) => { try { return new URL(u.indexOf('://') >= 0 ? u : 'https://' + u).pathname; } catch { return u || ''; } };
+
+/** Local YYYY-MM-DD of a run timestamp, used to group one day's modes together. */
+function dayKey(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+async function loadRun() {
+  const settle = document.getElementById('settle');
+  try {
+    const res = await fetch('/api/runs?limit=40');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const runs = (await res.json()).runs || [];
+    if (!runs.length) {
+      if (settle) settle.innerHTML = '<li class="settle__empty">No runs recorded yet.</li>';
+      return;
+    }
+
+    // One daily run is several modes in sequence (B → A → D), so aggregate the
+    // whole day rather than picking the newest single mode. Picking the newest
+    // always landed on Mode D, which runs last and is the smallest slice of the
+    // day's spend.
+    const ordered = runs.slice().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const latestDay = dayKey(ordered[ordered.length - 1].timestamp);
+    const today = ordered.filter((r) => dayKey(r.timestamp) === latestDay);
+
+    const results = today.flatMap((r) => r.results || []);
+    const paid = results.filter((r) => r.txHash);
+    const spend = today.reduce((a, r) => a + (Number(r.totalCostUsdc) || 0), 0);
+
+    document.getElementById('run-when').textContent =
+      new Date(today[today.length - 1].timestamp).toLocaleDateString('ja-JP');
+    // A cooled-down endpoint was intentionally not bought — don't count it as a
+    // failed call in the OK ratio (it is neither success nor a real attempt).
+    const isCooldown = (r) => r.status === 'degraded' && /^cooldown/.test(r.degradedReason || '');
+    const attempted = results.filter((r) => !isCooldown(r));
+
+    document.getElementById('stat-spend').textContent = money(spend);
+    document.getElementById('stat-tx').textContent = paid.length;
+    document.getElementById('stat-ok').textContent =
+      attempted.filter((r) => r.status === 'success').length + '/' + attempted.length;
+
+    if (settle) {
+      // Figures the agent actually received, keyed by path, so each row can show
+      // what was bought instead of only that something was.
+      const factsByPath = new Map();
+      try {
+        const sres = await fetch('/api/samples');
+        if (sres.ok) {
+          for (const s of (await sres.json()).samples || []) {
+            if (s.highlights && s.highlights.length) factsByPath.set(s.path, s.highlights);
+          }
+        }
+      } catch { /* highlights are additive — the list still renders without them */ }
+
+      // Show everything the day touched: settled rows, plus any that came back
+      // degraded (paid but fallback/stub data) or errored — with the reason — so
+      // the "N/M OK" count is legible instead of one row silently missing.
+      const shown = results.filter((r) => r.txHash || r.status === 'degraded' || r.status === 'error');
+      const dailyHtml = shown.map((r) => {
+        const cooldown = isCooldown(r);
+        const bad = r.status === 'degraded' || r.status === 'error';
+        const badge = cooldown ? '休止' : r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : '';
+        const reason = r.status === 'degraded'
+          ? (r.degradedReason || 'fallback data')
+          : r.status === 'error' ? (r.error || 'failed') : '';
+        const facts = factsByPath.get(pathOf(r.endpoint || '')) || [];
+        const line = bad
+          ? `<div class="settle__reason">${esc(String(reason).slice(0, 90))}</div>`
+          : (facts.length
+              ? `<div class="settle__facts">${facts.map((f) => `<span>${esc(f)}</span>`).join('')}</div>`
+              : (r.responsePeek ? `<div class="settle__facts settle__facts--raw">${esc(String(r.responsePeek).slice(0, 70))}</div>` : ''));
+        return `
+        <li class="settle__row${bad ? ' settle__row--bad' : ''}">
+          <div class="settle__head">
+            <span class="settle__name">${esc(r.product || r.endpoint)}${badge ? ` <span class="settle__badge">${badge}</span>` : ''}</span>
+            <span class="settle__cost">${money(r.costUsdc)}</span>
+            ${r.txHash
+              ? `<a class="settle__tx" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>`
+              : '<span class="settle__tx settle__tx--none">no tx</span>'}
+          </div>
+          ${line}
+        </li>`;
+      }).join('');
+      // The weekly Catalyst and EDINET sweeps have their own section below.
+      // Keep this card aligned with its daily date, spend and call counters.
+      settle.innerHTML = dailyHtml || '<li class="settle__empty">No settlements yet.</li>';
+    }
+  } catch (e) {
+    if (settle) settle.innerHTML = `<li class="settle__empty">Could not load run data (${esc(String(e))}).</li>`;
+  }
+}
+loadRun();
+setInterval(loadRun, 60000);
+
+/* ── Weekly sweep detail (below the hero) ───────────────────────────────────
+   Every company settled in the latest sweep, one row per per-call payment with
+   its own tx. Paged so hundreds→thousands of rows stay light. */
+const sweepState = { surface: null, week: null, offset: 0, total: 0, summaries: [] };
+
+function selectSweep(surface) {
+  const s = sweepState.summaries.find((x) => x.surface === surface);
+  if (!s) return;
+  sweepState.surface = surface;
+  sweepState.week = s.week;
+  sweepState.offset = 0;
+  sweepState.total = s.settlements;
+  document.querySelectorAll('#sweep-tabs .sweep__tab').forEach((b) =>
+    b.setAttribute('aria-selected', b.dataset.surface === surface ? 'true' : 'false'));
+  const name = surface === 'edinet' ? 'EDINET 週次' : surface;
+  document.getElementById('sweep-title').textContent = name;
+  document.getElementById('sweep-sub').textContent =
+    `${s.week} · ${s.settlements}件 · ${money(s.totalUsdc)} · 社ごとに per-call 決済`;
+
+  // Scope caveat (this week's settlements are an excerpt of the full universe)
+  // and what each per-call actually returns, with the data source.
+  const scope = document.getElementById('sweep-scope');
+  const desc = document.getElementById('sweep-desc');
+  if (surface === 'edinet') {
+    scope.innerHTML = `EDINET の全提出者 約4,000社を <code>/api/edinet/{code}</code> で per-call 取得可能。` +
+      `下記は今週 AA が実決済した ${s.settlements}社 ＝その抜粋。`;
+    // osd #51 の実スキーマに明記(曖昧な「主要財務」は廃止)。
+    desc.innerHTML = `各 per-call は <code>/api/edinet/{code}</code> で、その社の最新の有報／四半期報告書から` +
+      `実財務を1社ぶん返す：<code>sales</code>（売上高）・<code>operating_income</code>（営業利益）・` +
+      `<code>net_income</code>（純利益）＝いずれも生JPY、<code>period</code>（会計期間）・` +
+      `<code>doc_id</code>（EDINET書類ID）・<code>financials_available</code>。` +
+      `株価・時価総額などの相場データは含まない。` +
+      `<code>financials_available:false</code> の社は「書類は特定・財務は未取得」と表示する。出典：金融庁 EDINET。`;
+  } else {
+    scope.textContent = '';
+    desc.textContent = '';
+  }
+
+  document.getElementById('sweep-list').innerHTML = '';
+  loadSweepPage(true);
+}
+
+async function loadSweepPage(reset) {
+  const list = document.getElementById('sweep-list');
+  const more = document.getElementById('sweep-more');
+  if (reset) sweepState.offset = 0;
+  try {
+    const url = `/api/sweeps/${encodeURIComponent(sweepState.surface)}/${encodeURIComponent(sweepState.week)}/items?offset=${sweepState.offset}&limit=50`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const page = await res.json();
+    const start = page.offset || 0;
+    const items = page.items || [];
+    list.insertAdjacentHTML('beforeend', items.map((it, i) => {
+      const idx = start + i + 1;
+      const tx = it.tx
+        ? `<a class="sweep__txlink" href="${txUrl(it.tx)}" target="_blank" rel="noopener">${esc(shortTx(it.tx))}</a>`
+        : '<span class="sweep__txlink sweep__txlink--none">no tx</span>';
+      const label = it.name ? `${esc(it.name)} (${esc(it.ticker)})` : (it.ticker ? esc(it.ticker) : '—');
+      // 財務ハイライト(百万円)。区分B で SweepItem に実値が乗ると自動で出る。値が来るまでは
+      // 何も出さない(ダミーを実データのふりで出さない)。financials_available:false は正直表示。
+      const hasFin = it.salesM != null || it.operatingIncomeM != null;
+      const fin = hasFin
+        ? `<div class="sweep__fin">売上 ${fmtM(it.salesM)} · 営利 ${fmtM(it.operatingIncomeM)} <span class="sweep__unit">百万円</span></div>`
+        : (it.financialsAvailable === false
+            ? `<div class="sweep__fin sweep__fin--none">書類は特定・財務は未取得</div>`
+            : '');
+      return `<li class="sweep__item"><span class="sweep__idx">#${idx}</span>` +
+        `<span class="sweep__ticker">${label}</span>` +
+        `<span class="sweep__amt">${money(it.amountUsdc)}</span>${tx}${fin}</li>`;
+    }).join(''));
+    sweepState.offset = start + items.length;
+    sweepState.total = page.total || 0;
+    if (more) more.hidden = sweepState.offset >= sweepState.total;
+  } catch { if (more) more.hidden = true; }
+}
+
+async function loadSweepDetail() {
+  const section = document.getElementById('sweep');
+  if (!section) return;
+  try {
+    const res = await fetch('/api/sweeps');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const all = (await res.json()).sweeps || [];
+    // Catalyst は per-call 買い付けの週次記録で、この面で見せている「実決済の
+    // 証跡」としては EDINET と同じ形に見えてしまう。本体の Catalyst は osd 側の
+    // スコア付き予測（/api/alpha/catalysts/*）なので、この枠からは外す。
+    // API とデータはそのまま残しているので、戻すのはこの filter を外すだけ。
+    const sweeps = all.filter((s) => s.surface !== 'catalyst');
+    if (!sweeps.length) { section.hidden = true; return; }
+    section.hidden = false;
+    sweepState.summaries = sweeps;
+    const tabs = document.getElementById('sweep-tabs');
+    tabs.innerHTML = sweeps.map((s) => {
+      const label = s.surface === 'edinet' ? 'EDINET' : s.surface;
+      return `<button class="sweep__tab" role="tab" data-surface="${esc(s.surface)}">${esc(label)}</button>`;
+    }).join('');
+    tabs.querySelectorAll('.sweep__tab').forEach((b) =>
+      b.addEventListener('click', () => selectSweep(b.dataset.surface)));
+    selectSweep(sweeps[0].surface);   // newest sweep first
+  } catch { section.hidden = true; }
+}
+
+document.getElementById('sweep-more')?.addEventListener('click', () => loadSweepPage(false));
+loadSweepDetail();
+
+/* ── External x402 probe ───────────────────────────────────────────────────
+   Third-party sellers. The quote and the settled amount are separate columns on
+   purpose: the published price and the real charge are expected to disagree, so
+   a single "price" column would be the one thing this measurement cannot show.
+   Nothing is filled in from the target list — a row shows only what was read. */
+// Served by /api/probes from PROBE_TARGETS, so adding a seller needs no change
+// here. Falls back to the raw id, which is what a run older than the map shows.
+let sellerNames = {};
+const sellerName = (id) => sellerNames[id] || id;
+const money6 = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Number(n).toFixed(6));
+const chainLabel = (c) => {
+  if (!c) return '';
+  if (c.startsWith('eip155:8453') || c === 'base') return 'Base';
+  if (c.startsWith('solana')) return 'Solana';
+  if (c.startsWith('eip155:5042') || c === 'arc') return 'Arc';
+  return c;
+};
+
+async function loadProbe() {
+  const section = document.getElementById('probe');
+  if (!section) return;
+  try {
+    const res = await fetch('/api/probes?limit=12');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const payload = await res.json();
+    sellerNames = payload.targets || {};
+    const runs = payload.probes || [];
+    // Headline the newest PAID run. A discovery run settles nothing, so showing
+    // one here would read as external spend that never happened.
+    const run = runs.find((r) => r.mode === 'sweep');
+    if (!run) { section.hidden = true; return; }
+    section.hidden = false;
+
+    const rows = run.records || [];
+    const paid = rows.filter((r) => r.outcome === 'paid');
+    const sellers = new Set(paid.map((r) => r.target));
+    const when = new Date(run.at).toLocaleDateString('ja-JP');
+    document.getElementById('probe-sub').textContent =
+      `${run.week} · ${sellers.size}社 · ${paid.length}件決済 · ${money(run.runSpentUsdc)} · ${when}`;
+
+    document.getElementById('probe-scope').innerHTML =
+      '自社の外側にある第三者の x402 売り手に、毎週1回こちらから支払って実費と内容を測っている。' +
+      '<strong>提示額</strong>は売り手の 402 から、<strong>実課金</strong>は決済レスポンスから取る。' +
+      '掲載価格は写さない — 掲載と実課金は乖離しうるので、1列にまとめるとその乖離が見えなくなる。';
+
+    // Per-seller rollup. `measuredPerCallUsdc` is settled ÷ paid calls, so a
+    // seller that settled nothing shows no per-call figure rather than a zero.
+    const list = document.getElementById('probe-sellers');
+    list.innerHTML = (run.summaries || []).map((s) => {
+      const perCall = s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) : '—';
+      const rate = Math.round((s.successRate || 0) * 100);
+      const bits = [`${s.paidCalls}/${s.calls} 決済`];
+      if (s.skipped) bits.push(`${s.skipped} skip`);
+      if (s.errors) bits.push(`${s.errors} err`);
+      return `<li class="probe__seller">` +
+        `<span class="probe__sellername">${esc(sellerName(s.target))}</span>` +
+        `<span class="probe__sellermeta">${esc(bits.join(' · '))}</span>` +
+        `<span class="probe__sellercost">実測 per-call ${esc(perCall)}</span>` +
+        `<span class="probe__sellerrate">成功 ${rate}%</span></li>`;
+    }).join('');
+
+    document.getElementById('probe-list').innerHTML = rows.map((r, i) => {
+      const tx = r.txHash
+        ? `<a class="probe__txlink" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>`
+        : `<span class="probe__txlink probe__txlink--none">no tx</span>`;
+      const chain = r.chain ? `<span class="probe__chain">${esc(chainLabel(r.chain))}</span>` : '';
+      // Quote and charge side by side. Either can legitimately be missing: no
+      // 402 means no quote, nothing settled means no charge.
+      const cost = `<span class="probe__cost">提示 ${esc(money6(r.quotedUsdc))}` +
+        ` → 実課金 ${esc(money6(r.actualUsdc))}</span>`;
+      const why = r.outcome !== 'paid' && r.reason
+        ? `<div class="probe__why">${esc(r.reason)}</div>` : '';
+      return `<li class="probe__item probe__item--${esc(r.outcome)}">` +
+        `<span class="probe__idx">#${i + 1}</span>` +
+        `<span class="probe__target">${esc(sellerName(r.target))}</span>` +
+        `<code class="probe__path">${esc(r.path)}</code>` +
+        `<span class="probe__outcome">${esc(r.outcome)}</span>` +
+        `${cost}${chain}${tx}` +
+        `<span class="probe__lat">${esc(String(r.latencyMs ?? '—'))}ms</span>${why}</li>`;
+    }).join('');
+
+    const skipped = rows.filter((r) => r.outcome === 'skipped');
+    document.getElementById('probe-note').textContent = skipped.length
+      ? `${skipped.length}件は支払わずに終えている（停止中の売り手・対応チェーンなし・予算上限）。理由は各行に出している。`
+      : '';
+  } catch { section.hidden = true; }
+}
+loadProbe();
+
+/* ── Arcium MXE ────────────────────────────────────────────────────────────
+   One row per function (aggregates over every record) and the newest records.
+   The computation's network and the payment's network are separate fields and
+   are shown separately. Nothing is filled in: a field the record lacks shows
+   as "—", and a failed run shows its error. */
+const devnetAcct = (a, net) =>
+  'https://explorer.solana.com/address/' + a + (net === 'arcium-devnet' ? '?cluster=devnet' : '');
+const ms = (n) => (n == null ? '—' : Math.round(n).toLocaleString('ja-JP') + 'ms');
+const usd = (n) => (n == null ? '—' : '$' + Number(n).toFixed(6));
+const netLabel = (n) => ({ 'arcium-devnet': 'devnet', 'arcium-mainnet': 'mainnet', 'arcium-localnet': 'localnet' }[n] || n || '—');
+const partyLabel = (c) => ({ internal: '内部取引', self: '自己', external: '外部' }[c] || c);
+
+function mxeResult(r) {
+  const x = r.result || {};
+  switch (r.fn) {
+    case 1: return x.matched ? `成立 ${usd(Number(x.priceMicro) / 1e6)}` : '不成立';
+    case 2: return x.winner ? `落札 ${shortTx(x.winner)} ${usd(Number(x.priceMicro) / 1e6)}` : '';
+    case 3: return x.ratingCount != null ? `評価 ${x.ratingCount}件(集計のみ公開)` : '';
+    case 4: return x.reached === undefined ? '' : x.reached ? `到達(${x.participants}者)` : '未到達・誰も払わない';
+    case 5: return x.catalogSize ? `N=${x.catalogSize} 一致 ${(x.matches || []).length}件` : '';
+    default: return '';
+  }
+}
+
+async function loadMxe() {
+  const section = document.getElementById('mxe');
+  if (!section) return;
+  try {
+    const res = await fetch('/api/mxe?limit=30');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const p = await res.json();
+    if (!p.total) { section.hidden = true; return; }
+    section.hidden = false;
+    const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
+    document.getElementById('mxe-sub').textContent =
+      `${p.total}件の記録 · 実計算 ${okRuns}件 · ${p.jobEnabled ? '毎日 07:30 JST' : '定時実行は停止中'}`;
+    document.getElementById('mxe-scope').innerHTML =
+      '相手に見せない数字を Arcium の MXE(秘密計算)に渡し、結果だけを取り出す。' +
+      '<strong>判定</strong>は Arcium のクラスタ、<strong>支払い</strong>は x402 で Solana mainnet — 両者は別の欄に記録する。' +
+      '機能1・2・4 の相手方は AA 自身の内部エージェントで、外部の需要の証拠ではない。';
+
+    document.getElementById('mxe-functions').innerHTML = p.aggregates.map((g) => {
+      const f = p.functions.find((x) => x.fn === g.fn) || {};
+      const bits = [`${g.ok}/${g.runs} 成功`];
+      if (g.failed) bits.push(`${g.failed} 失敗`);
+      if (g.compared) bits.push(`比較 ${g.compared}`);
+      if (g.networks.length) bits.push(g.networks.map(netLabel).join('/'));
+      const ratio = g.unitCostRatio ? ` · 単価比 ${g.unitCostRatio.mean.toFixed(2)}` : '';
+      return `<li class="probe__seller">` +
+        `<span class="probe__sellername">${g.fn}. ${esc(g.label)}</span>` +
+        `<span class="probe__sellermeta">${esc(bits.join(' · '))}${f.enabled ? '' : ' · 無効'}</span>` +
+        `<span class="probe__sellercost">平均 ${esc(ms(g.latencyMs && g.latencyMs.mean))} · ${esc(usd(g.costUsd && g.costUsd.mean))}${esc(ratio)}</span>` +
+        `<span class="probe__sellerrate">${g.costSol ? esc(g.costSol.mean.toFixed(6)) + ' SOL' : '—'}</span></li>`;
+    }).join('');
+
+    document.getElementById('mxe-list').innerHTML = (p.records || []).map((r) => {
+      const comp = r.computationAccount
+        ? `<a class="probe__txlink" href="${devnetAcct(r.computationAccount, r.network)}" target="_blank" rel="noopener">計算 ${esc(shortTx(r.computationOffset))}</a>`
+        : `<span class="probe__txlink probe__txlink--none">計算なし</span>`;
+      const pays = (r.paymentTxs || []).map((t) =>
+        `<a class="probe__txlink" href="${txUrl(t)}" target="_blank" rel="noopener">支払 ${esc(shortTx(t))}</a>`).join('');
+      const status = r.status === 'ok' ? 'paid' : 'error';
+      const why = r.status !== 'ok' && r.error ? `<div class="probe__why">${esc(r.error)}</div>` : '';
+      const cmp = r.comparison ? `<div class="probe__why">比較(${esc(r.comparison.method)}): ${esc(JSON.stringify(r.comparison.result))}</div>` : '';
+      return `<li class="probe__item probe__item--${status}">` +
+        `<span class="probe__idx">#${r.fn}</span>` +
+        `<span class="probe__target">${esc(partyLabel(r.counterparty))}</span>` +
+        `<code class="probe__path">${esc(mxeResult(r))}</code>` +
+        `<span class="probe__outcome">${esc(r.status)}</span>` +
+        `<span class="probe__cost">${esc(usd(r.costUsd))}${r.unitCostRatio != null ? ' · 単価比 ' + esc(r.unitCostRatio.toFixed(2)) : ''}</span>` +
+        `<span class="probe__chain">${esc(netLabel(r.network))}${r.paymentNetwork ? ' → Solana' : ''}</span>` +
+        `${comp}${pays}<span class="probe__lat">${esc(ms(r.latencyMs))}</span>${cmp}${why}</li>`;
+    }).join('');
+
+    document.getElementById('mxe-note').textContent =
+      'devnet の SOL に市場価格はない。USD 換算は同じ計算を mainnet でした場合の目安として mainnet の SOL/USD で出している。';
+  } catch { section.hidden = true; }
+}
+loadMxe();
+
+/* ── Menu ───────────────────────────────────────────────────────────────── */
+const menu = document.getElementById('menu');
+const openBtn = document.getElementById('menu-open');
+const closeBtn = document.getElementById('menu-close');
+const backdrop = document.getElementById('menu-backdrop');
+const links = menu ? menu.querySelectorAll('.menu__link') : [];
+
+function setMenu(open) {
+  if (!menu || !openBtn) return;
+  menu.classList.toggle('is-open', open);
+  openBtn.setAttribute('aria-expanded', String(open));
+  if (open) closeBtn?.focus({ preventScroll: true });
+  else openBtn.focus({ preventScroll: true });
+}
+
+openBtn?.addEventListener('click', () => setMenu(true));
+closeBtn?.addEventListener('click', () => setMenu(false));
+backdrop?.addEventListener('click', () => setMenu(false));
+links.forEach((link) => link.addEventListener('click', () => setMenu(false)));
+
+/* ── Endpoints overlay ──────────────────────────────────────────────────── */
+const sheet = document.getElementById('endpoints');
+const sheetOpen = document.getElementById('endpoints-open');
+const sheetClose = document.getElementById('endpoints-close');
+const sheetBackdrop = document.getElementById('endpoints-backdrop');
+
+let samplesLoaded = false;
+
+function setSheet(open) {
+  if (!sheet || !sheetOpen) return;
+  sheet.classList.toggle('is-open', open);
+  sheetOpen.setAttribute('aria-expanded', String(open));
+  if (open) {
+    // Fetch the captured responses the first time the catalog is opened.
+    if (!samplesLoaded) {
+      samplesLoaded = true;
+      loadSamples();
+    }
+    sheetClose?.focus({ preventScroll: true });
+  } else {
+    sheetOpen.focus({ preventScroll: true });
+  }
+}
+
+sheetOpen?.addEventListener('click', () => setSheet(true));
+sheetClose?.addEventListener('click', () => setSheet(false));
+sheetBackdrop?.addEventListener('click', () => setSheet(false));
+
+// The menu's Endpoints entry hands off to the same overlay.
+document.querySelectorAll('[data-open-endpoints]').forEach((el) =>
+  el.addEventListener('click', (e) => {
+    e.preventDefault();
+    setMenu(false);
+    setSheet(true);
+  })
+);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (sheet?.classList.contains('is-open')) setSheet(false);
+  else if (menu?.classList.contains('is-open')) setMenu(false);
+});
