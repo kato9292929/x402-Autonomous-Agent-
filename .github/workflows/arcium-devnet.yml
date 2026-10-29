@@ -177,6 +177,14 @@ jobs:
       # Devnet SOL is free but rationed. What the deploy needs scales with the
       # binary (programdata + a same-size buffer while it uploads); circuits are
       # off chain. Check before spending a deploy on it.
+      # A failed upload leaves its buffer account behind, holding a program's
+      # worth of rent. Close any before counting the balance; the SOL returns.
+      - name: Reclaim leftover buffers
+        run: |
+          solana program close --buffers --bypass-warning \
+            --keypair ~/.config/solana/id.json --url "$RPC_URL" 2>&1 | tee ci-reclaim.log || true
+          echo "::notice title=buffers::$(tail -1 ci-reclaim.log)"
+
       - name: Fund the deploy key
         run: |
           # Ask the cluster: rent per byte is falling in steps (SIMD-0437), so a
@@ -184,9 +192,9 @@ jobs:
           lamports() { solana rent "$1" --lamports --url "$RPC_URL" | awk '/Rent-exempt minimum/ {print $3}'; }
           so=$(stat -c %s target/deploy/aa_mxe.so)
           # Programdata plus the same-size upload buffer (returned after the
-          # deploy), plus 0.3 SOL for upload fees, the MXE's accounts and the
-          # test computations — those come to well under that.
-          need=$(( $(lamports $((so + 45))) * 2 + 300000000 ))
+          # deploy), plus 0.15 SOL for upload fees (~900 writes), the MXE's
+          # accounts and the test computations.
+          need=$(( $(lamports $((so + 45))) * 2 + 150000000 ))
           sol() { awk -v l="$1" 'BEGIN { printf "%.3f", l / 1e9 }'; }
           need_sol=$(sol "$need")
           bal() { solana balance "$AUTHORITY" --lamports --url "$RPC_URL" | awk '{print $1}'; }
@@ -204,22 +212,34 @@ jobs:
           fi
           echo "::notice title=devnet SOL::have ${have_sol} SOL, need ≈ ${need_sol} SOL (program ${so} B)"
 
+      # The program goes up with `solana program deploy`, sending its ~900
+      # writes through the RPC (--use-rpc) with generous retries: the CLI's
+      # default direct-to-leader sending gave "Data writes to account failed:
+      # Max retries exceeded" from the runner. `arcium deploy --skip-deploy`
+      # then only initializes the MXE for the program, on a fresh deploy.
       - name: Deploy
         run: |
           set -o pipefail
           if solana program show "$PROGRAM_ID" --url "$RPC_URL" >/dev/null 2>&1; then
-            mode=upgrade; extra="--skip-init"
+            mode=upgrade
           else
-            mode=fresh; extra=""
+            mode=fresh
           fi
           echo "DEPLOY_MODE=$mode" >> "$GITHUB_ENV"
-          arcium deploy \
-            --cluster-offset "$CLUSTER_OFFSET" \
-            --recovery-set-size 4 \
-            --keypair-path ~/.config/solana/id.json \
-            --program-keypair target/deploy/aa_mxe-keypair.json \
-            --rpc-url "$RPC_URL" \
-            $extra 2>&1 | tee ci-deploy.log
+          solana program deploy target/deploy/aa_mxe.so \
+            --program-id target/deploy/aa_mxe-keypair.json \
+            --keypair ~/.config/solana/id.json \
+            --url "$RPC_URL" \
+            --use-rpc --max-sign-attempts 100 2>&1 | tee ci-deploy.log
+          if [ "$mode" = fresh ]; then
+            arcium deploy \
+              --cluster-offset "$CLUSTER_OFFSET" \
+              --recovery-set-size 4 \
+              --keypair-path ~/.config/solana/id.json \
+              --program-keypair target/deploy/aa_mxe-keypair.json \
+              --rpc-url "$RPC_URL" \
+              --skip-deploy 2>&1 | tee -a ci-deploy.log
+          fi
           echo "::notice title=deploy::${mode} → ${PROGRAM_ID} on cluster ${CLUSTER_OFFSET}"
 
       - name: Test on devnet
