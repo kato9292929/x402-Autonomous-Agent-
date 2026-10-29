@@ -92,7 +92,20 @@ jobs:
           mkdir -p ~/.config/solana target/deploy
           printf '%s' "$DEPLOY_KEY" > ~/.config/solana/id.json
           chmod 600 ~/.config/solana/id.json
-          program_id=$(node scripts/derive-program-keypair.js ~/.config/solana/id.json target/deploy/aa_mxe-keypair.json 2>/dev/null | tail -1)
+          # Say what is wrong with the secret's shape without printing any of it.
+          shape=$(node -e '
+            const t = require("fs").readFileSync(process.argv[1], "utf8").trim();
+            let v; try { v = JSON.parse(t); } catch { console.log(`not JSON (${t.length} chars, starts with ${JSON.stringify(t.slice(0, 1))})`); process.exit(); }
+            if (!Array.isArray(v)) console.log(`JSON but not an array (${typeof v})`);
+            else if (v.length !== 64) console.log(`array of ${v.length}, expected 64`);
+            else if (!v.every((x) => Number.isInteger(x) && x >= 0 && x < 256)) console.log("array of 64 but not all bytes");
+            else console.log("ok");
+          ' ~/.config/solana/id.json)
+          if [ "$shape" != "ok" ]; then
+            echo "::error title=ARCIUM_DEVNET_DEPLOY_KEY::the secret is not a Solana keypair JSON (64-number array): $shape"
+            exit 1
+          fi
+          program_id=$(node scripts/derive-program-keypair.js ~/.config/solana/id.json target/deploy/aa_mxe-keypair.json | tail -1)
           authority=$(solana-keygen pubkey ~/.config/solana/id.json)
           {
             echo "PROGRAM_ID=$program_id"
