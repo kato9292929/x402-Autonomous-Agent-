@@ -78,6 +78,16 @@ Agent → builds & signs a USDC payment
 
 ---
 
+### Pre-purchase check (x402 Seller Probe)
+
+Before paying a third-party seller — Mode B/C endpoints and the weekly external probe sweep — the agent looks up `https://probe.x402jp.com/scores/{host}` (`src/probe-gate.ts`):
+
+- latest paid measurement `not_delivered` (paid, nothing delivered) → not bought
+- `buyable_without_input: false` and the agent calls it with a bare GET → not bought (POST endpoints the agent sends a body to are not affected)
+- the Probe not answering, or no record of the host → bought as before; only the lookup is recorded
+
+Own sellers (OSD, JIN — `osd`/`jin` on x402jp.com and their vercel.app hosts) are never looked up; `PROBE_EXEMPT_HOSTS` adds more. A purchase not made is recorded as `status: "skipped"` / `outcome: "skipped"` with the reason and the lookup (`probe`) in the run log; bought calls keep the lookup too. `PROBE_URL` overrides the Probe URL.
+
 ## Architecture
 
 - **Node.js 20 + TypeScript** (strict), compiled to `dist/`.

@@ -153,6 +153,10 @@ export async function runModeB(): Promise<RunLog> {
       log.totalCostUsdc += result.costUsdc;
       log.totalDegradedCount += 1;
       console.warn(`[MODE B] ~ ${ep.name} — degraded: ${result.degradedReason}`);
+    } else if (result.status === "skipped") {
+      // Not paid: x402 Seller Probe said this seller did not deliver / cannot be bought as called.
+      // The reason and the lookup stay in this run's log (result.probe).
+      console.warn(`[MODE B] — ${ep.name} — not bought: ${result.error}`);
     } else {
       log.errors.push(`${ep.name}: ${result.error ?? "unknown error"}`);
       console.error(`[MODE B] ✗ ${ep.name} — ${result.error}`);

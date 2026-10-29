@@ -53,6 +53,7 @@ import {
 } from "../probe/record";
 import { priceOf } from "../payment-guard";
 import { parseAdvertisedRoutes, saveRawMetadata, type DiscoveredRoute } from "../probe/discover-routes";
+import { checkProbe, type ProbeCheck } from "../probe-gate";
 
 /** Consecutive failures from one seller before it is dropped for the day (§2). */
 const MAX_CONSECUTIVE_ERRORS = 3;
@@ -93,6 +94,8 @@ export interface ProbeRunOptions {
   weekSpentUsdc?: number;
   /** Append to the CSV. Off in tests. */
   write?: boolean;
+  /** x402 Seller Probe lookup before each paid call (probe-gate.ts). Injected in tests. */
+  probeLookup?: (url: string, method: "GET" | "POST") => Promise<ProbeCheck>;
 }
 
 export interface ProbeRunReport {
@@ -355,7 +358,8 @@ async function sweepPath(
 async function runSweep(
   targets: ProbeTarget[],
   client: ProbeClient,
-  spend: ProbeSpend
+  spend: ProbeSpend,
+  probeLookup: (url: string, method: "GET" | "POST") => Promise<ProbeCheck> = (u, m) => checkProbe(u, m)
 ): Promise<ProbeCallRecord[]> {
   const records: ProbeCallRecord[] = [];
 
@@ -409,7 +413,20 @@ async function runSweep(
         return records;
       }
 
-      const record = await sweepPath(target, probe, client, spend);
+      // x402 Seller Probe: a seller whose last paid measurement was not_delivered, or that
+      // cannot be bought with the bare GET we would send, is not paid. A Probe without data
+      // or not answering never blocks; the lookup is kept on the record either way.
+      const pc = await probeLookup(url(target, probe.path), probe.method === "POST" ? "POST" : "GET");
+      if (pc.decision === "skip") {
+        console.warn(`[PROBE] ${target.name}${probe.path}: x402 Seller Probe により買わない — ${pc.reason}`);
+        records.push({
+          at: new Date().toISOString(), target: target.id, path: probe.path, method: probe.method,
+          latencyMs: 0, outcome: "skipped", reason: pc.reason, probe: pc,
+        });
+        continue;
+      }
+
+      const record = { ...(await sweepPath(target, probe, client, spend)), probe: pc };
       records.push(record);
 
       if (record.outcome === "paid" && record.actualUsdc !== undefined) {
@@ -464,7 +481,7 @@ export async function runExternalProbe(options: ProbeRunOptions): Promise<ProbeR
         `[PROBE] 優先 leg: ${prefer ?? "(network 指定なし)"} / ${preferId ?? "(acceptId 指定なし)"}`
       );
     }
-    records = await runSweep(targets, client, spend);
+    records = await runSweep(targets, client, spend, options.probeLookup);
   }
 
   const summaries = summarize(records);

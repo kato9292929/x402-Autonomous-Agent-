@@ -15,6 +15,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "aa-probe-"));
 process.chdir(TMP);
 delete process.env.UPSTASH_REDIS_REST_URL;
 delete process.env.UPSTASH_REDIS_REST_TOKEN;
+// The x402 Seller Probe lookup must not reach the network in tests: refused at once → "buy".
+process.env.PROBE_URL = "http://127.0.0.1:9";
 
 after(() => {
   process.chdir(ORIGINAL_CWD);
@@ -853,4 +855,43 @@ test("latestSweep: 無課金の run 0 を「最新の外部決済」として出
   // run 0 のほうが新しくても、決済があったのは sweep。
   assert.equal(latestSweep([discovery, sweep]), sweep);
   assert.equal(latestSweep([discovery]), undefined);
+});
+
+test("sweep: x402 Seller Probe が not_delivered を示した売り手には払わず、理由を残す", async () => {
+  let calls = 0;
+  const client: ProbeClient = {
+    fetch: async () => {
+      calls++;
+      return paidResponse({ ok: 1 }, { success: true, transaction: "0xtx", network: "eip155:8453", amount: "1000" });
+    },
+    takeChallenge: () => undefined,
+    walletAddress: "0xprobe",
+  };
+  const report = await runExternalProbe({
+    mode: "sweep",
+    targets: [target()],
+    client,
+    weekSpentUsdc: 0,
+    write: false,
+    probeLookup: async (_u, _m) => ({
+      host: "seller.example", status: "scored", decision: "skip",
+      reason: "probe: last paid measurement (2026-10-26) was not_delivered", checked_at: new Date().toISOString(),
+    }),
+  });
+  assert.equal(calls, 0, "払わない");
+  assert.equal(report.records[0].outcome, "skipped");
+  assert.match(report.records[0].reason ?? "", /not_delivered/);
+  assert.equal(report.records[0].probe?.decision, "skip");
+});
+
+test("sweep: Probe に記録がない売り手は従来どおり買い、照会結果を記録に残す", async () => {
+  const client: ProbeClient = {
+    fetch: async () => paidResponse({ ok: 1 }, { success: true, transaction: "0xtx", network: "eip155:8453", amount: "1000" }),
+    takeChallenge: () => ({ x402Version: 2, offeredNetworks: ["eip155:8453"], quotedUsdc: 0.001, accepts: [baseRequirement("1000") as never] }),
+    walletAddress: "0xprobe",
+  };
+  const report = await runExternalProbe({ mode: "sweep", targets: [target()], client, weekSpentUsdc: 0, write: false });
+  assert.equal(report.records[0].outcome, "paid");
+  assert.equal(report.records[0].probe?.decision, "buy");
+  assert.equal(report.records[0].probe?.status, "unavailable");
 });

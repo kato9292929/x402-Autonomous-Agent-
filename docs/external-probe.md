@@ -300,3 +300,7 @@ offered_networks, chain, tx, summary, reason, quality
 - **チェーン**: probe ウォレットは Base のみ。Base USDC $20 から始める指示に合わせている。
   Solana / Robinhood Chain しか受けない先は「対応チェーンなし」として skipped で記録され、
   run 0 の結果を見てから配分を決める（推測で他チェーンに資金を置かない）。
+
+## 買う前の照会（x402 Seller Probe）
+
+sweep は各ルートを払う前に `https://probe.x402jp.com/scores/{ホスト}` を引く（`src/probe-gate.ts`）。直近の有料測定が `not_delivered`、または入力なしの GET で `buyable_without_input: false` なら払わず、`outcome: "skipped"` と理由を記録に残す。Probe が応答しない・記録がないときは従来どおり払う。照会結果は各記録の `probe` に残る（CSV には出さない）。

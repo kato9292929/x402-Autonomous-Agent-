@@ -40,6 +40,8 @@ export interface ProbeCallRecord {
   summary?: string;
   outcome: ProbeOutcome;
   reason?: string;
+  /** x402 Seller Probe lookup made before paying (not written to the CSV). */
+  probe?: import("../probe-gate").ProbeCheck;
 }
 
 export const CSV_HEADER = [
