@@ -8,7 +8,7 @@
 #
 # Needs two repository secrets (Settings → Secrets and variables → Actions):
 #   ARCIUM_DEVNET_DEPLOY_KEY  Solana CLI keypair JSON (devnet only)
-#   HELIUS_API_KEY            Helius key (devnet RPC)
+#   HELIUS_API_KEY            Helius key (devnet RPC) — optional; the public devnet RPC otherwise
 # Everything else — the daily MXE job — runs in the AA on Railway.
 #
 # The program id is derived from the deploy key (scripts/derive-program-keypair.js),
@@ -74,7 +74,8 @@ jobs:
         run: |
           missing=""
           [ -n "$DEPLOY_KEY" ] || missing="$missing ARCIUM_DEVNET_DEPLOY_KEY"
-          [ -n "$HELIUS" ] || missing="$missing HELIUS_API_KEY"
+          # HELIUS_API_KEY is optional: without it the public devnet RPC is used.
+          [ -n "$HELIUS" ] || echo "::notice title=devnet RPC::HELIUS_API_KEY not set — using the public api.devnet.solana.com"
           if [ -n "$missing" ]; then
             echo "::error title=devnet secrets missing::$missing"
             exit 1
@@ -97,7 +98,11 @@ jobs:
             echo "PROGRAM_ID=$program_id"
             echo "AUTHORITY=$authority"
             # The API key is a registered secret, so it is masked wherever this appears.
-            echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$HELIUS"
+            if [ -n "$HELIUS" ]; then
+              echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$HELIUS"
+            else
+              echo "RPC_URL=https://api.devnet.solana.com"
+            fi
           } >> "$GITHUB_ENV"
           echo "::notice title=devnet identities::program $program_id | upgrade authority $authority"
 
