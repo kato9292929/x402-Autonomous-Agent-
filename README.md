@@ -47,6 +47,17 @@ Agent → signs USDC payment with PAYMENT_PRIVATE_KEY (EOA on Base mainnet)
 
 `x402-fetch` handles this automatically — no manual payment logic needed.
 
+### 買う前の照会（x402 Seller Probe）
+
+第三者の売り手から買う直前に `https://probe.x402jp.com/scores/{ホスト名}` を引く（`src/probe-gate.ts`）。
+
+- 直近の有料測定が `not_delivered`（払ったのに届かなかった）→ 買わない
+- `buyable_without_input: false` で、こちらが入力なし（GET）で呼ぶ → 買わない（POST で本文を送るエンドポイントには当てない）
+- Probe が応答しない・記録がない → 従来どおり買う
+- 自社の OSD・JIN（osd / jin の x402jp.com と vercel.app のホスト）は照会しない。`PROBE_EXEMPT_HOSTS` で足せる
+
+買わなかった回は結果が `status: "skipped"`（支払いなし）になり、理由と照会結果（`probe`）が実行ログ（日次の記録）に残る。買った回にも照会結果を残す。
+
 ---
 
 ## Tech Stack
@@ -85,6 +96,8 @@ Agent → signs USDC payment with PAYMENT_PRIVATE_KEY (EOA on Base mainnet)
 | `INTERNAL_API_KEY` | Onchain Stock Data Analyst API key |
 | `ANALYST_API_BASE` | Analyst API ベース URL（デフォルト: https://osd-coral.vercel.app） |
 | `PORT` | HTTP server ポート（Railway が自動設定。デフォルト: 3000） |
+| `PROBE_URL` | x402 Seller Probe の URL（デフォルト: https://probe.x402jp.com） |
+| `PROBE_EXEMPT_HOSTS` | 照会しない自社ホスト（カンマ区切り。OSD・JIN は既定で含む） |
 
 全変数は `.env.example` を参照してください。
 

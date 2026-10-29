@@ -2,6 +2,7 @@ import { decodePaymentResponseHeader } from "@x402/fetch";
 import { fetchWithPayment } from "./x402";
 import { getRequestBody } from "./bodies";
 import { detectDegraded } from "./stub-detector";
+import { checkProbe } from "./probe-gate";
 import type { EndpointConfig } from "./config";
 import type { EndpointResult } from "./types";
 
@@ -9,6 +10,16 @@ const failureCounts = new Map<string, number>();
 
 export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> {
   const startMs = Date.now();
+
+  // Third-party sellers are looked up on x402 Seller Probe before paying (own sellers are not).
+  const probe = await checkProbe(ep.url, ep.method);
+  if (probe.decision === "skip") {
+    console.warn(`[CALLER:${ep.chain}] — ${ep.name} skipped, not paid: ${probe.reason}`);
+    return {
+      endpoint: ep.url, product: ep.name, status: "skipped", costUsdc: 0, responsePeek: "",
+      error: probe.reason, durationMs: Date.now() - startMs, probe,
+    };
+  }
 
   try {
     const body = ep.method === "POST" ? getRequestBody(ep.id) : undefined;
@@ -58,6 +69,7 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
         txHash,
         degradedReason: detection.reason,
         durationMs: Date.now() - startMs,
+        probe,
         ...(ep.captureFullData ? { fullData: data } : {}),
       };
     }
@@ -70,6 +82,7 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
       responsePeek: JSON.stringify(data).slice(0, 120),
       txHash,
       durationMs: Date.now() - startMs,
+      probe,
       ...(ep.captureFullData ? { fullData: data } : {}),
     };
   } catch (err) {
@@ -86,6 +99,7 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
       responsePeek: "",
       error,
       durationMs: Date.now() - startMs,
+      probe,
     };
   }
 }

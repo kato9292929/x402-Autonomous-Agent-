@@ -46,6 +46,10 @@ export async function runModeC(): Promise<void> {
       log.totalCostUsdc += result.costUsdc;
       log.totalTxCount += 1;
       console.log(`[MODE C] ✓ ${ep.name} — ${result.responsePeek}`);
+    } else if (result.status === "skipped") {
+      // Not paid: x402 Seller Probe said this seller did not deliver / cannot be bought as called.
+      // The reason and the lookup stay in this run's log (result.probe).
+      console.warn(`[MODE C] — ${ep.name} — not bought: ${result.error}`);
     } else {
       log.errors.push(`${ep.name}: ${result.error ?? "unknown error"}`);
       console.error(`[MODE C] ✗ ${ep.name} — ${result.error}`);
