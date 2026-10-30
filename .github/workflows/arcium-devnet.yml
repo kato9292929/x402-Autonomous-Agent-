@@ -6,7 +6,8 @@
 # "contains": a commit that merely describes this workflow mentioned the tag in
 # its body and set a deploy off.
 #
-# Needs two repository secrets (Settings → Secrets and variables → Actions):
+# Needs these secrets, in the repository or in the `mxe-deploy` Environment
+# (Settings → Secrets and variables → Actions):
 #   ARCIUM_DEVNET_DEPLOY_KEY  Solana CLI keypair JSON (devnet only)
 #   HELIUS_API_KEY            Helius key (devnet RPC) — optional; the public devnet RPC otherwise
 # Everything else — the daily MXE job — runs in the AA on Railway.
@@ -49,6 +50,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[devnet]')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # Reads the `mxe-deploy` Environment as well as the repository secrets, so
+    # a secret registered in either place is found.
+    environment: mxe-deploy
     env:
       CLUSTER_OFFSET: "456"
       AA_MXE_CIRCUIT_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/mxe-circuits/${{ github.sha }}
