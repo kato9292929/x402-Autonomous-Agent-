@@ -9,7 +9,8 @@
 # Needs these secrets, in the repository or in the `mxe-deploy` Environment
 # (Settings → Secrets and variables → Actions):
 #   ARCIUM_DEVNET_DEPLOY_KEY  Solana CLI keypair JSON (devnet only)
-#   HELIUS_API_KEY            Helius key (devnet RPC) — optional; the public devnet RPC otherwise
+#   HELIUS_API_KEY            Helius key (devnet RPC). Required: the public devnet RPC
+#                             could not take the program upload
 # Everything else — the daily MXE job — runs in the AA on Railway.
 #
 # The program id is derived from the deploy key (scripts/derive-program-keypair.js),
@@ -74,14 +75,20 @@ jobs:
       - name: Secrets present
         env:
           DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
-          HELIUS: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY || vars.HELIUS_API_KEY }}
         run: |
           missing=""
           [ -n "$DEPLOY_KEY" ] || missing="$missing ARCIUM_DEVNET_DEPLOY_KEY"
-          # HELIUS_API_KEY is optional: without it the public devnet RPC is used.
-          [ -n "$HELIUS" ] || echo "::notice title=devnet RPC::HELIUS_API_KEY not set — using the public api.devnet.solana.com"
+          # Required: through the public devnet RPC the ~900 program writes did
+          # not finish in 84 minutes. Read from a secret (repository or the
+          # mxe-deploy Environment) or, failing that, a variable — masked either way.
+          if [ -n "$HELIUS" ]; then
+            echo "::add-mask::$HELIUS"
+          else
+            missing="$missing HELIUS_API_KEY"
+          fi
           if [ -n "$missing" ]; then
-            echo "::error title=devnet secrets missing::$missing"
+            echo "::error title=devnet secrets missing::$missing — looked in repository secrets, the mxe-deploy Environment's secrets, and repository variables"
             exit 1
           fi
 
@@ -91,7 +98,7 @@ jobs:
       - name: Keys and program id
         env:
           DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
-          HELIUS: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY || vars.HELIUS_API_KEY }}
         run: |
           mkdir -p ~/.config/solana target/deploy
           printf '%s' "$DEPLOY_KEY" > ~/.config/solana/id.json
