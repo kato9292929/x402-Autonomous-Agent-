@@ -218,6 +218,9 @@ jobs:
       # Max retries exceeded" from the runner. `arcium deploy --skip-deploy`
       # then only initializes the MXE for the program, on a fresh deploy.
       - name: Deploy
+        # A stalled upload should fail here, leaving time for the reports;
+        # its buffer is reclaimed by the next run.
+        timeout-minutes: 40
         run: |
           set -o pipefail
           if solana program show "$PROGRAM_ID" --url "$RPC_URL" >/dev/null 2>&1; then
