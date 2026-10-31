@@ -9,7 +9,8 @@
 # Needs these secrets, in the repository or in the `mxe-deploy` Environment
 # (Settings → Secrets and variables → Actions):
 #   ARCIUM_DEVNET_DEPLOY_KEY  Solana CLI keypair JSON (devnet only)
-#   HELIUS_API_KEY            Helius key (devnet RPC). Required: the public devnet RPC
+#   HELIUS_API_KEY            Helius key (devnet RPC), or HELIUS_RPC_URL holding a Helius
+#                             URL with ?api-key=. Required: the public devnet RPC
 #                             could not take the program upload
 # Everything else — the daily MXE job — runs in the AA on Railway.
 #
@@ -75,7 +76,7 @@ jobs:
       - name: Secrets present
         env:
           DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
-          HELIUS: ${{ secrets.HELIUS_API_KEY || vars.HELIUS_API_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY || secrets.HELIUS_RPC_URL || vars.HELIUS_API_KEY }}
         run: |
           missing=""
           [ -n "$DEPLOY_KEY" ] || missing="$missing ARCIUM_DEVNET_DEPLOY_KEY"
@@ -84,6 +85,7 @@ jobs:
           # mxe-deploy Environment) or, failing that, a variable — masked either way.
           if [ -n "$HELIUS" ]; then
             echo "::add-mask::$HELIUS"
+            k="${HELIUS##*api-key=}"; echo "::add-mask::${k%%&*}"
           else
             missing="$missing HELIUS_API_KEY"
           fi
@@ -98,7 +100,7 @@ jobs:
       - name: Keys and program id
         env:
           DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
-          HELIUS: ${{ secrets.HELIUS_API_KEY || vars.HELIUS_API_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY || secrets.HELIUS_RPC_URL || vars.HELIUS_API_KEY }}
         run: |
           mkdir -p ~/.config/solana target/deploy
           printf '%s' "$DEPLOY_KEY" > ~/.config/solana/id.json
@@ -122,11 +124,11 @@ jobs:
             echo "PROGRAM_ID=$program_id"
             echo "AUTHORITY=$authority"
             # The API key is a registered secret, so it is masked wherever this appears.
-            if [ -n "$HELIUS" ]; then
-              echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$HELIUS"
-            else
-              echo "RPC_URL=https://api.devnet.solana.com"
-            fi
+            # A bare key, or a full Helius URL (mainnet or devnet): either way
+            # the devnet endpoint with that key.
+            key="$HELIUS"
+            case "$key" in *api-key=*) key="${key##*api-key=}"; key="${key%%&*}" ;; esac
+            echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$key"
           } >> "$GITHUB_ENV"
           echo "::notice title=devnet identities::program $program_id | upgrade authority $authority"
 
