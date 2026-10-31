@@ -8,6 +8,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   aggregateByFunction,
+  aggregateSearchBySize,
   unitCostRatio,
   type MxeTradeRecord,
 } from "../mxe/record";
@@ -87,4 +88,23 @@ test("store appends and loads newest first from local JSONL", async () => {
     if (saved.url) process.env.UPSTASH_REDIS_REST_URL = saved.url;
     if (saved.token) process.env.UPSTASH_REDIS_REST_TOKEN = saved.token;
   }
+});
+
+test("function 5 aggregates by catalog size, from CU and fees per computation", () => {
+  const rec = (n: number, cu: string, fee: number, costSol: number, status: "ok" | "failed" = "ok") =>
+    base({ fn: 5, status, counterparty: "self", costSol, latencyMs: 4000, result: { catalogSize: n },
+      computations: [{ circuit: `search_catalog_${n}`, offset: "1", account: "a", queueTx: "t", cuAmount: cu, baseFeeLamports: fee }] });
+  const agg = aggregateSearchBySize([
+    rec(64, "469882772", 300, 0.00002),
+    rec(8, "432675748", 100, 0.00001),
+    rec(8, "432675748", 200, 0.00003),
+    rec(8, "432675748", 999, 9, "failed"),
+    base({ fn: 1 }),
+  ]);
+  assert.deepEqual(agg.map((a) => a.catalogSize), [8, 64]);
+  assert.equal(agg[0].runs, 2);
+  assert.equal(agg[0].cuAmount, "432675748");
+  assert.equal(agg[0].baseFeeLamports, 150);
+  assert.ok(Math.abs(agg[0].costSol! - 0.00002) < 1e-12);
+  assert.equal(agg[1].cuAmount, "469882772");
 });

@@ -68,6 +68,13 @@ export interface MxeTradeRecord {
     queueTx: string;
     callbackTx?: string;
     latencyMs?: number;
+    /** Fee payer balance delta over this computation, in lamports. */
+    lamports?: number;
+    /** The circuit's compute units (its comp def's cu_amount), u64 decimal. */
+    cuAmount?: string;
+    /** Execution fee the Arcium program recorded for this computation, in lamports. */
+    baseFeeLamports?: number;
+    priorityFeeLamports?: number;
   }[];
   /** 計算ID: the deciding computation's offset (u64, decimal). Set only after its queue tx confirmed. */
   computationOffset?: string;
@@ -157,4 +164,43 @@ export function aggregateByFunction(records: MxeTradeRecord[]): MxeFunctionAggre
       networks: [...new Set(ok.map((r) => r.network))],
     };
   });
+}
+
+export interface SearchSizeAggregate {
+  catalogSize: number;
+  runs: number;
+  /** The circuit's compute units (constant per circuit); undefined until read. */
+  cuAmount?: string;
+  /** Means over ok runs. */
+  baseFeeLamports?: number;
+  costSol?: number;
+  latencyMs?: number;
+}
+
+/**
+ * Function 5 by catalog size — how the cost grows with N (roadmap ④).
+ * Latency is mostly queue → callback waiting, so the comparison that matters
+ * is CU and the base fee, which are priced on the circuit, not on the wait.
+ */
+export function aggregateSearchBySize(records: MxeTradeRecord[]): SearchSizeAggregate[] {
+  const bySize = new Map<number, MxeTradeRecord[]>();
+  for (const r of records) {
+    const n = (r.result as { catalogSize?: number } | undefined)?.catalogSize;
+    if (r.fn !== 5 || r.status !== "ok" || typeof n !== "number") continue;
+    bySize.set(n, [...(bySize.get(n) ?? []), r]);
+  }
+  const mean = (xs: (number | undefined)[]) => {
+    const v = xs.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined;
+  };
+  return [...bySize.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([catalogSize, rs]) => ({
+      catalogSize,
+      runs: rs.length,
+      cuAmount: rs.map((r) => r.computations?.[0]?.cuAmount).find((x) => x !== undefined),
+      baseFeeLamports: mean(rs.map((r) => r.computations?.[0]?.baseFeeLamports)),
+      costSol: mean(rs.map((r) => r.costSol)),
+      latencyMs: mean(rs.map((r) => r.latencyMs)),
+    }));
 }

@@ -42,6 +42,7 @@ import {
   getMempoolAccAddress,
   getMXEAccAddress,
   getMXEPublicKey,
+  getArciumProgram,
 } from "@arcium-hq/client";
 
 /** Anchor's wallet contract, as far as `.rpc()` needs it. */
@@ -71,6 +72,15 @@ export interface ComputationRun {
   latencyMs: number;
   /** Fee payer balance delta, queue → finalize. */
   lamports: number;
+  /**
+   * The circuit's compute units, as its computation definition registered
+   * them (u64, decimal) — the amount the base fee is priced on. Read from
+   * chain; undefined if the read failed.
+   */
+  cuAmount?: string;
+  /** The computation's execution fee as the Arcium program recorded it, in lamports. */
+  baseFeeLamports?: number;
+  priorityFeeLamports?: number;
   /** Events the program emitted in the callback transaction, by name (camelCase). */
   events: { name: string; data: Record<string, unknown> }[];
 }
@@ -102,6 +112,7 @@ export class MxeChain {
   readonly program: anchor.Program;
   readonly provider: anchor.AnchorProvider;
   private mxeKey?: Uint8Array;
+  private readonly cuByCircuit = new Map<string, string>();
   private readonly parser: anchor.EventParser;
 
   constructor(readonly cfg: MxeChainConfig) {
@@ -190,6 +201,10 @@ export class MxeChain {
     });
     if (queued?.meta?.err) throw fail(`queue tx failed: ${JSON.stringify(queued.meta.err)}`);
 
+    // What the Arcium program charges, read while the computation account is
+    // fresh. Measurement only: a failed read leaves the fields undefined.
+    const fees = await this.readFees(circuit, account);
+
     let callbackTx: string;
     try {
       callbackTx = await awaitComputationFinalization(
@@ -225,8 +240,45 @@ export class MxeChain {
       callbackTx,
       latencyMs,
       lamports: before - after,
+      ...fees,
       events,
     };
+  }
+
+  /** CU of the circuit (from its comp def, cached) and this computation's execution fee. */
+  private async readFees(
+    circuit: string,
+    account: string
+  ): Promise<Pick<ComputationRun, "cuAmount" | "baseFeeLamports" | "priorityFeeLamports">> {
+    const out: Pick<ComputationRun, "cuAmount" | "baseFeeLamports" | "priorityFeeLamports"> = {};
+    const arcium = getArciumProgram(this.provider);
+    try {
+      let cu = this.cuByCircuit.get(circuit);
+      if (!cu) {
+        const compDef = getCompDefAccAddress(
+          this.cfg.programId,
+          Buffer.from(getCompDefAccOffset(circuit)).readUInt32LE()
+        );
+        const acc = (await arcium.account.computationDefinitionAccount.fetch(compDef, "confirmed")) as {
+          cuAmount: { toString(): string };
+        };
+        cu = acc.cuAmount.toString();
+        this.cuByCircuit.set(circuit, cu);
+      }
+      out.cuAmount = cu;
+    } catch (err) {
+      console.warn(`[MXE] could not read CU for ${circuit}: ${String(err)}`);
+    }
+    try {
+      const acc = (await arcium.account.computationAccount.fetch(new PublicKey(account), "confirmed")) as {
+        executionFee: { baseFee: { toString(): string }; priorityFee: { toString(): string } };
+      };
+      out.baseFeeLamports = Number(acc.executionFee.baseFee.toString());
+      out.priorityFeeLamports = Number(acc.executionFee.priorityFee.toString());
+    } catch (err) {
+      console.warn(`[MXE] could not read the execution fee of ${account}: ${String(err)}`);
+    }
+    return out;
   }
 
   /** A plain instruction (no computation). Returns the tx and its fee-payer cost. */
@@ -253,6 +305,22 @@ export class MxeChain {
     if (t === null) throw new Error(`no block time for slot ${slot}`);
     return t;
   }
+}
+
+/** A run as it goes into a record's `computations` (no events). */
+export function computationEntry(r: ComputationRun) {
+  return {
+    circuit: r.circuit,
+    offset: r.offset,
+    account: r.account,
+    queueTx: r.queueTx,
+    callbackTx: r.callbackTx,
+    latencyMs: r.latencyMs,
+    lamports: r.lamports,
+    cuAmount: r.cuAmount,
+    baseFeeLamports: r.baseFeeLamports,
+    priorityFeeLamports: r.priorityFeeLamports,
+  };
 }
 
 /** The single event named `name` in a run, or a failure naming what was there. */

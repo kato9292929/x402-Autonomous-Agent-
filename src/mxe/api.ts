@@ -13,13 +13,13 @@
 import type * as http from "http";
 import * as anchor from "@anchor-lang/core";
 import { deserializeLE } from "@arcium-hq/client";
-import { aggregateByFunction, MXE_FUNCTION_LABELS, type MxeFunction, type MxeTradeRecord } from "./record";
+import { aggregateByFunction, aggregateSearchBySize, MXE_FUNCTION_LABELS, type MxeFunction, type MxeTradeRecord } from "./record";
 import { functionEnabled, mxeJobEnabled, mxeNetwork, mxeProgramId, CLUSTER_OFFSET } from "./flags";
 import { loadMxeRecords, saveMxeRecord } from "../store/mxe-store";
 import { RateLimiter, INTAKE_LIMITS } from "./rate-limit";
 import { SCOREBOARD_SLOTS } from "./slots";
 import { submitSealedRating } from "./functions";
-import { ComputationFailed } from "./chain";
+import { ComputationFailed, computationEntry } from "./chain";
 import { buildChain, storedScoreboardId } from "../jobs/mxe-trades";
 
 const limiter = new RateLimiter(INTAKE_LIMITS);
@@ -78,6 +78,7 @@ export async function handleMxeApi(req: http.IncomingMessage, res: http.ServerRe
       jobEnabled: mxeJobEnabled(),
       functions: fns.map((fn) => ({ fn, label: MXE_FUNCTION_LABELS[fn], enabled: functionEnabled(fn) })),
       aggregates: aggregateByFunction(all),
+      searchBySize: aggregateSearchBySize(all),
       records: all.slice(0, Math.min(500, Math.max(1, limit))),
       total: all.length,
     });
@@ -147,7 +148,7 @@ export async function handleMxeApi(req: http.IncomingMessage, res: http.ServerRe
       const ok: MxeTradeRecord = {
         ...rec,
         status: "ok",
-        computations: [{ circuit: run.circuit, offset: run.offset, account: run.account, queueTx: run.queueTx, callbackTx: run.callbackTx, latencyMs: run.latencyMs }],
+        computations: [computationEntry(run)],
         computationOffset: run.offset,
         computationAccount: run.account,
         queueTx: run.queueTx,
