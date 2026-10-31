@@ -16,7 +16,7 @@
 import * as http from "http";
 import { randomInt } from "crypto";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { MxeChain, ComputationFailed, type ComputationRun } from "../mxe/chain";
+import { MxeChain, ComputationFailed, computationEntry, type ComputationRun } from "../mxe/chain";
 import {
   CATALOG_SIZES,
   jointPurchase,
@@ -100,14 +100,7 @@ function measured(ctx: Ctx, out: MxeOutcome<unknown>): Partial<MxeTradeRecord> {
   const costSol = out.lamports / 1e9;
   return {
     network: ctx.network,
-    computations: out.runs.map((r) => ({
-      circuit: r.circuit,
-      offset: r.offset,
-      account: r.account,
-      queueTx: r.queueTx,
-      callbackTx: r.callbackTx,
-      latencyMs: r.latencyMs,
-    })),
+    computations: out.runs.map(computationEntry),
     computationOffset: last?.offset,
     computationAccount: last?.account,
     queueTx: last?.queueTx,
@@ -140,7 +133,7 @@ function failed(rec: MxeTradeRecord, err: unknown, runsSoFar: ComputationRun[] =
     out.computationAccount = err.account;
     out.queueTx = err.queueTx;
   }
-  if (runsSoFar.length) out.computations = runsSoFar.map((r) => ({ circuit: r.circuit, offset: r.offset, account: r.account, queueTx: r.queueTx, callbackTx: r.callbackTx, latencyMs: r.latencyMs }));
+  if (runsSoFar.length) out.computations = runsSoFar.map(computationEntry);
   return out;
 }
 
@@ -357,13 +350,22 @@ async function runF5(ctx: Ctx): Promise<MxeTradeRecord[]> {
       const plainUs = Number(process.hrtime.bigint() - t) / 1000;
       const out = await sealedSearch(ctx.chain, size, q);
       const same = JSON.stringify(out.result.matches) === JSON.stringify(plain);
-      const m = measured(ctx, { ...out, lamports: out.lamports + set.lamports });
+      // The search's own cost only; the catalog write is reported beside it,
+      // so the cost per N compares like with like.
+      const m = measured(ctx, out);
       records.push({
         ...rec,
         ...m,
         status: same ? "ok" : "failed",
         error: same ? undefined : "sealed and plain searches disagree",
-        result: { catalogSize: size, matches: out.result.matches.map((i) => entries[i].id), query: q },
+        result: {
+          catalogSize: size,
+          matches: out.result.matches.map((i) => entries[i].id),
+          query: q,
+          cuAmount: out.runs[0]?.cuAmount,
+          catalogSetLamports: set.lamports,
+          catalogSetTx: set.tx,
+        },
         comparison: {
           method: "plain filter over the same catalog",
           result: { matches: plain.map((i) => entries[i].id) },
