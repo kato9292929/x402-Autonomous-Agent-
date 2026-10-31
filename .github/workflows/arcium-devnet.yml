@@ -6,9 +6,12 @@
 # "contains": a commit that merely describes this workflow mentioned the tag in
 # its body and set a deploy off.
 #
-# Needs two repository secrets (Settings → Secrets and variables → Actions):
+# Needs these secrets, in the repository or in the `mxe-deploy` Environment
+# (Settings → Secrets and variables → Actions):
 #   ARCIUM_DEVNET_DEPLOY_KEY  Solana CLI keypair JSON (devnet only)
-#   HELIUS_API_KEY            Helius key (devnet RPC)
+#   HELIUS_API_KEY            Helius key (devnet RPC), or HELIUS_RPC_URL holding a Helius
+#                             URL with ?api-key=. Required: the public devnet RPC
+#                             could not take the program upload
 # Everything else — the daily MXE job — runs in the AA on Railway.
 #
 # The program id is derived from the deploy key (scripts/derive-program-keypair.js),
@@ -49,6 +52,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[devnet]')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # Reads the `mxe-deploy` Environment as well as the repository secrets, so
+    # a secret registered in either place is found.
+    environment: mxe-deploy
     env:
       CLUSTER_OFFSET: "456"
       AA_MXE_CIRCUIT_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/mxe-circuits/${{ github.sha }}
@@ -70,13 +76,21 @@ jobs:
       - name: Secrets present
         env:
           DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
-          HELIUS: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY || secrets.HELIUS_RPC_URL || vars.HELIUS_API_KEY }}
         run: |
           missing=""
           [ -n "$DEPLOY_KEY" ] || missing="$missing ARCIUM_DEVNET_DEPLOY_KEY"
-          [ -n "$HELIUS" ] || missing="$missing HELIUS_API_KEY"
+          # Required: through the public devnet RPC the ~900 program writes did
+          # not finish in 84 minutes. Read from a secret (repository or the
+          # mxe-deploy Environment) or, failing that, a variable — masked either way.
+          if [ -n "$HELIUS" ]; then
+            echo "::add-mask::$HELIUS"
+            k="${HELIUS##*api-key=}"; echo "::add-mask::${k%%&*}"
+          else
+            missing="$missing HELIUS_API_KEY"
+          fi
           if [ -n "$missing" ]; then
-            echo "::error title=devnet secrets missing::$missing"
+            echo "::error title=devnet secrets missing::$missing — looked in repository secrets, the mxe-deploy Environment's secrets, and repository variables"
             exit 1
           fi
 
@@ -86,18 +100,35 @@ jobs:
       - name: Keys and program id
         env:
           DEPLOY_KEY: ${{ secrets.ARCIUM_DEVNET_DEPLOY_KEY }}
-          HELIUS: ${{ secrets.HELIUS_API_KEY }}
+          HELIUS: ${{ secrets.HELIUS_API_KEY || secrets.HELIUS_RPC_URL || vars.HELIUS_API_KEY }}
         run: |
           mkdir -p ~/.config/solana target/deploy
           printf '%s' "$DEPLOY_KEY" > ~/.config/solana/id.json
           chmod 600 ~/.config/solana/id.json
-          program_id=$(node scripts/derive-program-keypair.js ~/.config/solana/id.json target/deploy/aa_mxe-keypair.json 2>/dev/null | tail -1)
+          # Say what is wrong with the secret's shape without printing any of it.
+          shape=$(node -e '
+            const t = require("fs").readFileSync(process.argv[1], "utf8").trim();
+            let v; try { v = JSON.parse(t); } catch { console.log(`not JSON (${t.length} chars, starts with ${JSON.stringify(t.slice(0, 1))})`); process.exit(); }
+            if (!Array.isArray(v)) console.log(`JSON but not an array (${typeof v})`);
+            else if (v.length !== 64) console.log(`array of ${v.length}, expected 64`);
+            else if (!v.every((x) => Number.isInteger(x) && x >= 0 && x < 256)) console.log("array of 64 but not all bytes");
+            else console.log("ok");
+          ' ~/.config/solana/id.json)
+          if [ "$shape" != "ok" ]; then
+            echo "::error title=ARCIUM_DEVNET_DEPLOY_KEY::the secret is not a Solana keypair JSON (64-number array): $shape"
+            exit 1
+          fi
+          program_id=$(node scripts/derive-program-keypair.js ~/.config/solana/id.json target/deploy/aa_mxe-keypair.json | tail -1)
           authority=$(solana-keygen pubkey ~/.config/solana/id.json)
           {
             echo "PROGRAM_ID=$program_id"
             echo "AUTHORITY=$authority"
             # The API key is a registered secret, so it is masked wherever this appears.
-            echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$HELIUS"
+            # A bare key, or a full Helius URL (mainnet or devnet): either way
+            # the devnet endpoint with that key.
+            key="$HELIUS"
+            case "$key" in *api-key=*) key="${key##*api-key=}"; key="${key%%&*}" ;; esac
+            echo "RPC_URL=https://devnet.helius-rpc.com/?api-key=$key"
           } >> "$GITHUB_ENV"
           echo "::notice title=devnet identities::program $program_id | upgrade authority $authority"
 
@@ -159,6 +190,14 @@ jobs:
       # Devnet SOL is free but rationed. What the deploy needs scales with the
       # binary (programdata + a same-size buffer while it uploads); circuits are
       # off chain. Check before spending a deploy on it.
+      # A failed upload leaves its buffer account behind, holding a program's
+      # worth of rent. Close any before counting the balance; the SOL returns.
+      - name: Reclaim leftover buffers
+        run: |
+          solana program close --buffers --bypass-warning \
+            --keypair ~/.config/solana/id.json --url "$RPC_URL" 2>&1 | tee ci-reclaim.log || true
+          echo "::notice title=buffers::$(tail -1 ci-reclaim.log)"
+
       - name: Fund the deploy key
         run: |
           # Ask the cluster: rent per byte is falling in steps (SIMD-0437), so a
@@ -166,9 +205,9 @@ jobs:
           lamports() { solana rent "$1" --lamports --url "$RPC_URL" | awk '/Rent-exempt minimum/ {print $3}'; }
           so=$(stat -c %s target/deploy/aa_mxe.so)
           # Programdata plus the same-size upload buffer (returned after the
-          # deploy), plus 0.3 SOL for upload fees, the MXE's accounts and the
-          # test computations — those come to well under that.
-          need=$(( $(lamports $((so + 45))) * 2 + 300000000 ))
+          # deploy), plus 0.15 SOL for upload fees (~900 writes), the MXE's
+          # accounts and the test computations.
+          need=$(( $(lamports $((so + 45))) * 2 + 150000000 ))
           sol() { awk -v l="$1" 'BEGIN { printf "%.3f", l / 1e9 }'; }
           need_sol=$(sol "$need")
           bal() { solana balance "$AUTHORITY" --lamports --url "$RPC_URL" | awk '{print $1}'; }
@@ -186,22 +225,37 @@ jobs:
           fi
           echo "::notice title=devnet SOL::have ${have_sol} SOL, need ≈ ${need_sol} SOL (program ${so} B)"
 
+      # The program goes up with `solana program deploy`, sending its ~900
+      # writes through the RPC (--use-rpc) with generous retries: the CLI's
+      # default direct-to-leader sending gave "Data writes to account failed:
+      # Max retries exceeded" from the runner. `arcium deploy --skip-deploy`
+      # then only initializes the MXE for the program, on a fresh deploy.
       - name: Deploy
+        # A stalled upload should fail here, leaving time for the reports;
+        # its buffer is reclaimed by the next run.
+        timeout-minutes: 40
         run: |
           set -o pipefail
           if solana program show "$PROGRAM_ID" --url "$RPC_URL" >/dev/null 2>&1; then
-            mode=upgrade; extra="--skip-init"
+            mode=upgrade
           else
-            mode=fresh; extra=""
+            mode=fresh
           fi
           echo "DEPLOY_MODE=$mode" >> "$GITHUB_ENV"
-          arcium deploy \
-            --cluster-offset "$CLUSTER_OFFSET" \
-            --recovery-set-size 4 \
-            --keypair-path ~/.config/solana/id.json \
-            --program-keypair target/deploy/aa_mxe-keypair.json \
-            --rpc-url "$RPC_URL" \
-            $extra 2>&1 | tee ci-deploy.log
+          solana program deploy target/deploy/aa_mxe.so \
+            --program-id target/deploy/aa_mxe-keypair.json \
+            --keypair ~/.config/solana/id.json \
+            --url "$RPC_URL" \
+            --use-rpc --max-sign-attempts 100 2>&1 | tee ci-deploy.log
+          if [ "$mode" = fresh ]; then
+            arcium deploy \
+              --cluster-offset "$CLUSTER_OFFSET" \
+              --recovery-set-size 4 \
+              --keypair-path ~/.config/solana/id.json \
+              --program-keypair target/deploy/aa_mxe-keypair.json \
+              --rpc-url "$RPC_URL" \
+              --skip-deploy 2>&1 | tee -a ci-deploy.log
+          fi
           echo "::notice title=deploy::${mode} → ${PROGRAM_ID} on cluster ${CLUSTER_OFFSET}"
 
       - name: Test on devnet

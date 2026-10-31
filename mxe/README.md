@@ -109,7 +109,11 @@ Circle by refId; missing ones are created by the job itself, and
 seller's $0.01 creates the USDC account an x402 payment needs). The devnet
 program id is in `src/mxe/flags.ts`. Only the devnet deploy stays in GitHub
 Actions (`arcium-devnet.yml`, a `[devnet]` commit), because the Arcium CLI
-needs Docker.
+needs Docker. It needs one repository secret, `ARCIUM_DEVNET_DEPLOY_KEY` — the
+keypair file's contents, a JSON array of 64 numbers (not its path); the job
+says what is wrong with it without printing it. `HELIUS_API_KEY` is required
+too (repository or `mxe-deploy` Environment secret): through the public devnet
+RPC the ~900 program writes did not finish in 84 minutes.
 
 Rent on Solana is falling in steps (SIMD-0437: 6,960 → 5,080 lamports per byte
 live, 696 targeted). The deploy job asks the cluster for the current rate.
