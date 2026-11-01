@@ -68,6 +68,11 @@ export async function hydrateAgentWallets(
     [DEVNET_QUEUER, test, "SOL-DEVNET"],
   ];
   for (const [spec, client, chain] of roles) {
+    // A devnet keypair replaces the Circle TEST wallet entirely.
+    if (spec === DEVNET_QUEUER && env.MXE_DEVNET_KEYPAIR) {
+      notes.push(`${spec.refId}: MXE_DEVNET_KEYPAIR`);
+      continue;
+    }
     if (env[`${spec.env}_WALLET_ID`] && env[`${spec.env}_WALLET_ADDRESS`]) {
       notes.push(`${spec.refId}: from env`);
       continue;

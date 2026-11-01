@@ -8,7 +8,8 @@ import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js"
 import { base58 } from "@scure/base";
 import { maskToIndices, plainSearch, type CatalogEntry } from "../mxe/functions";
 import { loadIdl } from "../mxe/chain";
-import { circleMxeWallet } from "../mxe/wallet";
+import { circleMxeWallet, devnetQueuerFromEnv, keypairMxeWallet } from "../mxe/wallet";
+import { hydrateAgentWallets } from "../mxe/wallets";
 
 test("plain search applies category, any-format and max price like the circuit", () => {
   const cat: CatalogEntry[] = [
@@ -58,4 +59,22 @@ test("Circle wallet adapter attaches a valid signature for the fee payer", async
   );
   const signed = await w.signTransaction(tx);
   assert.equal(signed.verifySignatures(), true);
+});
+
+test("a devnet keypair replaces the Circle TEST signer", async () => {
+  const kp = Keypair.generate();
+  const json = JSON.stringify(Array.from(kp.secretKey));
+  const q = devnetQueuerFromEnv({ MXE_DEVNET_KEYPAIR: json });
+  assert.ok(!("missing" in q));
+  if ("missing" in q) return;
+  assert.equal(q.address, kp.publicKey.toBase58());
+  const tx = new Transaction({ feePayer: kp.publicKey, recentBlockhash: "11111111111111111111111111111111" }).add(
+    SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 })
+  );
+  assert.equal((await q.wallet.signTransaction(tx)).verifySignatures(), true);
+  assert.throws(() => keypairMxeWallet("/tmp/key.json"), /not JSON .*not its path/);
+  assert.throws(() => keypairMxeWallet("[1,2,3]"), /64 numbers/);
+  // With it set, the Circle TEST wallet is not looked up at all.
+  const notes = await hydrateAgentWallets({ MXE_DEVNET_KEYPAIR: json }, {});
+  assert.ok(notes.includes("aa-mxe-devnet-queuer: MXE_DEVNET_KEYPAIR"));
 });
