@@ -92,6 +92,8 @@ interface Ctx {
   sellBase: string;
   /** USDC paid so far in this run, for the per-run ceiling. */
   runSpentUsd: number;
+  /** Why agent wallets are missing, if they are — appended to those failures. */
+  walletDiag?: string;
 }
 
 /** The parts every record shares, from the computations a function ran. */
@@ -175,7 +177,7 @@ async function runF1(ctx: Ctx): Promise<MxeTradeRecord> {
   const rec = baseRecord(1, ctx.network, "internal");
   const seller = agentWallet("SELLER_A");
   const buyer = agentWallet("BUYER_A");
-  if (!seller || !buyer) return failed(rec, "CIRCLE_MXE_SELLER_A / BUYER_A wallets not configured");
+  if (!seller || !buyer) return failed(rec, `CIRCLE_MXE_SELLER_A / BUYER_A wallets not configured${ctx.walletDiag ?? ""}`);
   const floor = draw(2_000, 6_000);
   const ceiling = draw(3_000, 9_000);
   try {
@@ -210,7 +212,7 @@ async function runF2(ctx: Ctx): Promise<MxeTradeRecord> {
   const a = agentWallet("SELLER_A");
   const b = agentWallet("SELLER_B");
   const buyer = agentWallet("BUYER_A");
-  if (!a || !b || !buyer) return failed(rec, "CIRCLE_MXE_SELLER_A / SELLER_B / BUYER_A wallets not configured");
+  if (!a || !b || !buyer) return failed(rec, `CIRCLE_MXE_SELLER_A / SELLER_B / BUYER_A wallets not configured${ctx.walletDiag ?? ""}`);
   const quotes = [
     { seller: a, micro: draw(2_000, 9_000) },
     { seller: b, micro: draw(2_000, 9_000) },
@@ -308,7 +310,7 @@ async function runF4(ctx: Ctx): Promise<MxeTradeRecord> {
   const rec = baseRecord(4, ctx.network, "internal");
   const seller = agentWallet("SELLER_A");
   const buyers = [agentWallet("BUYER_A"), agentWallet("BUYER_B")];
-  if (!seller || buyers.some((b) => !b)) return failed(rec, "CIRCLE_MXE_SELLER_A / BUYER_A / BUYER_B wallets not configured");
+  if (!seller || buyers.some((b) => !b)) return failed(rec, `CIRCLE_MXE_SELLER_A / BUYER_A / BUYER_B wallets not configured${ctx.walletDiag ?? ""}`);
   const price = draw(4_000, 8_000);
   // The third slot is a non-participant (cap 0): the circuit always takes three.
   const caps = [draw(1_000, 6_000), draw(1_000, 6_000), 0n];
@@ -414,22 +416,34 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
   const liveMissing = LIVE_AGENTS.some((a) => missing(a.refId));
   const devnetMissing = missing(DEVNET_QUEUER.refId);
   const fund = process.env.MXE_FUND_AGENTS === "true";
-  if (liveMissing || devnetMissing || fund) {
+  // LIVE and TEST are separate Circle environments with separate keys: a
+  // failure on one side must not stop the other, and its reason goes into the
+  // records — the Railway log is not where anyone reads it.
+  const setupErrors: string[] = [];
+  const attempt = async (label: string, f: () => Promise<void>) => {
     try {
-      await ensureAgents({ live: liveMissing || fund, devnet: devnetMissing, fund });
-      notes = await hydrateAgentWallets();
+      await f();
     } catch (err) {
-      console.error(`[MXE] agent setup failed: ${String(err)}`);
+      setupErrors.push(`${label}: ${String(err).slice(0, 300)}`);
     }
-  }
+  };
+  if (liveMissing || fund) await attempt("LIVE setup", () => ensureAgents({ live: true, devnet: false, fund }));
+  if (devnetMissing) await attempt("TEST setup", () => ensureAgents({ live: false, devnet: true, fund: false }));
+  if (liveMissing || devnetMissing || fund) notes = await hydrateAgentWallets();
   for (const note of notes) console.log(`[MXE] wallet ${note}`);
+  for (const e of setupErrors) console.error(`[MXE] ${e}`);
+  const walletProblems = [
+    ...notes.filter((n) => /not found|lookup failed/.test(n)),
+    ...setupErrors,
+  ];
+  const walletDiag = walletProblems.length ? ` [wallets: ${walletProblems.join("; ")}]` : "";
   let chain: MxeChain;
   try {
     chain = buildChain();
   } catch (err) {
     // The MXE is unavailable: say so per function, and do nothing else.
     const records = fns.map((fn) =>
-      failed(baseRecord(fn, network, INTERNAL_FUNCTIONS.has(fn) ? "internal" : "self"), `MXE unavailable: ${String(err)}`)
+      failed(baseRecord(fn, network, INTERNAL_FUNCTIONS.has(fn) ? "internal" : "self"), `MXE unavailable: ${String(err)}${walletDiag}`)
     );
     for (const r of records) await saveMxeRecord(r);
     console.error(`[MXE] unavailable — ${records.length} function(s) recorded as failed: ${String(err)}`);
@@ -437,7 +451,7 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
   }
 
   return withSellerServer(async (sellBase) => {
-    const ctx: Ctx = { chain, network, solUsd: await solUsd(), sellBase, runSpentUsd: 0 };
+    const ctx: Ctx = { chain, network, solUsd: await solUsd(), sellBase, runSpentUsd: 0, walletDiag };
     const records: MxeTradeRecord[] = [];
     const runners: Record<MxeFunction, () => Promise<MxeTradeRecord | MxeTradeRecord[]>> = {
       1: () => runF1(ctx),

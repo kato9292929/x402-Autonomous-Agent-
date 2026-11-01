@@ -169,6 +169,8 @@ test("job with the MXE unreachable records each enabled function as failed, with
       assert.equal(r.status, "failed");
       // The program id has a devnet default; what is missing here is the signer.
       assert.match(r.error!, /MXE unavailable: .*devnet signer not configured/);
+      // Why the wallets are missing is in the record, not only in the log.
+      assert.match(r.error!, /\[wallets: .*aa-mxe-devnet-queuer: not found.*TEST setup: .*CIRCLE_API_KEY_TEST/);
       assert.equal(r.computationOffset, undefined);
       assert.equal(r.result, undefined);
       assert.equal(r.network, "arcium-devnet");
