@@ -86,6 +86,14 @@ async function ensureWallet(
   return { id: w.id, address: w.address, created: true };
 }
 
+/** Circle's id for USDC on Solana, from the paying wallet's own balances. */
+async function usdcTokenId(client: Client, walletId: string): Promise<string> {
+  const res = await client.getWalletTokenBalance({ id: walletId });
+  const row = (res.data?.tokenBalances ?? []).find((b) => b.token?.tokenAddress === SOLANA_USDC_MINT);
+  if (!row?.token?.id) throw new Error(`the paying wallet ${walletId} holds no USDC (no token id to send)`);
+  return row.token.id;
+}
+
 async function usdcBalance(client: Client, walletId: string): Promise<number> {
   const res = await client.getWalletTokenBalance({ id: walletId });
   const row = (res.data?.tokenBalances ?? []).find(
@@ -145,29 +153,47 @@ async function setupLive(fund: boolean): Promise<string[]> {
   }
   console.log(`\n[LIVE] wallet set ${payer.walletSetId}(${payer.address} と同じ set)`);
 
+  // Create every wallet before moving any money: a refused transfer must not
+  // leave the remaining agents uncreated (11/2: seller A was created, its
+  // funding was refused, and B / buyer A / buyer B never were).
   const lines: string[] = [];
+  const created: { spec: AgentSpec; id: string; address: string }[] = [];
   for (const spec of LIVE_AGENTS) {
     const w = await ensureWallet(client, payer.walletSetId, "SOL", spec);
     console.log(`  ${w.created ? "作成" : "既存"}  ${spec.role}: ${w.address}`);
     lines.push(`${spec.env}_WALLET_ID=${w.id}`, `${spec.env}_WALLET_ADDRESS=${w.address}`);
+    created.push({ spec, id: w.id, address: w.address });
+  }
 
-    if (fund && spec.fund) {
-      const have = await usdcBalance(client, w.id);
-      if (have >= Number(spec.fund)) {
-        console.log(`        USDC ${have} 保有済み — 送らない`);
-        continue;
+  if (fund) {
+    const errors: string[] = [];
+    // By the token's Circle id, which a walletId transfer takes; the SDK does
+    // not let a walletId transfer name the chain next to a tokenAddress, and
+    // the API refused the tokenAddress form ("API parameter invalid", 11/2).
+    const tokenId = await usdcTokenId(client, payerId);
+    for (const { spec, id, address } of created) {
+      if (!spec.fund) continue;
+      try {
+        const have = await usdcBalance(client, id);
+        if (have >= Number(spec.fund)) {
+          console.log(`        ${spec.refId}: USDC ${have} 保有済み — 送らない`);
+          continue;
+        }
+        const tx = await client.createTransaction({
+          walletId: payerId,
+          tokenId,
+          amount: [spec.fund],
+          destinationAddress: address,
+          fee: { type: "level", config: { feeLevel: "MEDIUM" } },
+          idempotencyKey: stableUuid(`aa-mxe-fund:${spec.refId}:v1`),
+          refId: `aa-mxe-fund-${spec.refId}`,
+        });
+        console.log(`        ${spec.refId}: → $${spec.fund} USDC を送金(tx ${tx.data?.id}, ${tx.data?.state})`);
+      } catch (err) {
+        errors.push(`fund ${spec.refId}: ${err instanceof Error ? err.message : String(err)}`);
       }
-      const tx = await client.createTransaction({
-        walletId: payerId,
-        tokenAddress: SOLANA_USDC_MINT,
-        amount: [spec.fund],
-        destinationAddress: w.address,
-        fee: { type: "level", config: { feeLevel: "MEDIUM" } },
-        idempotencyKey: stableUuid(`aa-mxe-fund:${spec.refId}:v1`),
-        refId: `aa-mxe-fund-${spec.refId}`,
-      });
-      console.log(`        → $${spec.fund} USDC を送金(tx ${tx.data?.id}, ${tx.data?.state})`);
     }
+    if (errors.length) throw new Error(errors.join("; "));
   }
   return lines;
 }
@@ -221,7 +247,12 @@ async function main(): Promise<void> {
     console.log("--fund: 買い手 A・B に各 $0.10、売り手 A・B に各 $0.01 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ。売り手分は x402 の受取口座を作るため)");
   }
 
-  const variables = [...(await setupLive(fund)), ...(await setupDevnet())];
+  // With MXE_DEVNET_KEYPAIR the devnet signer is a plain key: no Circle TEST
+  // wallet to set up, and no TEST credentials needed.
+  const variables = [
+    ...(await setupLive(fund)),
+    ...(process.env.MXE_DEVNET_KEYPAIR ? [] : await setupDevnet()),
+  ];
   const key = wantKey ? generateDeployKey() : undefined;
   if (key) variables.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
 

@@ -11,7 +11,7 @@
  */
 import { randomBytes } from "crypto";
 import * as anchor from "@anchor-lang/core";
-import { ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, SystemProgram } from "@solana/web3.js";
 import { RescueCipher, deserializeLE, x25519 } from "@arcium-hq/client";
 import { eventOf, type ComputationRun, type MxeChain } from "./chain";
 
@@ -336,7 +336,8 @@ export async function setCatalog(
       Buffer.from(entries.map((e) => e.format)),
       entries.map((e) => e.priceMicro),
     ],
-    { catalog: catalogPda(chain, size) }
+    // Not resolvable from the IDL (no fixed addresses in it): pass it.
+    { catalog: catalogPda(chain, size), systemProgram: SystemProgram.programId }
   );
 }
 
