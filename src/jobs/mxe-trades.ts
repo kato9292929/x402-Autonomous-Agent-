@@ -73,7 +73,9 @@ export function buildChain(env = process.env): MxeChain {
     throw new Error("arcium-mainnet is not wired: the payer and RPC here are devnet-only");
   }
   const q = devnetQueuerFromEnv(env);
-  if ("missing" in q) throw new Error(`devnet signer not configured: ${q.missing.join(", ")}`);
+  if ("missing" in q) {
+    throw new Error(`devnet signer not configured: set MXE_DEVNET_KEYPAIR (or the Circle TEST wallet: ${q.missing.join(", ")})`);
+  }
   return new MxeChain({
     connection: new Connection(devnetRpcUrl(env), "confirmed"),
     wallet: q.wallet,

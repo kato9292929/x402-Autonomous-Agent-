@@ -103,7 +103,9 @@ side).
 
 It runs in the AA on Railway: the AA's cron fires it daily at 07:30 JST
 when `MXE_ENABLED=true`. The internal sellers need no host — the job serves
-them on 127.0.0.1 for the length of the run. The agent wallets are found in
+them on 127.0.0.1 for the length of the run. Computations are queued on devnet by a
+plain devnet keypair (`MXE_DEVNET_KEYPAIR`, the deploy key's JSON) rather
+than a Circle TEST-environment wallet. The agent wallets are found in
 Circle by refId; missing ones are created by the job itself, and
 `MXE_FUND_AGENTS=true` tops them up once (buyers $0.10, sellers $0.01 — a
 seller's $0.01 creates the USDC account an x402 payment needs). The devnet
