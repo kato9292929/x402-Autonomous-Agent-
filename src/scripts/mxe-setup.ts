@@ -247,7 +247,12 @@ async function main(): Promise<void> {
     console.log("--fund: 買い手 A・B に各 $0.10、売り手 A・B に各 $0.01 USDC を CIRCLE_SOLANA_WALLET_ID から送ります(未保有の場合のみ。売り手分は x402 の受取口座を作るため)");
   }
 
-  const variables = [...(await setupLive(fund)), ...(await setupDevnet())];
+  // With MXE_DEVNET_KEYPAIR the devnet signer is a plain key: no Circle TEST
+  // wallet to set up, and no TEST credentials needed.
+  const variables = [
+    ...(await setupLive(fund)),
+    ...(process.env.MXE_DEVNET_KEYPAIR ? [] : await setupDevnet()),
+  ];
   const key = wantKey ? generateDeployKey() : undefined;
   if (key) variables.push(`MXE_PROGRAM_ID=${programIdFor(key.json)}`);
 
