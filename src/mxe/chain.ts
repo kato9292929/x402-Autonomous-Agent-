@@ -205,9 +205,9 @@ export class MxeChain {
     // fresh. Measurement only: a failed read leaves the fields undefined.
     const fees = await this.readFees(circuit, account);
 
-    let callbackTx: string;
+    let newest: string;
     try {
-      callbackTx = await awaitComputationFinalization(
+      newest = await awaitComputationFinalization(
         this.provider,
         offset,
         this.cfg.programId,
@@ -220,17 +220,14 @@ export class MxeChain {
     const latencyMs = Date.now() - t0;
     const after = await this.cfg.connection.getBalance(this.authority, "confirmed");
 
-    const tx = await this.cfg.connection.getTransaction(callbackTx, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    });
-    if (!tx?.meta) throw fail(`callback tx ${callbackTx} not readable`);
-    if (tx.meta.err) throw fail(`callback tx failed: ${JSON.stringify(tx.meta.err)}`);
-    const events = [...this.parser.parseLogs(tx.meta.logMessages ?? [])].map((e) => ({
-      name: e.name,
-      data: e.data as Record<string, unknown>,
-    }));
-    if (events.length === 0) throw fail(`callback tx ${callbackTx} emitted no event`);
+    // More than one callback tx can land for a computation: the nodes may
+    // submit it twice, and the late one fails with Arcium's 6204
+    // ("Callback computation already called"). The newest signature on the
+    // account is not necessarily the one that delivered the result, so take
+    // the successful transaction that carries this program's event.
+    const found = await this.findCallback(new PublicKey(account), newest);
+    if ("error" in found) throw fail(found.error);
+    const { callbackTx, events } = found;
 
     return {
       circuit,
@@ -243,6 +240,33 @@ export class MxeChain {
       ...fees,
       events,
     };
+  }
+
+  /** The computation's successful callback transaction and its events. */
+  private async findCallback(
+    computation: PublicKey,
+    newest: string
+  ): Promise<{ callbackTx: string; events: ComputationRun["events"] } | { error: string }> {
+    const sigs = await this.cfg.connection.getSignaturesForAddress(computation, { limit: 20 }, "confirmed");
+    const order = [newest, ...sigs.map((s) => s.signature).filter((s) => s !== newest)];
+    let firstError: string | undefined;
+    for (const sig of order) {
+      const tx = await this.cfg.connection.getTransaction(sig, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (!tx?.meta) continue;
+      if (tx.meta.err) {
+        firstError ??= `callback tx failed: ${JSON.stringify(tx.meta.err)}`;
+        continue;
+      }
+      const events = [...this.parser.parseLogs(tx.meta.logMessages ?? [])].map((e) => ({
+        name: e.name,
+        data: e.data as Record<string, unknown>,
+      }));
+      if (events.length) return { callbackTx: sig, events };
+    }
+    return { error: firstError ?? `no transaction on the computation account carries a ${this.cfg.programId.toBase58()} event` };
   }
 
   /** CU of the circuit (from its comp def, cached) and this computation's execution fee. */
