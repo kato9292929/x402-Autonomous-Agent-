@@ -43,6 +43,35 @@ export interface Payment {
   error?: string;
 }
 
+/**
+ * USDC an address holds on Solana mainnet: a number, `null` when it has no
+ * USDC token account at all, undefined when the read failed (not a reason to
+ * stop — the payment itself will say).
+ */
+export async function usdcOnChain(owner: string, rpcUrl = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com"): Promise<number | null | undefined> {
+  try {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getTokenAccountsByOwner",
+        params: [owner, { mint: SOLANA_USDC_MINT }, { encoding: "jsonParsed" }],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const j = (await res.json()) as {
+      result?: { value: { account: { data: { parsed: { info: { tokenAmount: { uiAmount: number | null } } } } } }[] };
+    };
+    if (!j.result) return undefined;
+    if (j.result.value.length === 0) return null;
+    return j.result.value.reduce((a, v) => a + (v.account.data.parsed.info.tokenAmount.uiAmount ?? 0), 0);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Only an exact-USDC Solana leg for exactly `micro`, to exactly `payTo`. */
 export function isExpectedLeg(r: PaymentRequirements, micro: bigint, payTo: string): boolean {
   const amount = (r as { amount?: string }).amount ?? (r as { maxAmountRequired?: string }).maxAmountRequired;
@@ -65,6 +94,16 @@ export async function payInternal(
   runSpentUsd: number
 ): Promise<Payment> {
   const usd = Number(micro) / 1e6;
+  // Say plainly when a side cannot take part, instead of a bare 402 from the
+  // facilitator's verify (11/3: every payment came back "HTTP 402" because no
+  // agent had been funded).
+  const [have, sellerAccount] = await Promise.all([usdcOnChain(buyer.address), usdcOnChain(payTo)]);
+  if (have !== undefined && (have ?? 0) < usd) {
+    return { ok: false, error: `buyer ${buyer.role} (${buyer.address}) holds ${have ?? "no"} USDC, needs ${usd}` };
+  }
+  if (sellerAccount === null) {
+    return { ok: false, error: `seller ${payTo} has no USDC account yet (it is created by funding it)` };
+  }
   const week = await readWeekSpend(MXE_SPEND_NAMESPACE);
   const verdict = allowsCall(usd, runSpentUsd, week);
   if (!verdict.allowed) return { ok: false, error: `spend ceiling: ${verdict.reason}` };
