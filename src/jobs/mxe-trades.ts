@@ -148,7 +148,7 @@ async function pay(ctx: Ctx, fn: 1 | 2 | 4, buyer: AgentWallet, seller: AgentWal
   return p;
 }
 
-function withTrade(rec: MxeTradeRecord, payments: Payment[], tradeMicro: bigint): MxeTradeRecord {
+function withTrade(rec: MxeTradeRecord, payments: Payment[], tradeMicro: bigint, diag = ""): MxeTradeRecord {
   const paid = payments.filter((p) => p.ok);
   const tradeUsd = Number(tradeMicro) / 1e6;
   const out: MxeTradeRecord = {
@@ -161,7 +161,7 @@ function withTrade(rec: MxeTradeRecord, payments: Payment[], tradeMicro: bigint)
   const bad = payments.filter((p) => !p.ok);
   if (bad.length) {
     out.status = "failed";
-    out.error = `payment failed: ${bad.map((p) => p.error).join("; ")}`;
+    out.error = `payment failed: ${bad.map((p) => p.error).join("; ")}${diag}`;
   }
   return out;
 }
@@ -201,7 +201,7 @@ async function runF1(ctx: Ctx): Promise<MxeTradeRecord> {
     };
     if (out.result.matched) {
       const p = await pay(ctx, 1, buyer, seller, out.result.priceMicro, await productOfTheDay());
-      r = withTrade(r, [p], out.result.priceMicro);
+      r = withTrade(r, [p], out.result.priceMicro, ctx.walletDiag);
     }
     return r;
   } catch (err) {
@@ -245,7 +245,7 @@ async function runF2(ctx: Ctx): Promise<MxeTradeRecord> {
     };
     if (!winner) return { ...r, status: "failed", error: `winner ${out.result.winner} is not an internal seller` };
     const p = await pay(ctx, 2, buyer, winner, out.result.priceMicro, await productOfTheDay());
-    r = withTrade(r, [p], out.result.priceMicro);
+    r = withTrade(r, [p], out.result.priceMicro, ctx.walletDiag);
     return r;
   } catch (err) {
     return failed(rec, err);
@@ -332,7 +332,7 @@ async function runF4(ctx: Ctx): Promise<MxeTradeRecord> {
         payments.push(await pay(ctx, 4, buyers[i]!, seller, share, product));
       }
       const total = out.result.sharesMicro.reduce((s, x) => s + x, 0n);
-      r = withTrade(r, payments, total);
+      r = withTrade(r, payments, total, ctx.walletDiag);
     }
     return r;
   } catch (err) {
@@ -437,6 +437,7 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
   const walletProblems = [
     ...notes.filter((n) => /not found|lookup failed/.test(n)),
     ...setupErrors,
+    ...(fund ? [] : [`MXE_FUND_AGENTS is ${JSON.stringify(process.env.MXE_FUND_AGENTS ?? null)}, not "true" — agents were not funded`]),
   ];
   const walletDiag = walletProblems.length ? ` [wallets: ${walletProblems.join("; ")}]` : "";
   let chain: MxeChain;
