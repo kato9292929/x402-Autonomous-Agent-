@@ -78,3 +78,14 @@ test("a devnet keypair replaces the Circle TEST signer", async () => {
   const notes = await hydrateAgentWallets({ MXE_DEVNET_KEYPAIR: json }, {});
   assert.ok(notes.includes("aa-mxe-devnet-queuer: MXE_DEVNET_KEYPAIR"));
 });
+
+test("USDC ATA derivation matches a known mainnet account", async () => {
+  const { usdcAta, createUsdcAtaIx, ATA_PROGRAM_ID } = await import("../mxe/usdc-accounts");
+  // 6JKV…vEzA's USDC account, read from mainnet on 10/22.
+  const owner = new PublicKey("6JKVugbVRXR92sacDzgxBU6k6Mb9AAhxLbEy3DyWvEzA");
+  assert.equal(usdcAta(owner).toBase58(), "6tEoYiqMaNmdfpowpQJotd7y1a1b9xGkiB9D8CBArwbK");
+  const ix = createUsdcAtaIx(Keypair.generate().publicKey, owner);
+  assert.ok(ix.programId.equals(ATA_PROGRAM_ID));
+  assert.deepEqual([...ix.data], [1], "CreateIdempotent");
+  assert.ok(ix.keys[1].pubkey.equals(usdcAta(owner)));
+});
