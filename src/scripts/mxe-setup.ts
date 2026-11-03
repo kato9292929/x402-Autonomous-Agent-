@@ -37,9 +37,11 @@ import "dotenv/config";
 import * as crypto from "node:crypto";
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import { base58 } from "@scure/base";
-import { Keypair } from "@solana/web3.js";
+import { Connection, Keypair } from "@solana/web3.js";
 import { SOLANA_USDC_MINT } from "../balance-guard";
 import { DEVNET_QUEUER, LIVE_AGENTS, findWalletByRef, type AgentSpec } from "../mxe/wallets";
+import { circleMxeWallet } from "../mxe/wallet";
+import { ensureUsdcAccounts } from "../mxe/usdc-accounts";
 
 type Client = ReturnType<typeof initiateDeveloperControlledWalletsClient>;
 
@@ -188,6 +190,32 @@ async function setupLive(fund: boolean): Promise<string[]> {
     // not let a walletId transfer name the chain next to a tokenAddress, and
     // the API refused the tokenAddress form ("API parameter invalid", 11/2).
     const tokenId = await usdcTokenId(client, payerId);
+
+    // Circle will not create a recipient's USDC account
+    // (PAYMASTER_SOL_ATA_CREATION_NOT_ALLOWED, 11/3), so the AA wallet creates
+    // the missing ones first, in SOL, signing through Circle.
+    const signer = circleMxeWallet(
+      {
+        async signTransaction(input) {
+          const r = await client.signTransaction(input);
+          return { data: { signature: r.data?.signature } };
+        },
+      },
+      payerId,
+      payer.address
+    );
+    const connection = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+    try {
+      const atas = await ensureUsdcAccounts(connection, signer, created.map((c) => c.address));
+      console.log(
+        atas.created.length
+          ? `        USDC 口座を作成: ${atas.created.length} 件(tx ${atas.tx})`
+          : "        USDC 口座: 全員作成済み"
+      );
+    } catch (err) {
+      throw new Error(`USDC accounts: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     for (const { spec, id, address } of created) {
       if (!spec.fund) continue;
       try {
