@@ -86,6 +86,23 @@ async function ensureWallet(
   return { id: w.id, address: w.address, created: true };
 }
 
+/** Poll a Circle transfer until it settles or fails (about 2 minutes at most). */
+async function waitForTransfer(client: Client, id: string): Promise<{ state: string; reason?: string }> {
+  const final = new Set(["COMPLETE", "CONFIRMED", "FAILED", "DENIED", "CANCELLED"]);
+  let state = "UNKNOWN";
+  let reason: string | undefined;
+  for (let i = 0; i < 40; i++) {
+    const t = (await client.getTransaction({ id })).data?.transaction as
+      | { state?: string; errorReason?: string; errorDetails?: string }
+      | undefined;
+    state = t?.state ?? state;
+    reason = [t?.errorReason, t?.errorDetails].filter(Boolean).join(": ") || undefined;
+    if (final.has(state)) break;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return { state, reason };
+}
+
 /** Circle's id for USDC on Solana, from the paying wallet's own balances. */
 async function usdcTokenId(client: Client, walletId: string): Promise<string> {
   const res = await client.getWalletTokenBalance({ id: walletId });
@@ -179,16 +196,27 @@ async function setupLive(fund: boolean): Promise<string[]> {
           console.log(`        ${spec.refId}: USDC ${have} 保有済み — 送らない`);
           continue;
         }
+        // A fresh idempotency key per attempt: a fixed one made Circle hand
+        // back the first, failed transfer on every retry (11/3). The balance
+        // check above is what stops a second transfer once one has landed.
         const tx = await client.createTransaction({
           walletId: payerId,
           tokenId,
           amount: [spec.fund],
           destinationAddress: address,
           fee: { type: "level", config: { feeLevel: "MEDIUM" } },
-          idempotencyKey: stableUuid(`aa-mxe-fund:${spec.refId}:v1`),
+          idempotencyKey: crypto.randomUUID(),
           refId: `aa-mxe-fund-${spec.refId}`,
         });
-        console.log(`        ${spec.refId}: → $${spec.fund} USDC を送金(tx ${tx.data?.id}, ${tx.data?.state})`);
+        const txId = tx.data?.id;
+        if (!txId) throw new Error("Circle returned no transaction id");
+        // Wait for the outcome, so a run that pays right after sees the money,
+        // and a failure says why.
+        const end = await waitForTransfer(client, txId);
+        console.log(`        ${spec.refId}: → $${spec.fund} USDC(tx ${txId}): ${end.state}${end.reason ? ` — ${end.reason}` : ""}`);
+        if (end.state !== "COMPLETE" && end.state !== "CONFIRMED") {
+          errors.push(`fund ${spec.refId}: ${end.state}${end.reason ? ` — ${end.reason}` : ""} (tx ${txId})`);
+        }
       } catch (err) {
         errors.push(`fund ${spec.refId}: ${err instanceof Error ? err.message : String(err)}`);
       }
