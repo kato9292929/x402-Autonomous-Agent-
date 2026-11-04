@@ -50,6 +50,23 @@ const GROUPS = [
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/* ── Summary cards in the hero (External probe / Arcium MXE / EDINET) ───────
+   Each is filled by its section's loader from the same response, and stays
+   hidden when that section has nothing to show. */
+function fillMini(id, when, stats) {
+  const el = document.getElementById('mini-' + id);
+  if (!el) return null;
+  document.getElementById('mini-' + id + '-when').textContent = when;
+  document.getElementById('mini-' + id + '-stats').innerHTML = stats.map(([n, l]) =>
+    `<div class="stat"><span class="stat__n">${esc(n)}</span><span class="stat__l">${esc(l)}</span></div>`).join('');
+  el.hidden = false;
+  return el;
+}
+const shortDate = (at) => {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`;
+};
+
 /** Path key used to match a catalog row against a captured sample. */
 function pathKey(p) {
   const withoutHost = p.startsWith('/') ? p : '/' + p.split('/').slice(1).join('/');
@@ -332,6 +349,13 @@ async function loadSweepDetail() {
     // スコア付き予測（/api/alpha/catalysts/*）なので、この枠からは外す。
     // API とデータはそのまま残しているので、戻すのはこの filter を外すだけ。
     const sweeps = all.filter((s) => s.surface !== 'catalyst');
+    const edinet = sweeps.find((s) => s.surface === 'edinet');
+    if (edinet) {
+      fillMini('edinet', [edinet.week, shortDate(edinet.at)].filter(Boolean).join(' · '), [
+        [String(edinet.settlements ?? '—'), 'Settlements'],
+        [money(edinet.totalUsdc), 'USDC spent'],
+      ]);
+    }
     if (!sweeps.length) { section.hidden = true; return; }
     section.hidden = false;
     sweepState.summaries = sweeps;
@@ -388,6 +412,11 @@ async function loadProbe() {
     const when = new Date(run.at).toLocaleDateString('ja-JP');
     document.getElementById('probe-sub').textContent =
       `${run.week} · ${sellers.size}社 · ${paid.length}件決済 · ${money(run.runSpentUsdc)} · ${when}`;
+    fillMini('probe', [run.week, shortDate(run.at)].filter(Boolean).join(' · '), [
+      [String(sellers.size), 'Sellers'],
+      [String(paid.length), 'Paid'],
+      [money(run.runSpentUsdc), 'USDC'],
+    ]);
 
     document.getElementById('probe-scope').innerHTML =
       '自社の外側にある第三者の x402 売り手に、毎週1回こちらから支払って実費と内容を測っている。' +
@@ -472,6 +501,26 @@ async function loadMxe() {
     if (!p.total) { section.hidden = true; return; }
     section.hidden = false;
     const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
+    {
+      // Newest record per function (records come newest first).
+      const latest = new Map();
+      for (const r of p.records || []) if (!latest.has(r.fn)) latest.set(r.fn, r);
+      const newest = (p.records || [])[0];
+      const pays = (p.records || []).reduce((a, r) => a + (r.paymentTxs || []).length, 0);
+      const okFns = [...latest.values()].filter((r) => r.status === 'ok').length;
+      if (fillMini('mxe', newest ? shortDate(newest.at) : '', [
+        [`${okFns}/5`, 'Functions'],
+        [String(okRuns), 'Computations'],
+        [String(pays), 'Payments'],
+      ])) {
+        document.getElementById('mini-mxe-dots').innerHTML = [1, 2, 3, 4, 5].map((fn) => {
+          const r = latest.get(fn);
+          const st = !r ? 'none' : r.status === 'ok' ? 'ok' : 'failed';
+          const label = { ok: '成功', failed: '失敗', none: '記録なし' }[st];
+          return `<span class="mini__dot mini__dot--${st}" title="機能${fn}: ${label}">${fn}</span>`;
+        }).join('');
+      }
+    }
     document.getElementById('mxe-sub').textContent =
       `${p.total}件の記録 · 実計算 ${okRuns}件 · ${p.jobEnabled ? '毎日 07:30 JST' : '定時実行は停止中'}`;
     document.getElementById('mxe-scope').innerHTML =
