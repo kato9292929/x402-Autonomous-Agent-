@@ -138,23 +138,29 @@ h1, h2, h3, p { margin: 0; }
   }
   .lede { grid-column: 1 / -1; margin-bottom: 1rem; }
 }
-/* Wide: one screen. Copy top-left, three cards from the bottom-left corner,
-   "Latest run" on the right running up beside the copy. The panels take the
-   height left under the copy; nothing below the hero. */
+/* Wide: one screen. The copy and the "View endpoints" button share one row
+   at the top; under it four cards of the same size — three from the left
+   corner, "Latest run" on the right — take the rest of the height. */
 @media (min-width: 1200px) {
   .hero-bottom {
     flex: 1 1 auto;
     min-height: 0;
     margin-top: 0;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(300px, 340px);
+    grid-template-columns: repeat(4, minmax(0, 1fr));   /* four equal cards */
     grid-template-rows: auto minmax(0, 1fr);
     gap: 2rem 1.5rem;
     padding: 1rem 3rem 3rem;
   }
-  .lede { grid-column: 1 / 4; grid-row: 1; align-self: start; }
-  .hero-bottom > .card--panel { grid-row: 2; width: auto; height: auto; max-height: none; min-height: 0; }
-  .hero-bottom > .card[data-glass-card] { grid-column: 4; grid-row: 1 / 3; align-self: end; width: auto; max-height: 100%; }
+  .lede {
+    grid-column: 1 / -1; grid-row: 1;
+    display: flex; align-items: flex-end; gap: 3rem;
+    max-width: none;
+  }
+  .lede__title { flex: none; }
+  .lede__body { margin-top: 0; padding-bottom: 0.25rem; flex: 0 1 22rem; max-width: 22rem; min-width: 16rem; }
+  .lede .chamfer { margin: 0 0 0 auto; flex: none; }
+  .hero-bottom > .card { grid-row: 2; width: auto; height: auto; max-height: none; min-height: 0; padding: 1.75rem; }
 }
 
 /* ── Left column ─────────────────────────────────────────────────────────── */
@@ -289,7 +295,7 @@ h1, h2, h3, p { margin: 0; }
   padding-bottom: 0.75rem;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
-.card__title { font-size: 1rem; font-weight: 500; letter-spacing: -0.025em; }
+.card__title { font-size: 1rem; font-weight: 500; letter-spacing: -0.025em; line-height: 1.3; }
 .card__index { font-size: 0.75rem; color: rgba(0, 0, 0, 0.4); }
 .card__body { display: flex; flex-direction: column; gap: 0.875rem; margin-top: 1rem;
               flex: 1; min-height: 0; }   /* min-height:0 で子のスクロールを許可 */
@@ -324,14 +330,14 @@ h1, h2, h3, p { margin: 0; }
 .card--panel .card__index { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 1200–1439px: four cards still in one row, so tighten them. */
 @media (min-width: 1200px) and (max-width: 1439.98px) {
-  .hero-bottom { grid-template-columns: repeat(3, minmax(0, 1fr)) 300px; gap: 1.5rem 1rem; padding: 0.5rem 2.5rem 2.5rem; }
-  .card--panel { padding: 1.5rem 1.25rem; }
-  .card--panel .card__title { font-size: 1.0625rem; }
-  .card--panel .card__index { font-size: 0.6875rem; }
-  .card--panel .stat__n { font-size: 1.0625rem; }
-  .card--panel .stats { gap: 0.625rem; }
+  .hero-bottom { gap: 1.5rem 1rem; padding: 0.5rem 2.5rem 2.5rem; }
+  .hero-bottom > .card { padding: 1.5rem 1.25rem; }
+  .hero-bottom > .card .card__title { font-size: 1.0625rem; }
+  .hero-bottom > .card .card__index { font-size: 0.6875rem; }
+  .hero-bottom > .card .stat__n { font-size: 1.0625rem; }
+  .hero-bottom > .card .stats { gap: 0.625rem; }
 }
-.card--panel .stats:empty, .dots:empty { display: none; }
+.card--panel .stats:empty { display: none; }
 
 /* A small heading inside a list ("機能別", "記録") and a closing note. */
 .settle__group {
@@ -345,17 +351,6 @@ h1, h2, h3, p { margin: 0; }
 .settle__path { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.5625rem; color: rgba(0, 0, 0, 0.45); }
 .settle__note { font-size: 0.625rem; line-height: 1.6; color: rgba(0, 0, 0, 0.5); }
 .settle__badge.settle__badge--ok { background: rgba(0, 0, 0, 0.08); color: rgba(0, 0, 0, 0.6); }
-
-/* Arcium MXE: newest result of each function, 1–5. */
-.dots { position: relative; z-index: 2; display: flex; gap: 0.375rem; }
-.dot {
-  width: 1.25rem; height: 1.25rem; border-radius: 9999px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 0.625rem; font-variant-numeric: tabular-nums;
-  border: 1px solid rgba(0, 0, 0, 0.25); color: rgba(0, 0, 0, 0.5);
-}
-.dot--ok { background: rgba(0, 0, 0, 0.82); border-color: transparent; color: #fff; }
-.dot--failed { border-style: dashed; text-decoration: line-through; color: rgba(0, 0, 0, 0.35); }
 
 /* ── Slide-in menu ───────────────────────────────────────────────────────── */
 .menu {
