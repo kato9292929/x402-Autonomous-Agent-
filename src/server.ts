@@ -135,7 +135,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
  * its relative "./styles.css" resolves to "/styles.css" — these must be served
  * from site/ rather than falling through to 404.
  */
-const SITE_ASSETS = new Set(["/styles.css", "/glass-card.js", "/ui.js"]);
+const SITE_ASSETS = new Set(["/styles.css", "/ui.js"]);
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
