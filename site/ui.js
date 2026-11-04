@@ -6,7 +6,7 @@
    this agent calls on its 06:00 JST schedule. */
 const GROUPS = [
   {
-    name: 'Japan Inflation Nowcast',
+    name: 'Japan Inflation Nowcall',
     host: 'jin.x402jp.com',
     note: '決済は Solana USDC（x402 v2）。discovery は /.well-known/x402.json。',
     eps: [
@@ -78,7 +78,7 @@ function renderGroups() {
           <code class="ep__code"><span class="ep__m">${esc(ep.method)}</span> <span class="ep__p">${esc(ep.path)}</span></code>
           <span class="pill ${ep.free ? 'pill--ok' : 'pill--pay'}">${ep.free ? '200' : '402'}</span>
           <span class="ep__price">${ep.free ? 'free' : esc(ep.price)}</span>
-          ${ep.daily ? '<span class="chip-on">daily ✓</span>' : '<span class="chip-off">—</span>'}
+          ${ep.daily ? '<span class="chip-on">daily ✓</span>' : ''}
         </div>
         <p class="ep__desc">${esc(ep.desc)}</p>
         <div class="ep__sample" data-sample></div>

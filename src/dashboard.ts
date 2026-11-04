@@ -17,7 +17,7 @@ type Group = { name: string; host?: string; note: string; eps: Ep[] };
 // Verbatim from x402jp.com /products.html (ja).
 const GROUPS: Group[] = [
   {
-    name: "Japan Inflation Nowcast",
+    name: "Japan Inflation Nowcall",
     host: "jin.x402jp.com",
     note: "決済は Solana USDC（x402 v2）。discovery は /.well-known/x402.json。",
     eps: [
