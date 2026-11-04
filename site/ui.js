@@ -422,24 +422,23 @@ async function loadMxe() {
     const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
     const pays = records.reduce((a, r) => a + (r.paymentTxs || []).length, 0);
     document.getElementById('mxe-when').textContent = records[0] ? shortDate(records[0].at) : '—';
-    setStats('mxe-stats', [[`${okFns}/5`, 'Functions'], [String(okRuns), 'Computations'], [String(pays), 'Payments']]);
-    document.getElementById('mxe-dots').innerHTML = [1, 2, 3, 4, 5].map((fn) => {
-      const r = latest.get(fn);
-      const st = !r ? 'none' : r.status === 'ok' ? 'ok' : 'failed';
-      return `<span class="dot dot--${st}" title="機能${fn}: ${{ ok: '成功', failed: '失敗', none: '記録なし' }[st]}">${fn}</span>`;
-    }).join('');
+    setStats('mxe-stats', [[`${okFns}/5`, 'Functions'], [String(okRuns), 'Runs'], [String(pays), 'Payments']]);
 
     const byFn = p.aggregates.map((g) => {
       const f = p.functions.find((x) => x.fn === g.fn) || {};
+      // The newest run of the function decides the badge; the totals follow.
+      const last = latest.get(g.fn);
+      const lastOk = last && last.status === 'ok';
       return row({
         name: `${g.fn}. ${esc(g.label)}`,
-        badge: f.enabled === false ? '無効' : `${g.ok}/${g.runs}`, badgeOk: f.enabled !== false,
+        badge: f.enabled === false ? '無効' : !last ? '記録なし' : lastOk ? '成功' : '失敗',
+        badgeOk: f.enabled !== false && lastOk, bad: last && !lastOk,
         cost: usd(g.costUsd && g.costUsd.mean),
         line: facts([
+          `${g.ok}/${g.runs} 成功`,
           `平均 ${ms(g.latencyMs && g.latencyMs.mean)}`,
           g.unitCostRatio && `単価比 ${g.unitCostRatio.mean.toFixed(2)}`,
           g.compared && `比較 ${g.compared}`,
-          g.failed && `${g.failed} 失敗`,
           g.networks.length && g.networks.map(netLabel).join('/'),
         ]),
       });
