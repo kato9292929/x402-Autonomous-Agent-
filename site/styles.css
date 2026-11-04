@@ -8,8 +8,8 @@ html, body {
   width: 100%;
   margin: 0;
   padding: 0;
-  /* The hero is the first screen (100dvh); the weekly-sweep list flows below it,
-     so the page scrolls vertically. Horizontal scroll stays locked. */
+  /* One screen on a wide display: every record lives inside a card and
+     scrolls there. Narrower screens stack the cards, so the page scrolls. */
   overflow-x: hidden;
   overflow-y: auto;
   background: #c2ccd3;
@@ -120,26 +120,41 @@ h1, h2, h3, p { margin: 0; }
   padding: 0 1.25rem 1.5rem;   /* matches .nav so columns align with the navbar */
 }
 @media (min-width: 640px) { .hero-bottom { padding: 0 1.5rem 2rem; } }
-/* Mobile: the card shares this column with the intro copy, so let the bottom row
-   fill the remaining height and the card shrink to fit rather than overflow the
-   fold. The card's fixed 520px becomes a flex-basis it can shrink below; its
-   settle list still scrolls to reach every endpoint. */
-@media (max-width: 767.98px) {
-  .hero-bottom { flex: 1 1 auto; min-height: 0; margin-top: 0; justify-content: flex-end; }
-  .card { flex: 1 1 auto; min-height: 12rem; max-height: none; }
+
+/* Below 1200px four cards do not fit beside each other: they stack (two per
+   row from 768px), each at a fixed height with its list scrolling inside, and
+   the page grows to hold them. */
+@media (max-width: 1199.98px) {
+  .hero { height: auto; min-height: 100dvh; }
+  .hero-bottom { margin-top: 1rem; }
+  .hero-bottom > .card { width: 100%; height: 26rem; max-height: none; flex: none; }
 }
-@media (min-width: 768px) {
+@media (min-width: 768px) and (max-width: 1199.98px) {
   .hero-bottom {
-    flex: 1;
-    margin-top: 0;
-    flex-direction: row;
-    align-items: stretch;
-    justify-content: space-between;
-    gap: 3rem;
-    padding: 2rem 3rem 3rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+    padding: 1rem 3rem 3rem;
   }
-  .lede { align-self: flex-start; }   /* copy pinned top-left (inside .hero-left) */
-  .card { align-self: flex-end; }     /* card pinned bottom-right */
+  .lede { grid-column: 1 / -1; margin-bottom: 1rem; }
+}
+/* Wide: one screen. Copy top-left, three cards from the bottom-left corner,
+   "Latest run" on the right running up beside the copy. The panels take the
+   height left under the copy; nothing below the hero. */
+@media (min-width: 1200px) {
+  .hero-bottom {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(300px, 340px);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 2rem 1.5rem;
+    padding: 1rem 3rem 3rem;
+  }
+  .lede { grid-column: 1 / 4; grid-row: 1; align-self: start; }
+  .hero-bottom > .card--panel { grid-row: 2; width: auto; height: auto; max-height: none; min-height: 0; }
+  .hero-bottom > .card[data-glass-card] { grid-column: 4; grid-row: 1 / 3; align-self: end; width: auto; max-height: 100%; }
 }
 
 /* ── Left column ─────────────────────────────────────────────────────────── */
@@ -290,84 +305,57 @@ h1, h2, h3, p { margin: 0; }
   .finding__text { font-size: 0.875rem; margin-top: 0.375rem; }
 }
 
-/* ── Summary cards beside "Latest run" ───────────────────────────────────
-   External probe / Arcium MXE / EDINET weekly, each a short summary linking to
-   its section below. Same radius, border and type as the Latest run card, but
-   frosted with backdrop-filter: the card's refraction redraws a viewport-sized
-   filtered canvas every frame, and three more of those would cost 4x. */
-.hero-left { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
-.minis {
-  display: flex;
-  gap: 0.75rem;
-  overflow-x: auto;                 /* mobile: a strip that scrolls sideways */
-  scrollbar-width: none;
-  pointer-events: auto;
+/* ── Panels: External probe / Arcium MXE / EDINET ────────────────────────
+   Same shape, border, head and list as "Latest run", frosted with
+   backdrop-filter instead of the refraction canvas (which redraws a
+   viewport-sized filtered copy per card, every frame). */
+.card--panel {
+  padding: 1.75rem;
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
 }
-.minis::-webkit-scrollbar { display: none; }
-.mini {
-  position: relative;
-  flex: 0 0 13.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-  padding: 1rem 1.125rem;
-  border-radius: 28px;
-  border: 1px solid rgba(47, 47, 47, 0.15);
-  background: rgba(255, 255, 255, 0.12);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
-  box-shadow: inset 0 1.5px 2px rgba(255, 255, 255, 0.3), inset 0 -1px 2px rgba(0, 0, 0, 0.12);
-  color: #000;
-  text-decoration: none;
-  transition: background 400ms;
-  animation: fade-slide-up-card 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+.card--panel .card__frost { background: rgba(255, 255, 255, 0.1); }
+.card--panel:hover .card__frost { background: rgba(255, 255, 255, 0.16); }
+.card--panel:nth-of-type(2) { animation-delay: 70ms; }
+.card--panel:nth-of-type(3) { animation-delay: 140ms; }
+.card[data-glass-card] { animation-delay: 210ms; }
+.card--panel .stats { gap: 0.875rem; }
+.card--panel .card__title { white-space: nowrap; }
+.card--panel .card__index { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 1200–1439px: four cards still in one row, so tighten them. */
+@media (min-width: 1200px) and (max-width: 1439.98px) {
+  .hero-bottom { grid-template-columns: repeat(3, minmax(0, 1fr)) 300px; gap: 1.5rem 1rem; padding: 0.5rem 2.5rem 2.5rem; }
+  .card--panel { padding: 1.5rem 1.25rem; }
+  .card--panel .card__title { font-size: 1.0625rem; }
+  .card--panel .card__index { font-size: 0.6875rem; }
+  .card--panel .stat__n { font-size: 1.0625rem; }
+  .card--panel .stats { gap: 0.625rem; }
 }
-.mini:nth-child(2) { animation-delay: 80ms; }
-.mini:nth-child(3) { animation-delay: 160ms; }
-.mini:hover { background: rgba(255, 255, 255, 0.22); }
-.mini__head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
-  padding-bottom: 0.5rem; border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-.mini__title { font-size: 0.875rem; font-weight: 500; letter-spacing: -0.025em; white-space: nowrap; line-height: 1.4; }
-.mini__index { font-size: 0.625rem; color: rgba(0, 0, 0, 0.4); white-space: nowrap; }
-.mini__stats { display: flex; gap: 0.875rem; }
-.mini__stats .stat__n { font-size: 0.9375rem; }
-.mini__stats .stat__l { font-size: 0.5625rem; }
-.mini__dots { display: flex; gap: 0.375rem; }
-.mini__dot {
-  width: 1.125rem; height: 1.125rem; border-radius: 9999px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 0.5625rem; font-variant-numeric: tabular-nums;
-  border: 1px solid rgba(0, 0, 0, 0.25); color: rgba(0, 0, 0, 0.55);
-}
-.mini__dot--ok { background: rgba(0, 0, 0, 0.82); border-color: transparent; color: #fff; }
-.mini__dot--failed { border-style: dashed; color: rgba(0, 0, 0, 0.35); text-decoration: line-through; }
-.mini__foot { margin-top: auto; font-size: 0.625rem; color: rgba(0, 0, 0, 0.5); letter-spacing: 0.02em; }
+.card--panel .stats:empty, .dots:empty { display: none; }
 
-@media (max-width: 767.98px) {
-  /* The strip sits above the Latest run card and does not take its height. */
-  .hero-left { flex: 0 0 auto; }
-  /* Run the strip to the screen edge so a card scrolling in is not cut at the gutter. */
-  .minis { margin-right: -1.25rem; padding-right: 1.25rem; }
-  .mini { flex-basis: 11.5rem; padding: 0.75rem 0.875rem; gap: 0.5rem; border-radius: 22px; }
-  .mini__foot { display: none; }
+/* A small heading inside a list ("機能別", "記録") and a closing note. */
+.settle__group {
+  margin-top: 0.375rem; padding-top: 0.5rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 0.5625rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.4);
 }
-@media (min-width: 768px) {
-  /* Copy at the top of the left column, the three cards along its bottom —
-     from the bottom-left corner to about the middle of the screen. */
-  .hero-left { flex: 1 1 auto; justify-content: space-between; }
-  .hero-left .lede { align-self: flex-start; }
-  .minis { overflow: visible; align-items: stretch; }
-  .mini { flex: 0 1 14rem; min-height: 11rem; padding: 1.25rem 1.375rem; border-radius: 32px; }
-  .mini__title { font-size: 1rem; }
-  .mini__index { font-size: 0.6875rem; }
-  .mini__stats .stat__n { font-size: 1.0625rem; }
+.settle__group:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.settle__idx { font-size: 0.5625rem; color: rgba(0, 0, 0, 0.35); font-variant-numeric: tabular-nums; }
+.settle__path { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.5625rem; color: rgba(0, 0, 0, 0.45); }
+.settle__note { font-size: 0.625rem; line-height: 1.6; color: rgba(0, 0, 0, 0.5); }
+.settle__badge.settle__badge--ok { background: rgba(0, 0, 0, 0.08); color: rgba(0, 0, 0, 0.6); }
+
+/* Arcium MXE: newest result of each function, 1–5. */
+.dots { position: relative; z-index: 2; display: flex; gap: 0.375rem; }
+.dot {
+  width: 1.25rem; height: 1.25rem; border-radius: 9999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.625rem; font-variant-numeric: tabular-nums;
+  border: 1px solid rgba(0, 0, 0, 0.25); color: rgba(0, 0, 0, 0.5);
 }
-@media (min-width: 768px) and (max-width: 1099.98px) {
-  /* Too narrow for three beside the card: keep two, the third is below. */
-  .mini:nth-child(3) { display: none; }
-}
+.dot--ok { background: rgba(0, 0, 0, 0.82); border-color: transparent; color: #fff; }
+.dot--failed { border-style: dashed; text-decoration: line-through; color: rgba(0, 0, 0, 0.35); }
 
 /* ── Slide-in menu ───────────────────────────────────────────────────────── */
 .menu {
@@ -535,83 +523,6 @@ h1, h2, h3, p { margin: 0; }
   font-size: 0.625rem; line-height: 1.5; color: #8a5300;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* ── Weekly sweep detail (below the hero) ─────────────────────────────────────
-   Frosted glass over the fixed background video: as you scroll, this panel
-   slides up over the hero's video (which stays put), blurring it through the
-   glass — the same liquid-glass language as the hero, not an abrupt white block. */
-.sweep {
-  position: relative;
-  z-index: 5;                 /* above the fixed bg-video */
-  color: #000;
-  /* Barely-there tint like the hero glass — the video shows through, blurred. */
-  background: rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(40px) saturate(1.4);
-  backdrop-filter: blur(40px) saturate(1.4);
-  /* a soft glass edge catching light, not a hard rule */
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.5), inset 0 16px 30px -16px rgba(255, 255, 255, 0.4);
-  padding: 3.5rem 1.25rem 5rem;
-}
-@media (min-width: 768px) { .sweep { padding: 4.5rem 3rem 6rem; } }
-.sweep__inner { max-width: 60rem; margin: 0 auto; }
-.sweep__head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
-}
-.sweep__title { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.025em; margin: 0; }
-.sweep__sub { margin: 0.25rem 0 0; font-size: 0.8125rem; color: rgba(0, 0, 0, 0.55); }
-.sweep__scope { margin: 0 0 0.625rem; font-size: 0.8125rem; line-height: 1.55; color: rgba(0, 0, 0, 0.72); font-weight: 500; max-width: 48rem; }
-.sweep__desc { margin: 0 0 1.5rem; font-size: 0.75rem; line-height: 1.65; color: rgba(0, 0, 0, 0.5); max-width: 48rem; }
-.sweep__desc:empty, .sweep__scope:empty { display: none; }
-.sweep__scope code, .sweep__desc code {
-  font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.92em;
-  background: rgba(0, 0, 0, 0.05); padding: 0 0.25rem; border-radius: 4px;
-}
-.sweep__tabs { display: flex; gap: 0.5rem; }
-.sweep__tab {
-  font-size: 0.75rem; padding: 0.3125rem 0.75rem; border-radius: 9999px; cursor: pointer;
-  border: 1px solid rgba(0, 0, 0, 0.15); background: transparent; color: rgba(0, 0, 0, 0.6);
-}
-.sweep__tab[aria-selected="true"] { background: #000; color: #fff; border-color: #000; }
-.sweep__list {
-  list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: 1fr; gap: 1px;
-  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 12px; overflow: hidden;
-}
-@media (min-width: 640px) { .sweep__list { grid-template-columns: 1fr 1fr; } }
-.sweep__item {
-  display: flex; align-items: baseline; gap: 0.625rem;
-  padding: 0.5rem 0.75rem; background: rgba(255, 255, 255, 0.22);
-  font-variant-numeric: tabular-nums;
-}
-.sweep__idx { font-size: 0.625rem; color: rgba(0, 0, 0, 0.35); min-width: 2.25rem; }
-.sweep__ticker {
-  font-size: 0.8125rem; color: rgba(0, 0, 0, 0.8); font-weight: 500; flex: 1;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.sweep__amt { font-size: 0.6875rem; color: rgba(0, 0, 0, 0.45); }
-.sweep__txlink {
-  font-size: 0.6875rem; color: rgba(0, 0, 0, 0.7); text-decoration: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.2); font-family: 'SF Mono', Menlo, Consolas, monospace;
-}
-.sweep__txlink:hover { color: #000; }
-.sweep__txlink--none { color: rgba(0, 0, 0, 0.3); border-bottom-color: transparent; }
-/* Financial highlights per row (百万円). Wraps to a full-width second line. */
-.sweep__fin {
-  flex-basis: 100%; margin-top: 0.125rem;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 0.625rem; color: rgba(0, 0, 0, 0.6); font-variant-numeric: tabular-nums;
-}
-.sweep__fin--none { color: rgba(0, 0, 0, 0.35); font-style: italic; }
-.sweep__unit { color: rgba(0, 0, 0, 0.4); }
-.sweep__foot { margin-top: 1.25rem; text-align: center; }
-.sweep__more {
-  font-size: 0.8125rem; padding: 0.5rem 1.25rem; border-radius: 9999px; cursor: pointer;
-  border: 1px solid rgba(0, 0, 0, 0.2); background: transparent; color: rgba(0, 0, 0, 0.7);
-}
-.sweep__more:hover { border-color: #000; color: #000; }
-
-/* Weekly sweep rows lead the list — the per-call settlement evidence. */
 .settle__empty { font-size: 0.75rem; color: rgba(0, 0, 0, 0.45); }
 .settle__more { font-size: 0.6875rem; }
 .settle__more a { color: rgba(0, 0, 0, 0.5); text-decoration: none; }
@@ -749,84 +660,3 @@ h1, h2, h3, p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.01ms !important; }
 }
-
-/* ── External x402 probe ──────────────────────────────────────────────────
-   Same glass treatment as the weekly sweep, one section lower. Rows are denser:
-   a probe row carries a quote, a charge, a chain and a tx, where a sweep row
-   carries one amount. */
-.probe {
-  position: relative;
-  z-index: 5;
-  color: #000;
-  background: rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(40px) saturate(1.4);
-  backdrop-filter: blur(40px) saturate(1.4);
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.5), inset 0 16px 30px -16px rgba(255, 255, 255, 0.4);
-  padding: 3.5rem 1.25rem 5rem;
-}
-@media (min-width: 768px) { .probe { padding: 4.5rem 3rem 6rem; } }
-.probe__inner { max-width: 60rem; margin: 0 auto; }
-.probe__head { margin-bottom: 1.5rem; }
-.probe__title { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.025em; margin: 0; }
-.probe__sub { margin: 0.25rem 0 0; font-size: 0.8125rem; color: rgba(0, 0, 0, 0.55); }
-.probe__scope {
-  margin: 0 0 1.5rem; font-size: 0.8125rem; line-height: 1.6;
-  color: rgba(0, 0, 0, 0.72); max-width: 48rem;
-}
-.probe__scope:empty { display: none; }
-.probe__scope strong { font-weight: 600; }
-
-/* Per-seller rollup above the call rows. */
-.probe__sellers { list-style: none; margin: 0 0 1.75rem; padding: 0; display: grid; gap: 0.375rem; }
-.probe__seller {
-  display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
-  padding: 0.5rem 0.75rem; border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.28);
-}
-.probe__sellername { font-size: 0.8125rem; font-weight: 500; min-width: 6rem; }
-.probe__sellermeta { font-size: 0.6875rem; color: rgba(0, 0, 0, 0.5); }
-.probe__sellercost { font-size: 0.6875rem; color: rgba(0, 0, 0, 0.72); margin-left: auto; font-variant-numeric: tabular-nums; }
-.probe__sellerrate { font-size: 0.6875rem; color: rgba(0, 0, 0, 0.45); min-width: 4.5rem; text-align: right; }
-
-/* One row per call. */
-.probe__list {
-  list-style: none; margin: 0; padding: 0;
-  display: grid; gap: 1px; background: rgba(0, 0, 0, 0.07);
-  border-radius: 0.5rem; overflow: hidden;
-}
-.probe__item {
-  display: flex; align-items: baseline; gap: 0.625rem; flex-wrap: wrap;
-  padding: 0.625rem 0.75rem; background: rgba(255, 255, 255, 0.4);
-}
-/* Nothing was paid here. Dimmed, never hidden — a skipped call is a result. */
-.probe__item--skipped, .probe__item--error { background: rgba(255, 255, 255, 0.22); }
-.probe__idx { font-size: 0.625rem; color: rgba(0, 0, 0, 0.35); min-width: 1.75rem; }
-.probe__target { font-size: 0.75rem; font-weight: 500; min-width: 5.5rem; }
-.probe__path {
-  font-size: 0.6875rem; color: rgba(0, 0, 0, 0.6);
-  background: rgba(0, 0, 0, 0.05); padding: 0.0625rem 0.3125rem; border-radius: 0.25rem;
-  overflow-wrap: anywhere;
-}
-.probe__outcome {
-  font-size: 0.5625rem; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 0.125rem 0.375rem; border-radius: 1rem;
-  background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.55);
-}
-.probe__item--paid .probe__outcome { background: rgba(0, 0, 0, 0.82); color: #fff; }
-.probe__cost { font-size: 0.6875rem; color: rgba(0, 0, 0, 0.62); font-variant-numeric: tabular-nums; margin-left: auto; }
-.probe__chain { font-size: 0.625rem; color: rgba(0, 0, 0, 0.45); }
-.probe__txlink {
-  font-size: 0.6875rem; color: rgba(0, 0, 0, 0.55);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.2); text-decoration: none;
-}
-.probe__txlink:hover { color: #000; }
-.probe__txlink--none { color: rgba(0, 0, 0, 0.3); border-bottom-color: transparent; }
-.probe__lat { font-size: 0.625rem; color: rgba(0, 0, 0, 0.4); min-width: 3.5rem; text-align: right; font-variant-numeric: tabular-nums; }
-/* Why a call did not settle. Full width under the row, so it is read as the
-   row's reason rather than another column. */
-.probe__why {
-  flex-basis: 100%; font-size: 0.625rem; line-height: 1.5;
-  color: rgba(0, 0, 0, 0.5); padding-left: 1.75rem;
-}
-.probe__note { margin: 1rem 0 0; font-size: 0.6875rem; line-height: 1.6; color: rgba(0, 0, 0, 0.5); }
-.probe__note:empty { display: none; }

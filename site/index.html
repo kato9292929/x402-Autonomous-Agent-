@@ -113,53 +113,68 @@
       </a>
     </nav>
 
+    <!-- Single screen: the copy at the top left, and four cards along the
+         bottom — three weekly/experimental runs from the bottom-left corner and
+         "Latest run" on the right. Every record is inside its card; each list
+         scrolls within its card, never the page. -->
     <div class="hero-bottom">
 
-      <div class="hero-left">
-        <div class="lede">
-          <h1 class="lede__title">x402<br />Autonomous Agent</h1>
-          <p class="lede__body">
-            An agent with an on-chain identity that buys the data it needs, one
-            call at a time, and settles every call in USDC.
-          </p>
+      <div class="lede">
+        <h1 class="lede__title">x402<br />Autonomous Agent</h1>
+        <p class="lede__body">
+          An agent with an on-chain identity that buys the data it needs, one
+          call at a time, and settles every call in USDC.
+        </p>
 
-          <button class="chamfer" type="button" id="endpoints-open"
-                  aria-expanded="false" aria-controls="endpoints">
-            <span class="chamfer__glass" aria-hidden="true"></span>
-            <svg class="chamfer__outline" viewBox="0 0 260 48" preserveAspectRatio="none" aria-hidden="true">
-              <polygon points="14,0 260,0 260,34 246,48 0,48 0,14"
-                       fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-            </svg>
-            <span class="chamfer__label">View endpoints</span>
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Three summaries beside "Latest run": each links to its full section
-             below. Frosted with CSS rather than the card's refraction canvas,
-             which costs a viewport-sized filter per card. -->
-        <div class="minis" aria-label="Weekly and experimental runs">
-          <a class="mini" id="mini-probe" href="#probe" hidden>
-            <div class="mini__head"><span class="mini__title">External probe</span><span class="mini__index" id="mini-probe-when">—</span></div>
-            <div class="mini__stats" id="mini-probe-stats"></div>
-            <span class="mini__foot">第三者の x402 売り手 →</span>
-          </a>
-          <a class="mini" id="mini-mxe" href="#mxe" hidden>
-            <div class="mini__head"><span class="mini__title">Arcium MXE</span><span class="mini__index" id="mini-mxe-when">—</span></div>
-            <div class="mini__stats" id="mini-mxe-stats"></div>
-            <div class="mini__dots" id="mini-mxe-dots" aria-label="Latest result per function"></div>
-            <span class="mini__foot">秘密計算 5機能 →</span>
-          </a>
-          <a class="mini" id="mini-edinet" href="#sweep" hidden>
-            <div class="mini__head"><span class="mini__title">EDINET 週次</span><span class="mini__index" id="mini-edinet-when">—</span></div>
-            <div class="mini__stats" id="mini-edinet-stats"></div>
-            <span class="mini__foot">全社の決済記録 →</span>
-          </a>
-        </div>
+        <button class="chamfer" type="button" id="endpoints-open"
+                aria-expanded="false" aria-controls="endpoints">
+          <span class="chamfer__glass" aria-hidden="true"></span>
+          <svg class="chamfer__outline" viewBox="0 0 260 48" preserveAspectRatio="none" aria-hidden="true">
+            <polygon points="14,0 260,0 260,34 246,48 0,48 0,14"
+                     fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+          </svg>
+          <span class="chamfer__label">View endpoints</span>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
+          </svg>
+        </button>
       </div>
+
+      <section class="card card--panel" id="panel-probe" aria-label="External probe">
+        <div class="card__frost" aria-hidden="true"></div>
+        <div class="card__head">
+          <h2 class="card__title">External probe</h2>
+          <span class="card__index" id="probe-when">—</span>
+        </div>
+        <div class="card__body">
+          <div class="stats" id="probe-stats"></div>
+          <ul class="settle" id="probe-list"><li class="settle__empty">Loading…</li></ul>
+        </div>
+      </section>
+      <section class="card card--panel" id="panel-mxe" aria-label="Arcium MXE">
+        <div class="card__frost" aria-hidden="true"></div>
+        <div class="card__head">
+          <h2 class="card__title">Arcium MXE</h2>
+          <span class="card__index" id="mxe-when">—</span>
+        </div>
+        <div class="card__body">
+          <div class="stats" id="mxe-stats"></div>
+          <div class="dots" id="mxe-dots" aria-label="Latest result per function"></div>
+          <ul class="settle" id="mxe-list"><li class="settle__empty">Loading…</li></ul>
+        </div>
+      </section>
+      <section class="card card--panel" id="panel-edinet" aria-label="EDINET 週次">
+        <div class="card__frost" aria-hidden="true"></div>
+        <div class="card__head">
+          <h2 class="card__title">EDINET 週次</h2>
+          <span class="card__index" id="edinet-when">—</span>
+        </div>
+        <div class="card__body">
+          <div class="stats" id="edinet-stats"></div>
+          <ul class="settle" id="edinet-list"><li class="settle__empty">Loading…</li></ul>
+        </div>
+      </section>
 
       <aside class="card group" data-glass-card>
         <div id="dup-video-container"><canvas id="dup-image"></canvas></div>
@@ -182,66 +197,6 @@
 
     </div>
   </main>
-
-  <!-- ── Weekly sweep detail ────────────────────────────────────────────────
-       Below the hero: every company settled in the latest weekly sweep, one
-       row per per-call payment with its own Solscan tx. Scroll down to reach it. -->
-  <section class="sweep" id="sweep" aria-label="Weekly sweep settlements" hidden>
-    <div class="sweep__inner">
-      <header class="sweep__head">
-        <div>
-          <h2 class="sweep__title" id="sweep-title">Weekly sweep</h2>
-          <p class="sweep__sub" id="sweep-sub"></p>
-        </div>
-        <div class="sweep__tabs" id="sweep-tabs" role="tablist"></div>
-      </header>
-      <p class="sweep__scope" id="sweep-scope"></p>
-      <p class="sweep__desc" id="sweep-desc"></p>
-      <ol class="sweep__list" id="sweep-list"></ol>
-      <div class="sweep__foot">
-        <button class="sweep__more" id="sweep-more" type="button" hidden>もっと見る</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── External x402 probe ────────────────────────────────────────────────
-       Third-party sellers, outside our own economy. One row per call, with the
-       quoted price and the amount actually settled kept apart — the published
-       price and the real charge are expected to disagree, and a single "price"
-       column would hide that. -->
-  <section class="probe" id="probe" aria-label="External x402 probe" hidden>
-    <div class="probe__inner">
-      <header class="probe__head">
-        <div>
-          <h2 class="probe__title">External probe</h2>
-          <p class="probe__sub" id="probe-sub"></p>
-        </div>
-      </header>
-      <p class="probe__scope" id="probe-scope"></p>
-      <ul class="probe__sellers" id="probe-sellers"></ul>
-      <ol class="probe__list" id="probe-list"></ol>
-      <p class="probe__note" id="probe-note"></p>
-    </div>
-  </section>
-
-  <!-- ── Arcium MXE ─────────────────────────────────────────────────────────
-       Sealed trades. Where each computation ran and where any payment settled
-       are shown apart ("判定は devnet、支払いは mainnet"); a failed run is shown
-       as failed, with its error. Reuses the probe section's styles. -->
-  <section class="probe" id="mxe" aria-label="Arcium MXE" hidden>
-    <div class="probe__inner">
-      <header class="probe__head">
-        <div>
-          <h2 class="probe__title">Arcium MXE</h2>
-          <p class="probe__sub" id="mxe-sub"></p>
-        </div>
-      </header>
-      <p class="probe__scope" id="mxe-scope"></p>
-      <ul class="probe__sellers" id="mxe-functions"></ul>
-      <ol class="probe__list" id="mxe-list"></ol>
-      <p class="probe__note" id="mxe-note"></p>
-    </div>
-  </section>
 
   <!-- ── Endpoints overlay ─────────────────────────────────────────────────
        The hero itself never scrolls; the catalog lives in an overlay that
@@ -284,27 +239,6 @@
       <nav class="menu__nav">
         <a class="menu__link" href="#" data-open-endpoints>
           <span class="menu__linkText">Endpoints</span>
-          <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-          </svg>
-        </a>
-        <a class="menu__link" href="/dashboard">
-          <span class="menu__linkText">Daily records</span>
-          <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-          </svg>
-        </a>
-        <a class="menu__link" href="/.well-known/agent-card.json">
-          <span class="menu__linkText">Agent card</span>
-          <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-          </svg>
-        </a>
-        <a class="menu__link" href="/api/runs?limit=40">
-          <span class="menu__linkText">Run data</span>
           <svg class="menu__arrow icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
