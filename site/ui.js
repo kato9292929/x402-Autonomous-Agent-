@@ -50,17 +50,10 @@ const GROUPS = [
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* ── Summary cards in the hero (External probe / Arcium MXE / EDINET) ───────
-   Each is filled by its section's loader from the same response, and stays
-   hidden when that section has nothing to show. */
-function fillMini(id, when, stats) {
-  const el = document.getElementById('mini-' + id);
-  if (!el) return null;
-  document.getElementById('mini-' + id + '-when').textContent = when;
-  document.getElementById('mini-' + id + '-stats').innerHTML = stats.map(([n, l]) =>
+/** Stats row of a panel, in the Latest run card's markup. */
+function setStats(id, stats) {
+  document.getElementById(id).innerHTML = stats.map(([n, l]) =>
     `<div class="stat"><span class="stat__n">${esc(n)}</span><span class="stat__l">${esc(l)}</span></div>`).join('');
-  el.hidden = false;
-  return el;
 }
 const shortDate = (at) => {
   const d = new Date(at);
@@ -249,8 +242,7 @@ async function loadRun() {
           ${line}
         </li>`;
       }).join('');
-      // The weekly Catalyst and EDINET sweeps have their own section below.
-      // Keep this card aligned with its daily date, spend and call counters.
+      // The weekly sweeps have their own cards; this one is the daily run only.
       settle.innerHTML = dailyHtml || '<li class="settle__empty">No settlements yet.</li>';
     }
   } catch (e) {
@@ -260,126 +252,89 @@ async function loadRun() {
 loadRun();
 setInterval(loadRun, 60000);
 
-/* ── Weekly sweep detail (below the hero) ───────────────────────────────────
-   Every company settled in the latest sweep, one row per per-call payment with
-   its own tx. Paged so hundreds→thousands of rows stay light. */
-const sweepState = { surface: null, week: null, offset: 0, total: 0, summaries: [] };
+/* ── Panels: EDINET / External probe / Arcium MXE ──────────────────────────
+   Each card holds every record of its latest run in a list that scrolls inside
+   the card. Nothing is filled in: a missing field shows "—" and a failure shows
+   its reason. */
+const txLink = (t, label) => t
+  ? `<a class="settle__tx" href="${txUrl(t)}" target="_blank" rel="noopener">${esc(label || shortTx(t))}</a>`
+  : '<span class="settle__tx settle__tx--none">no tx</span>';
+const row = ({ name, badge, badgeOk, cost, tx, line, bad }) => `
+  <li class="settle__row${bad ? ' settle__row--bad' : ''}">
+    <div class="settle__head">
+      <span class="settle__name">${name}${badge ? ` <span class="settle__badge${badgeOk ? ' settle__badge--ok' : ''}">${esc(badge)}</span>` : ''}</span>
+      ${cost != null ? `<span class="settle__cost">${esc(cost)}</span>` : ''}
+      ${tx ?? ''}
+    </div>
+    ${line ?? ''}
+  </li>`;
+const facts = (xs) => `<div class="settle__facts">${xs.filter(Boolean).map((f) => `<span>${esc(f)}</span>`).join('')}</div>`;
+const reason = (t) => `<div class="settle__reason" title="${esc(t)}">${esc(String(t).slice(0, 120))}</div>`;
+const group = (t) => `<li class="settle__group">${esc(t)}</li>`;
+const note = (t) => `<li class="settle__note">${t}</li>`;
+const empty = (t) => `<li class="settle__empty">${esc(t)}</li>`;
 
-function selectSweep(surface) {
-  const s = sweepState.summaries.find((x) => x.surface === surface);
-  if (!s) return;
-  sweepState.surface = surface;
-  sweepState.week = s.week;
-  sweepState.offset = 0;
-  sweepState.total = s.settlements;
-  document.querySelectorAll('#sweep-tabs .sweep__tab').forEach((b) =>
-    b.setAttribute('aria-selected', b.dataset.surface === surface ? 'true' : 'false'));
-  const name = surface === 'edinet' ? 'EDINET 週次' : surface;
-  document.getElementById('sweep-title').textContent = name;
-  document.getElementById('sweep-sub').textContent =
-    `${s.week} · ${s.settlements}件 · ${money(s.totalUsdc)} · 社ごとに per-call 決済`;
+/* EDINET weekly: every company settled in the latest sweep, one per-call
+   payment each. Paged from the API as the list is scrolled to its end. */
+const edinet = { week: null, offset: 0, total: 0, loading: false };
 
-  // Scope caveat (this week's settlements are an excerpt of the full universe)
-  // and what each per-call actually returns, with the data source.
-  const scope = document.getElementById('sweep-scope');
-  const desc = document.getElementById('sweep-desc');
-  if (surface === 'edinet') {
-    scope.innerHTML = `EDINET の全提出者 約4,000社を <code>/api/edinet/{code}</code> で per-call 取得可能。` +
-      `下記は今週 AA が実決済した ${s.settlements}社 ＝その抜粋。`;
-    // osd #51 の実スキーマに明記(曖昧な「主要財務」は廃止)。
-    desc.innerHTML = `各 per-call は <code>/api/edinet/{code}</code> で、その社の最新の有報／四半期報告書から` +
-      `実財務を1社ぶん返す：<code>sales</code>（売上高）・<code>operating_income</code>（営業利益）・` +
-      `<code>net_income</code>（純利益）＝いずれも生JPY、<code>period</code>（会計期間）・` +
-      `<code>doc_id</code>（EDINET書類ID）・<code>financials_available</code>。` +
-      `株価・時価総額などの相場データは含まない。` +
-      `<code>financials_available:false</code> の社は「書類は特定・財務は未取得」と表示する。出典：金融庁 EDINET。`;
-  } else {
-    scope.textContent = '';
-    desc.textContent = '';
-  }
-
-  document.getElementById('sweep-list').innerHTML = '';
-  loadSweepPage(true);
-}
-
-async function loadSweepPage(reset) {
-  const list = document.getElementById('sweep-list');
-  const more = document.getElementById('sweep-more');
-  if (reset) sweepState.offset = 0;
+async function loadEdinetPage() {
+  const list = document.getElementById('edinet-list');
+  if (!list || edinet.loading || (edinet.offset > 0 && edinet.offset >= edinet.total)) return;
+  edinet.loading = true;
   try {
-    const url = `/api/sweeps/${encodeURIComponent(sweepState.surface)}/${encodeURIComponent(sweepState.week)}/items?offset=${sweepState.offset}&limit=50`;
+    const url = `/api/sweeps/edinet/${encodeURIComponent(edinet.week)}/items?offset=${edinet.offset}&limit=50`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const page = await res.json();
     const start = page.offset || 0;
     const items = page.items || [];
+    list.querySelector('.settle__more')?.remove();
     list.insertAdjacentHTML('beforeend', items.map((it, i) => {
-      const idx = start + i + 1;
-      const tx = it.tx
-        ? `<a class="sweep__txlink" href="${txUrl(it.tx)}" target="_blank" rel="noopener">${esc(shortTx(it.tx))}</a>`
-        : '<span class="sweep__txlink sweep__txlink--none">no tx</span>';
-      const label = it.name ? `${esc(it.name)} (${esc(it.ticker)})` : (it.ticker ? esc(it.ticker) : '—');
-      // 財務ハイライト(百万円)。区分B で SweepItem に実値が乗ると自動で出る。値が来るまでは
-      // 何も出さない(ダミーを実データのふりで出さない)。financials_available:false は正直表示。
+      const label = it.name ? `${it.name} (${it.ticker})` : (it.ticker || '—');
+      // 財務(百万円)は実値があるときだけ。financials_available:false は正直に出す。
       const hasFin = it.salesM != null || it.operatingIncomeM != null;
-      const fin = hasFin
-        ? `<div class="sweep__fin">売上 ${fmtM(it.salesM)} · 営利 ${fmtM(it.operatingIncomeM)} <span class="sweep__unit">百万円</span></div>`
-        : (it.financialsAvailable === false
-            ? `<div class="sweep__fin sweep__fin--none">書類は特定・財務は未取得</div>`
-            : '');
-      return `<li class="sweep__item"><span class="sweep__idx">#${idx}</span>` +
-        `<span class="sweep__ticker">${label}</span>` +
-        `<span class="sweep__amt">${money(it.amountUsdc)}</span>${tx}${fin}</li>`;
+      const line = hasFin
+        ? facts([`売上 ${fmtM(it.salesM)}`, `営利 ${fmtM(it.operatingIncomeM)}`, '百万円'])
+        : it.financialsAvailable === false
+          ? '<div class="settle__facts settle__facts--raw">書類は特定・財務は未取得</div>'
+          : '';
+      return row({ name: `<span class="settle__idx">#${start + i + 1}</span> ${esc(label)}`, cost: money(it.amountUsdc), tx: txLink(it.tx), line });
     }).join(''));
-    sweepState.offset = start + items.length;
-    sweepState.total = page.total || 0;
-    if (more) more.hidden = sweepState.offset >= sweepState.total;
-  } catch { if (more) more.hidden = true; }
+    edinet.offset = start + items.length;
+    edinet.total = page.total || 0;
+    if (edinet.offset < edinet.total) list.insertAdjacentHTML('beforeend', `<li class="settle__empty settle__more">${edinet.offset}/${edinet.total}件 — スクロールで続きを読み込む</li>`);
+    else list.insertAdjacentHTML('beforeend', note('EDINET の全提出者 約4,000社のうち、今週 AA が per-call で実決済した社。各 per-call は最新の有報／四半期報告書の実財務(売上・営業利益・純利益、生JPY)を返す。株価は含まない。出典：金融庁 EDINET。'));
+  } catch (e) {
+    list.insertAdjacentHTML('beforeend', empty(`読み込めなかった (${e})`));
+    edinet.total = edinet.offset;   // stop paging
+  } finally { edinet.loading = false; }
 }
 
-async function loadSweepDetail() {
-  const section = document.getElementById('sweep');
-  if (!section) return;
+async function loadEdinet() {
+  const list = document.getElementById('edinet-list');
+  if (!list) return;
   try {
     const res = await fetch('/api/sweeps');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const all = (await res.json()).sweeps || [];
-    // Catalyst は per-call 買い付けの週次記録で、この面で見せている「実決済の
-    // 証跡」としては EDINET と同じ形に見えてしまう。本体の Catalyst は osd 側の
-    // スコア付き予測（/api/alpha/catalysts/*）なので、この枠からは外す。
-    // API とデータはそのまま残しているので、戻すのはこの filter を外すだけ。
-    const sweeps = all.filter((s) => s.surface !== 'catalyst');
-    const edinet = sweeps.find((s) => s.surface === 'edinet');
-    if (edinet) {
-      fillMini('edinet', [edinet.week, shortDate(edinet.at)].filter(Boolean).join(' · '), [
-        [String(edinet.settlements ?? '—'), 'Settlements'],
-        [money(edinet.totalUsdc), 'USDC spent'],
-      ]);
-    }
-    if (!sweeps.length) { section.hidden = true; return; }
-    section.hidden = false;
-    sweepState.summaries = sweeps;
-    const tabs = document.getElementById('sweep-tabs');
-    tabs.innerHTML = sweeps.map((s) => {
-      const label = s.surface === 'edinet' ? 'EDINET' : s.surface;
-      return `<button class="sweep__tab" role="tab" data-surface="${esc(s.surface)}">${esc(label)}</button>`;
-    }).join('');
-    tabs.querySelectorAll('.sweep__tab').forEach((b) =>
-      b.addEventListener('click', () => selectSweep(b.dataset.surface)));
-    selectSweep(sweeps[0].surface);   // newest sweep first
-  } catch { section.hidden = true; }
+    // Catalyst の週次記録はこの枠に出さない(本体は osd 側のスコア付き予測)。
+    const s = ((await res.json()).sweeps || []).find((x) => x.surface === 'edinet');
+    if (!s) { list.innerHTML = empty('まだ記録がない。'); return; }
+    document.getElementById('edinet-when').textContent = [s.week, shortDate(s.at)].filter(Boolean).join(' · ');
+    setStats('edinet-stats', [[money(s.totalUsdc), 'USDC spent'], [String(s.settlements ?? '—'), 'Settlements']]);
+    list.innerHTML = '';
+    Object.assign(edinet, { week: s.week, offset: 0, total: s.settlements || 0 });
+    await loadEdinetPage();
+    list.addEventListener('scroll', () => {
+      if (list.scrollTop + list.clientHeight >= list.scrollHeight - 80) loadEdinetPage();
+    }, { passive: true });
+  } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
 }
+loadEdinet();
 
-document.getElementById('sweep-more')?.addEventListener('click', () => loadSweepPage(false));
-loadSweepDetail();
-
-/* ── External x402 probe ───────────────────────────────────────────────────
-   Third-party sellers. The quote and the settled amount are separate columns on
-   purpose: the published price and the real charge are expected to disagree, so
-   a single "price" column would be the one thing this measurement cannot show.
-   Nothing is filled in from the target list — a row shows only what was read. */
-// Served by /api/probes from PROBE_TARGETS, so adding a seller needs no change
-// here. Falls back to the raw id, which is what a run older than the map shows.
+/* External x402 probe: third-party sellers, paid once a week. The quoted price
+   (from the seller's 402) and the settled charge are kept apart — the point is
+   to see where they disagree. */
 let sellerNames = {};
 const sellerName = (id) => sellerNames[id] || id;
 const money6 = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Number(n).toFixed(6));
@@ -392,87 +347,47 @@ const chainLabel = (c) => {
 };
 
 async function loadProbe() {
-  const section = document.getElementById('probe');
-  if (!section) return;
+  const list = document.getElementById('probe-list');
+  if (!list) return;
   try {
     const res = await fetch('/api/probes?limit=12');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const payload = await res.json();
     sellerNames = payload.targets || {};
-    const runs = payload.probes || [];
-    // Headline the newest PAID run. A discovery run settles nothing, so showing
-    // one here would read as external spend that never happened.
-    const run = runs.find((r) => r.mode === 'sweep');
-    if (!run) { section.hidden = true; return; }
-    section.hidden = false;
-
+    // The newest PAID run; a discovery run settles nothing.
+    const run = (payload.probes || []).find((r) => r.mode === 'sweep');
+    if (!run) { list.innerHTML = empty('まだ記録がない。'); return; }
     const rows = run.records || [];
     const paid = rows.filter((r) => r.outcome === 'paid');
     const sellers = new Set(paid.map((r) => r.target));
-    const when = new Date(run.at).toLocaleDateString('ja-JP');
-    document.getElementById('probe-sub').textContent =
-      `${run.week} · ${sellers.size}社 · ${paid.length}件決済 · ${money(run.runSpentUsdc)} · ${when}`;
-    fillMini('probe', [run.week, shortDate(run.at)].filter(Boolean).join(' · '), [
-      [String(sellers.size), 'Sellers'],
-      [String(paid.length), 'Paid'],
-      [money(run.runSpentUsdc), 'USDC'],
-    ]);
+    document.getElementById('probe-when').textContent = [run.week, shortDate(run.at)].filter(Boolean).join(' · ');
+    setStats('probe-stats', [[money(run.runSpentUsdc), 'USDC spent'], [String(sellers.size), 'Sellers'], [`${paid.length}/${rows.length}`, 'Paid']]);
 
-    document.getElementById('probe-scope').innerHTML =
-      '自社の外側にある第三者の x402 売り手に、毎週1回こちらから支払って実費と内容を測っている。' +
-      '<strong>提示額</strong>は売り手の 402 から、<strong>実課金</strong>は決済レスポンスから取る。' +
-      '掲載価格は写さない — 掲載と実課金は乖離しうるので、1列にまとめるとその乖離が見えなくなる。';
-
-    // Per-seller rollup. `measuredPerCallUsdc` is settled ÷ paid calls, so a
-    // seller that settled nothing shows no per-call figure rather than a zero.
-    const list = document.getElementById('probe-sellers');
-    list.innerHTML = (run.summaries || []).map((s) => {
-      const perCall = s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) : '—';
-      const rate = Math.round((s.successRate || 0) * 100);
-      const bits = [`${s.paidCalls}/${s.calls} 決済`];
-      if (s.skipped) bits.push(`${s.skipped} skip`);
-      if (s.errors) bits.push(`${s.errors} err`);
-      return `<li class="probe__seller">` +
-        `<span class="probe__sellername">${esc(sellerName(s.target))}</span>` +
-        `<span class="probe__sellermeta">${esc(bits.join(' · '))}</span>` +
-        `<span class="probe__sellercost">実測 per-call ${esc(perCall)}</span>` +
-        `<span class="probe__sellerrate">成功 ${rate}%</span></li>`;
+    const bySeller = (run.summaries || []).map((s) => row({
+      name: esc(sellerName(s.target)),
+      badge: `成功 ${Math.round((s.successRate || 0) * 100)}%`, badgeOk: true,
+      cost: s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) + '/call' : '—',
+      line: facts([`${s.paidCalls}/${s.calls} 決済`, s.skipped && `${s.skipped} skip`, s.errors && `${s.errors} err`]),
+    })).join('');
+    const calls = rows.map((r) => {
+      const ok = r.outcome === 'paid';
+      return row({
+        name: `${esc(sellerName(r.target))} <code class="settle__path">${esc(r.path)}</code>`,
+        badge: ok ? '' : r.outcome, bad: !ok,
+        cost: `${money6(r.quotedUsdc)} → ${money6(r.actualUsdc)}`,
+        tx: txLink(r.txHash),
+        line: ok ? facts([chainLabel(r.chain), r.latencyMs != null && `${r.latencyMs}ms`]) : (r.reason ? reason(r.reason) : ''),
+      });
     }).join('');
-
-    document.getElementById('probe-list').innerHTML = rows.map((r, i) => {
-      const tx = r.txHash
-        ? `<a class="probe__txlink" href="${txUrl(r.txHash)}" target="_blank" rel="noopener">${esc(shortTx(r.txHash))}</a>`
-        : `<span class="probe__txlink probe__txlink--none">no tx</span>`;
-      const chain = r.chain ? `<span class="probe__chain">${esc(chainLabel(r.chain))}</span>` : '';
-      // Quote and charge side by side. Either can legitimately be missing: no
-      // 402 means no quote, nothing settled means no charge.
-      const cost = `<span class="probe__cost">提示 ${esc(money6(r.quotedUsdc))}` +
-        ` → 実課金 ${esc(money6(r.actualUsdc))}</span>`;
-      const why = r.outcome !== 'paid' && r.reason
-        ? `<div class="probe__why">${esc(r.reason)}</div>` : '';
-      return `<li class="probe__item probe__item--${esc(r.outcome)}">` +
-        `<span class="probe__idx">#${i + 1}</span>` +
-        `<span class="probe__target">${esc(sellerName(r.target))}</span>` +
-        `<code class="probe__path">${esc(r.path)}</code>` +
-        `<span class="probe__outcome">${esc(r.outcome)}</span>` +
-        `${cost}${chain}${tx}` +
-        `<span class="probe__lat">${esc(String(r.latencyMs ?? '—'))}ms</span>${why}</li>`;
-    }).join('');
-
-    const skipped = rows.filter((r) => r.outcome === 'skipped');
-    document.getElementById('probe-note').textContent = skipped.length
-      ? `${skipped.length}件は支払わずに終えている（停止中の売り手・対応チェーンなし・予算上限）。理由は各行に出している。`
-      : '';
-  } catch { section.hidden = true; }
+    list.innerHTML = group('売り手別') + bySeller + group('コール別 · 提示 → 実課金') + calls +
+      note('自社の外にある第三者の x402 売り手に週1回支払い、実費と内容を測っている。提示額は売り手の 402 から、実課金は決済レスポンスから取る。');
+  } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
 }
 loadProbe();
 
-/* ── Arcium MXE ────────────────────────────────────────────────────────────
-   One row per function (aggregates over every record) and the newest records.
-   The computation's network and the payment's network are separate fields and
-   are shown separately. Nothing is filled in: a field the record lacks shows
-   as "—", and a failed run shows its error. */
-const devnetAcct = (a, net) =>
+/* Arcium MXE: the five sealed functions. Where the computation ran (Arcium)
+   and where a payment settled (Solana mainnet) are shown apart. */
+const compUrl = (a, net) =>
   'https://explorer.solana.com/address/' + a + (net === 'arcium-devnet' ? '?cluster=devnet' : '');
 const ms = (n) => (n == null ? '—' : Math.round(n).toLocaleString('ja-JP') + 'ms');
 const usd = (n) => (n == null ? '—' : '$' + Number(n).toFixed(6));
@@ -492,78 +407,63 @@ function mxeResult(r) {
 }
 
 async function loadMxe() {
-  const section = document.getElementById('mxe');
-  if (!section) return;
+  const list = document.getElementById('mxe-list');
+  if (!list) return;
   try {
     const res = await fetch('/api/mxe?limit=30');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const p = await res.json();
-    if (!p.total) { section.hidden = true; return; }
-    section.hidden = false;
+    const records = p.records || [];   // newest first
+    if (!p.total) { list.innerHTML = empty('まだ記録がない。'); return; }
+
+    const latest = new Map();
+    for (const r of records) if (!latest.has(r.fn)) latest.set(r.fn, r);
+    const okFns = [...latest.values()].filter((r) => r.status === 'ok').length;
     const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
-    {
-      // Newest record per function (records come newest first).
-      const latest = new Map();
-      for (const r of p.records || []) if (!latest.has(r.fn)) latest.set(r.fn, r);
-      const newest = (p.records || [])[0];
-      const pays = (p.records || []).reduce((a, r) => a + (r.paymentTxs || []).length, 0);
-      const okFns = [...latest.values()].filter((r) => r.status === 'ok').length;
-      if (fillMini('mxe', newest ? shortDate(newest.at) : '', [
-        [`${okFns}/5`, 'Functions'],
-        [String(okRuns), 'Computations'],
-        [String(pays), 'Payments'],
-      ])) {
-        document.getElementById('mini-mxe-dots').innerHTML = [1, 2, 3, 4, 5].map((fn) => {
-          const r = latest.get(fn);
-          const st = !r ? 'none' : r.status === 'ok' ? 'ok' : 'failed';
-          const label = { ok: '成功', failed: '失敗', none: '記録なし' }[st];
-          return `<span class="mini__dot mini__dot--${st}" title="機能${fn}: ${label}">${fn}</span>`;
-        }).join('');
-      }
-    }
-    document.getElementById('mxe-sub').textContent =
-      `${p.total}件の記録 · 実計算 ${okRuns}件 · ${p.jobEnabled ? '毎日 07:30 JST' : '定時実行は停止中'}`;
-    document.getElementById('mxe-scope').innerHTML =
-      '相手に見せない数字を Arcium の MXE(秘密計算)に渡し、結果だけを取り出す。' +
-      '<strong>判定</strong>は Arcium のクラスタ、<strong>支払い</strong>は x402 で Solana mainnet — 両者は別の欄に記録する。' +
-      '機能1・2・4 の相手方は AA 自身の内部エージェントで、外部の需要の証拠ではない。';
+    const pays = records.reduce((a, r) => a + (r.paymentTxs || []).length, 0);
+    document.getElementById('mxe-when').textContent = records[0] ? shortDate(records[0].at) : '—';
+    setStats('mxe-stats', [[`${okFns}/5`, 'Functions'], [String(okRuns), 'Computations'], [String(pays), 'Payments']]);
+    document.getElementById('mxe-dots').innerHTML = [1, 2, 3, 4, 5].map((fn) => {
+      const r = latest.get(fn);
+      const st = !r ? 'none' : r.status === 'ok' ? 'ok' : 'failed';
+      return `<span class="dot dot--${st}" title="機能${fn}: ${{ ok: '成功', failed: '失敗', none: '記録なし' }[st]}">${fn}</span>`;
+    }).join('');
 
-    document.getElementById('mxe-functions').innerHTML = p.aggregates.map((g) => {
+    const byFn = p.aggregates.map((g) => {
       const f = p.functions.find((x) => x.fn === g.fn) || {};
-      const bits = [`${g.ok}/${g.runs} 成功`];
-      if (g.failed) bits.push(`${g.failed} 失敗`);
-      if (g.compared) bits.push(`比較 ${g.compared}`);
-      if (g.networks.length) bits.push(g.networks.map(netLabel).join('/'));
-      const ratio = g.unitCostRatio ? ` · 単価比 ${g.unitCostRatio.mean.toFixed(2)}` : '';
-      return `<li class="probe__seller">` +
-        `<span class="probe__sellername">${g.fn}. ${esc(g.label)}</span>` +
-        `<span class="probe__sellermeta">${esc(bits.join(' · '))}${f.enabled ? '' : ' · 無効'}</span>` +
-        `<span class="probe__sellercost">平均 ${esc(ms(g.latencyMs && g.latencyMs.mean))} · ${esc(usd(g.costUsd && g.costUsd.mean))}${esc(ratio)}</span>` +
-        `<span class="probe__sellerrate">${g.costSol ? esc(g.costSol.mean.toFixed(6)) + ' SOL' : '—'}</span></li>`;
+      return row({
+        name: `${g.fn}. ${esc(g.label)}`,
+        badge: f.enabled === false ? '無効' : `${g.ok}/${g.runs}`, badgeOk: f.enabled !== false,
+        cost: usd(g.costUsd && g.costUsd.mean),
+        line: facts([
+          `平均 ${ms(g.latencyMs && g.latencyMs.mean)}`,
+          g.unitCostRatio && `単価比 ${g.unitCostRatio.mean.toFixed(2)}`,
+          g.compared && `比較 ${g.compared}`,
+          g.failed && `${g.failed} 失敗`,
+          g.networks.length && g.networks.map(netLabel).join('/'),
+        ]),
+      });
     }).join('');
-
-    document.getElementById('mxe-list').innerHTML = (p.records || []).map((r) => {
+    const recs = records.map((r) => {
+      const ok = r.status === 'ok';
       const comp = r.computationAccount
-        ? `<a class="probe__txlink" href="${devnetAcct(r.computationAccount, r.network)}" target="_blank" rel="noopener">計算 ${esc(shortTx(r.computationOffset))}</a>`
-        : `<span class="probe__txlink probe__txlink--none">計算なし</span>`;
-      const pays = (r.paymentTxs || []).map((t) =>
-        `<a class="probe__txlink" href="${txUrl(t)}" target="_blank" rel="noopener">支払 ${esc(shortTx(t))}</a>`).join('');
-      const status = r.status === 'ok' ? 'paid' : 'error';
-      const why = r.status !== 'ok' && r.error ? `<div class="probe__why">${esc(r.error)}</div>` : '';
-      const cmp = r.comparison ? `<div class="probe__why">比較(${esc(r.comparison.method)}): ${esc(JSON.stringify(r.comparison.result))}</div>` : '';
-      return `<li class="probe__item probe__item--${status}">` +
-        `<span class="probe__idx">#${r.fn}</span>` +
-        `<span class="probe__target">${esc(partyLabel(r.counterparty))}</span>` +
-        `<code class="probe__path">${esc(mxeResult(r))}</code>` +
-        `<span class="probe__outcome">${esc(r.status)}</span>` +
-        `<span class="probe__cost">${esc(usd(r.costUsd))}${r.unitCostRatio != null ? ' · 単価比 ' + esc(r.unitCostRatio.toFixed(2)) : ''}</span>` +
-        `<span class="probe__chain">${esc(netLabel(r.network))}${r.paymentNetwork ? ' → Solana' : ''}</span>` +
-        `${comp}${pays}<span class="probe__lat">${esc(ms(r.latencyMs))}</span>${cmp}${why}</li>`;
+        ? `<a class="settle__tx" href="${compUrl(r.computationAccount, r.network)}" target="_blank" rel="noopener">計算</a>`
+        : '<span class="settle__tx settle__tx--none">計算なし</span>';
+      const payLinks = (r.paymentTxs || []).map((t) => txLink(t, '支払')).join('');
+      const line = ok
+        ? facts([netLabel(r.network) + (r.paymentNetwork ? ' → Solana' : ''), ms(r.latencyMs), partyLabel(r.counterparty),
+            r.unitCostRatio != null && `単価比 ${r.unitCostRatio.toFixed(2)}`,
+            r.comparison && `比較(${r.comparison.method}) ${JSON.stringify(r.comparison.result)}`])
+        : reason(r.error || 'failed');
+      return row({
+        name: `#${r.fn} ${esc(mxeResult(r) || '—')}`, badge: ok ? '' : '失敗', bad: !ok,
+        cost: `${shortDate(r.at)} · ${usd(r.costUsd)}`, tx: comp + payLinks, line,
+      });
     }).join('');
-
-    document.getElementById('mxe-note').textContent =
-      'devnet の SOL に市場価格はない。USD 換算は同じ計算を mainnet でした場合の目安として mainnet の SOL/USD で出している。';
-  } catch { section.hidden = true; }
+    list.innerHTML = group('機能別 · 平均') + byFn + group('記録 · 新しい順') + recs +
+      note('判定は Arcium のクラスタ、支払いは x402 で Solana mainnet。機能1・2・4 の相手方は AA 自身の内部エージェントで、外部需要の証拠ではない。devnet の SOL に市場価格はないため、USD は mainnet の SOL/USD で換算した目安。' +
+        (p.jobEnabled ? ' 毎日 07:30 JST に実行。' : ' 定時実行は停止中。'));
+  } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
 }
 loadMxe();
 
