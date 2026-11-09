@@ -135,7 +135,13 @@ function readBody(req: http.IncomingMessage): Promise<string> {
  * its relative "./styles.css" resolves to "/styles.css" — these must be served
  * from site/ rather than falling through to 404.
  */
-const SITE_ASSETS = new Set(["/styles.css", "/ui.js"]);
+const SITE_ASSETS = new Set([
+  "/styles.css",
+  "/ui.js",
+  "/favicon.ico",
+  "/favicon-32.png",
+  "/apple-touch-icon.png",
+]);
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
@@ -486,6 +492,8 @@ export function startHttpServer(): void {
         ".js": "text/javascript; charset=utf-8",
         ".mjs": "text/javascript; charset=utf-8",
         ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".ico": "image/x-icon",
       };
       try {
         const body = fs.readFileSync(filePath);
