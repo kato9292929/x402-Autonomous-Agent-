@@ -10,6 +10,8 @@ import { claimNullifier } from "./world-id/nullifier-store";
 import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessions";
 import { runModeC } from "./modes/modeC";
 import { loadRuns } from "./store/run-store";
+import { backfillContent } from "./content-check";
+import { ENDPOINTS_MODE_B, ENDPOINTS_MODE_C, ENDPOINTS_MODE_D } from "./config";
 import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { loadSweepSummaries } from "./store/sweep-summary";
@@ -519,10 +521,13 @@ export function startHttpServer(): void {
     if (urlPath === "/api/runs" && req.method === "GET") {
       const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
       const limit = Math.min(200, Math.max(1, parseInt(q ?? "60", 10) || 60));
+      const idByUrl = new Map([...ENDPOINTS_MODE_B, ...ENDPOINTS_MODE_C, ...ENDPOINTS_MODE_D].map((e) => [e.url, e.id]));
       loadRuns(limit)
         .then((runs) => {
           res.setHeader("Access-Control-Allow-Origin", "*");
-          sendJson(res, 200, { runs });
+          // Runs from before content-check.ts are judged from the body they kept.
+          const judged = runs.map((r) => ({ ...r, results: r.results.map((x) => backfillContent(x, (u) => idByUrl.get(u))) }));
+          sendJson(res, 200, { runs: judged });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/runs error:", err);

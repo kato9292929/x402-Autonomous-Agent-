@@ -47,7 +47,7 @@ const GROUPS: Group[] = [
     eps: [
       { method: "GET", path: "x402amd.vercel.app/api/macro/dashboard", price: "$0.30", desc: "APACマクロ。金利・為替・フロー・リスク regime。" },
       { method: "GET", path: "x402yi.vercel.app/api/yield/scan", price: "$0.20", desc: "DeFiの利回りスキャン。プール別のAPYとスマートマネー残高。" },
-      { method: "POST", path: "x402pi.vercel.app/api/portfolio/analyze", price: "$0.50", desc: "ウォレットアドレスを渡すとポートフォリオを分析。" },
+      { method: "POST", path: "x402pi.vercel.app/api/portfolio/analyze", price: "$0.30", desc: "ウォレットアドレスを渡すとポートフォリオを分析。" },
       { method: "GET", path: "x402-jrey.vercel.app/api/realestate/yield?area=tokyo", price: "$0.30", desc: "日本の不動産利回り。エリア指定。" },
       { method: "GET", path: "x402nansenpolymarket.vercel.app/api/divergence/scan", price: "$0.15", desc: "予測市場とオンチェーンフローの乖離スキャン。" },
       { method: "GET", path: "x402-hl.vercel.app/api/hyperliquid/scan", price: "$0.20", desc: "Hyperliquidの建玉・ファンディングとスマートマネーの偏り。" },

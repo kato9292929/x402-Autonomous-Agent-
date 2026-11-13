@@ -36,7 +36,7 @@ const GROUPS = [
     eps: [
       { method: 'GET', path: 'x402amd.vercel.app/api/macro/dashboard', price: '$0.30', daily: true, desc: 'APACマクロ。金利・為替・フロー・リスク regime。' },
       { method: 'GET', path: 'x402yi.vercel.app/api/yield/scan', price: '$0.20', daily: true, desc: 'DeFiの利回りスキャン。プール別のAPYとスマートマネー残高。' },
-      { method: 'POST', path: 'x402pi.vercel.app/api/portfolio/analyze', price: '$0.50', daily: true, desc: 'ウォレットアドレスを渡すとポートフォリオを分析。' },
+      { method: 'POST', path: 'x402pi.vercel.app/api/portfolio/analyze', price: '$0.30', daily: true, desc: 'ウォレットアドレスを渡すとポートフォリオを分析。' },
       { method: 'GET', path: 'x402-jrey.vercel.app/api/realestate/yield?area=tokyo', price: '$0.30', daily: true, desc: '日本の不動産利回り。エリア指定。' },
       { method: 'GET', path: 'x402nansenpolymarket.vercel.app/api/divergence/scan', price: '$0.15', daily: true, desc: '予測市場とオンチェーンフローの乖離スキャン。' },
       { method: 'GET', path: 'x402-hl.vercel.app/api/hyperliquid/scan', price: '$0.20', desc: 'Hyperliquidの建玉・ファンディングとスマートマネーの偏り。' },
@@ -198,8 +198,21 @@ async function loadRun() {
 
     document.getElementById('stat-spend').textContent = money(spend);
     document.getElementById('stat-tx').textContent = paid.length;
-    document.getElementById('stat-ok').textContent =
-      attempted.filter((r) => r.status === 'success').length + '/' + attempted.length;
+    const okCalls = attempted.filter((r) => r.status === 'success');
+    document.getElementById('stat-ok').textContent = okCalls.length + '/' + attempted.length;
+    // Content OK: of the OK calls, those whose body carried something. A call
+    // whose body was not kept in full (before 11/13) cannot be judged and is
+    // left out of both sides rather than guessed.
+    const judged = okCalls.filter((r) => r.content);
+    const emptyBody = (r) => r.status === 'success' && r.content && r.content.ok === false;
+    const contentEl = document.getElementById('stat-content');
+    if (contentEl) {
+      contentEl.textContent = judged.length
+        ? judged.filter((r) => r.content.ok).length + '/' + judged.length
+        : '—';
+      contentEl.parentElement.title = contentEl.parentElement.title.split('\n')[0] +
+        (judged.length < okCalls.length ? `\n本文が残っておらず判定できない ${okCalls.length - judged.length} 件は数えていない` : '');
+    }
 
     if (settle) {
       // Figures the agent actually received, keyed by path, so each row can show
@@ -220,11 +233,13 @@ async function loadRun() {
       const shown = results.filter((r) => r.txHash || r.status === 'degraded' || r.status === 'error');
       const dailyHtml = shown.map((r) => {
         const cooldown = isCooldown(r);
-        const bad = r.status === 'degraded' || r.status === 'error';
-        const badge = cooldown ? '休止' : r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : '';
+        const hollow = emptyBody(r);
+        const bad = r.status === 'degraded' || r.status === 'error' || hollow;
+        const badge = cooldown ? '休止' : r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : hollow ? '中身なし' : '';
         const reason = r.status === 'degraded'
           ? (r.degradedReason || 'fallback data')
-          : r.status === 'error' ? (r.error || 'failed') : '';
+          : r.status === 'error' ? (r.error || 'failed')
+          : hollow ? (r.content.reason || '中身なし') : '';
         const facts = factsByPath.get(pathOf(r.endpoint || '')) || [];
         const line = bad
           ? `<div class="settle__reason">${esc(String(reason).slice(0, 90))}</div>`
