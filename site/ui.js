@@ -373,17 +373,32 @@ async function loadProbe() {
     // The newest PAID run; a discovery run settles nothing.
     const run = (payload.probes || []).find((r) => r.mode === 'sweep');
     if (!run) { list.innerHTML = empty('まだ記録がない。'); return; }
-    const rows = run.records || [];
+    // Suspended sellers are out of the sweep. Older runs still carry a skipped
+    // row for them; leave those out and list the sellers once, under 停止中.
+    const suspended = payload.suspended || [];
+    const off = new Set(suspended.map((x) => x.id));
+    const rows = (run.records || []).filter((r) => !off.has(r.target));
     const paid = rows.filter((r) => r.outcome === 'paid');
     const sellers = new Set(paid.map((r) => r.target));
     document.getElementById('probe-when').textContent = [run.week, shortDate(run.at)].filter(Boolean).join(' · ');
     setStats('probe-stats', [[money(run.runSpentUsdc), 'USDC spent'], [String(sellers.size), 'Sellers'], [`${paid.length}/${rows.length}`, 'Paid']]);
 
-    const bySeller = (run.summaries || []).map((s) => row({
-      name: esc(sellerName(s.target)),
-      badge: `成功 ${Math.round((s.successRate || 0) * 100)}%`, badgeOk: true,
-      cost: s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) + '/call' : '—',
-      line: facts([`${s.paidCalls}/${s.calls} 決済`, s.skipped && `${s.skipped} skip`, s.errors && `${s.errors} err`]),
+    const bySeller = (run.summaries || []).filter((s) => !off.has(s.target)).map((s) => {
+      // A seller with no paid call shows why: the skip reason of its first row.
+      const allSkipped = s.paidCalls === 0 && s.skipped > 0 && !s.errors;
+      const why = rows.find((r) => r.target === s.target && r.outcome !== 'paid' && r.reason);
+      return row({
+        name: esc(sellerName(s.target)),
+        badge: allSkipped ? '買わず' : `成功 ${Math.round((s.successRate || 0) * 100)}%`,
+        badgeOk: s.paidCalls > 0 && !s.errors, bad: s.paidCalls === 0,
+        cost: s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) + '/call' : '—',
+        line: facts([`${s.paidCalls}/${s.calls} 決済`, s.skipped && `${s.skipped} skip`, s.errors && `${s.errors} err`]) +
+          (s.paidCalls === 0 && why ? reason(`理由: ${why.reason}`) : ''),
+      });
+    }).join('');
+    const offRows = suspended.map((x) => row({
+      name: esc(x.name), badge: '停止中', bad: true, cost: `${x.since} から`,
+      line: reason(x.reason),
     })).join('');
     const calls = rows.map((r) => {
       const ok = r.outcome === 'paid';
@@ -396,6 +411,7 @@ async function loadProbe() {
       });
     }).join('');
     list.innerHTML = group('売り手別') + bySeller + group('コール別 · 提示 → 実課金') + calls +
+      (offRows ? group('停止中 · 実行対象外') + offRows : '') +
       note('自社の外にある第三者の x402 売り手に週1回支払い、実費と内容を測っている。提示額は売り手の 402 から、実課金は決済レスポンスから取る。');
   } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
 }

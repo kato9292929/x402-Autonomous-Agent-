@@ -49,3 +49,19 @@ test("a not_delivered third party is skipped through the real lookup", async () 
   const r = await checkProbe("https://www.Bad.example/api", "GET", json(200, { last_paid: { outcome: "not_delivered", date: "2026-10-26" } }));
   assert.deepEqual([r.host, r.decision], ["bad.example", "skip"]);
 });
+
+test("the input flag is the measured route's: not applied to another route or to a call that carries input", () => {
+  // 2s.io as the Probe reported it on 11/13: measured on /api/geo/ip, which needs ?ip.
+  const twoS = {
+    score: 100, buyable_without_input: false,
+    requires_input_reason: { source: "schema", reason: "requires_input: query: ip" },
+    latest: { url: "https://2s.io/api/geo/ip" }, last_paid: null,
+  };
+  assert.equal(decide("2s.io", twoS, "GET", new Date(), "https://2s.io/api/finance/sec-filings?ticker=NVDA&limit=5").decision, "buy");
+  assert.equal(decide("2s.io", twoS, "GET", new Date(), "https://2s.io/api/geo/ip?ip=1.1.1.1").decision, "buy");
+  assert.equal(decide("2s.io", twoS, "GET", new Date(), "https://2s.io/api/geo/ip").decision, "skip");
+  // Otto: measured on /feedback; /crypto-news is called bare but is another route.
+  const otto = { score: 99.3, buyable_without_input: false, latest: { url: "https://x402.ottoai.services/feedback" }, last_paid: { outcome: "request_rejected", date: "2026-11-09" } };
+  assert.equal(decide("x402.ottoai.services", otto, "GET", new Date(), "https://x402.ottoai.services/crypto-news").decision, "buy");
+  assert.equal(decide("x402.ottoai.services", otto, "GET", new Date(), "https://x402.ottoai.services/feedback").decision, "skip");
+});

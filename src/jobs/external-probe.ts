@@ -366,22 +366,14 @@ async function runSweep(
   for (const target of targets) {
     let consecutiveErrors = 0;
 
-    // A suspended seller is not paid, but the reason is recorded every week so
-    // the row does not simply vanish from the sweep. Run 0 keeps reading it for
-    // free, which is what notices a recovery.
+    // A suspended seller is out of the sweep: no request and no row. Its reason
+    // lives on the target and is shown under 停止中 on the card (/api/probes),
+    // so it is not repeated as a "skipped" call every week. Run 0 (manual,
+    // unpaid) still reads it, which is what notices a recovery.
     if (target.suspended) {
       console.log(
-        `[PROBE] ${target.name}: 停止中(${target.suspended.since}) — ${target.suspended.reason}`
+        `[PROBE] ${target.name}: 停止中(${target.suspended.since})のため対象外 — ${target.suspended.reason}`
       );
-      records.push({
-        at: new Date().toISOString(),
-        target: target.id,
-        path: target.probes[0]?.path ?? "",
-        method: target.probes[0]?.method ?? "GET",
-        latencyMs: 0,
-        outcome: "skipped",
-        reason: `停止中(${target.suspended.since}): ${target.suspended.reason}`,
-      });
       continue;
     }
 

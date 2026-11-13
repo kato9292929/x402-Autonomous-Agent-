@@ -567,7 +567,15 @@ export function startHttpServer(): void {
           const targets = Object.fromEntries(
             PROBE_TARGETS.map((t) => [t.id, t.name])
           );
-          sendJson(res, 200, { probes, targets });
+          // Suspended sellers are out of the sweep; the card lists them apart,
+          // with since/reason, and leaves their rows in older runs out.
+          const suspended = PROBE_TARGETS.filter((t) => t.suspended).map((t) => ({
+            id: t.id,
+            name: t.name,
+            since: t.suspended!.since,
+            reason: t.suspended!.reason,
+          }));
+          sendJson(res, 200, { probes, targets, suspended });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/probes error:", err);
