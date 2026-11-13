@@ -52,8 +52,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 /** Stats row of a panel, in the Latest run card's markup. */
 function setStats(id, stats) {
-  document.getElementById(id).innerHTML = stats.map(([n, l]) =>
-    `<div class="stat"><span class="stat__n">${esc(n)}</span><span class="stat__l">${esc(l)}</span></div>`).join('');
+  // An optional third item is the stat's definition, shown on hover.
+  document.getElementById(id).innerHTML = stats.map(([n, l, def]) =>
+    `<div class="stat"${def ? ` title="${esc(def)}"` : ''}><span class="stat__n">${esc(n)}</span><span class="stat__l">${esc(l)}</span></div>`).join('');
 }
 const shortDate = (at) => {
   const d = new Date(at);
@@ -422,7 +423,11 @@ async function loadMxe() {
     const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
     const pays = records.reduce((a, r) => a + (r.paymentTxs || []).length, 0);
     document.getElementById('mxe-when').textContent = records[0] ? shortDate(records[0].at) : '—';
-    setStats('mxe-stats', [[`${okFns}/5`, 'Functions'], [String(okRuns), 'Runs'], [String(pays), 'Payments']]);
+    const DEF_FNS = '5機能のうち、直近の記録が成功だった機能の数';
+    const DEF_RUNS = 'これまでに成功した計算の累計(停止中の記録は数えない)';
+    const DEF_PAYS = '直近30件の記録にある x402 支払い tx の数';
+    setStats('mxe-stats', [[`${okFns}/5`, 'Functions', DEF_FNS], [String(okRuns), 'Runs', DEF_RUNS], [String(pays), 'Payments', DEF_PAYS]]);
+    const stageLabel = (s) => (p.stageLabels && p.stageLabels[s]) || s;
 
     const byFn = p.aggregates.map((g) => {
       const f = p.functions.find((x) => x.fn === g.fn) || {};
@@ -431,11 +436,13 @@ async function loadMxe() {
       const lastOk = last && last.status === 'ok';
       return row({
         name: `${g.fn}. ${esc(g.label)}`,
-        badge: f.enabled === false ? '無効' : !last ? '記録なし' : lastOk ? '成功' : '失敗',
-        badgeOk: f.enabled !== false && lastOk, bad: last && !lastOk,
+        badge: f.enabled === false ? '無効' : f.paused ? '停止中' : !last ? '記録なし' : lastOk ? '成功' : '失敗',
+        badgeOk: f.enabled !== false && !f.paused && lastOk, bad: f.paused || (last && !lastOk),
         cost: usd(g.costUsd && g.costUsd.mean),
-        line: facts([
+        line: (f.paused ? reason(`${shortDate(f.paused.at)} から停止: ${f.paused.reason}`) : '') + facts([
           `${g.ok}/${g.runs} 成功`,
+          g.paused && `停止中の記録 ${g.paused}`,
+          last && !lastOk && last.stage && `直近の失敗: ${stageLabel(last.stage)}`,
           `平均 ${ms(g.latencyMs && g.latencyMs.mean)}`,
           g.unitCostRatio && `単価比 ${g.unitCostRatio.mean.toFixed(2)}`,
           g.compared && `比較 ${g.compared}`,
@@ -454,12 +461,26 @@ async function loadMxe() {
             r.unitCostRatio != null && `単価比 ${r.unitCostRatio.toFixed(2)}`,
             r.comparison && `比較(${r.comparison.method}) ${JSON.stringify(r.comparison.result)}`])
         : reason(r.error || 'failed');
+      const badge = ok ? '' : r.status === 'paused' ? '停止中' : `失敗: ${stageLabel(r.stage || 'queue')}`;
       return row({
-        name: `#${r.fn} ${esc(mxeResult(r) || '—')}`, badge: ok ? '' : '失敗', bad: !ok,
+        name: `#${r.fn} ${esc(mxeResult(r) || '—')}`, badge, bad: !ok,
         cost: `${shortDate(r.at)} · ${usd(r.costUsd)}`, tx: comp + payLinks, line,
       });
     }).join('');
-    list.innerHTML = group('機能別 · 平均') + byFn + group('記録 · 新しい順') + recs +
+    const fs = (p.failuresByStage && p.failuresByStage.stages) || [];
+    const byStage = fs.map((x) => row({
+      name: esc(x.label), badge: `${x.count}件`, bad: x.stage !== 'paused',
+      cost: `${shortDate(x.first)}–${shortDate(x.last)}`,
+      line: facts([`機能 ${x.fns.join('・')}`]) + (x.sample ? reason(x.sample) : ''),
+    })).join('');
+    const rs = p.rentSweep;
+    const rentLine = rs ? note(`計算アカウントの rent: ${shortDate(rs.at)} の回収で ${rs.claimed}件・${(rs.claimedLamports / 1e9).toFixed(4)} SOL を回収。` +
+      (rs.stillQueued ? ` 未実行のまま期限前の ${rs.stillQueued}件(${(rs.stillQueuedLamports / 1e9).toFixed(4)} SOL)は期限後に毎回の実行で回収する。` : '')) : '';
+    const defs = note(`Functions = ${DEF_FNS}。Runs = ${DEF_RUNS}。Payments = ${DEF_PAYS}。` +
+      `同じ段階の失敗が ${p.breakerDays || 3} 日続いた機能は止め、手動で再開するまで実行しない。`);
+    list.innerHTML = defs + group('機能別 · 平均') + byFn +
+      (byStage ? group(`失敗の段階 · ${shortDate(p.failuresByStage.since)} 以降`) + byStage + rentLine : rentLine) +
+      group('記録 · 新しい順') + recs +
       note('判定は Arcium のクラスタ、支払いは x402 で Solana mainnet。機能1・2・4 の相手方は AA 自身の内部エージェントで、外部需要の証拠ではない。devnet の SOL に市場価格はないため、USD は mainnet の SOL/USD で換算した目安。' +
         (p.jobEnabled ? ' 毎日 07:30 JST に実行。' : ' 定時実行は停止中。'));
   } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }

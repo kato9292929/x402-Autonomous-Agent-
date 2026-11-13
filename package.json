@@ -14,6 +14,7 @@
     "mxe:setup": "node dist/scripts/mxe-setup.js",
     "mxe:run": "node dist/index.js --mxe-run",
     "mxe:rate": "node dist/scripts/mxe-rate.js",
+    "mxe:resume": "node dist/scripts/mxe-resume.js",
     "arc:register": "node dist/scripts/arc-register-agent.js",
     "probe:run0": "node dist/index.js --probe-run0",
     "probe:sweep": "node dist/index.js --probe-sweep",
