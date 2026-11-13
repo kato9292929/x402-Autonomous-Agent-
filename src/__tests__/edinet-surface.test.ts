@@ -113,3 +113,52 @@ test("EDINET: 名簿は /api/catalyst から、本体は /api/edinet/{code} を�
   assert.equal(report.records[0].payable, true);
   assert.equal(report.runSpentUsdc, 0);
 });
+
+// ── 中身(メタデータ)の判定と打ち切り ─────────────────────────────────────────
+
+const b64s = (o: unknown) => Buffer.from(JSON.stringify(o), "utf8").toString("base64");
+const paidEdinet = (body: unknown, tx: string) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json", "PAYMENT-RESPONSE": b64s({ success: true, transaction: tx, network: "solana", amount: "1000" }) },
+  });
+const edinetClient = (fn: (code: string) => Response) => ({
+  fetch: async (input: RequestInfo | URL) => fn(String(input).split("/").pop() ?? ""),
+  takeChallenge: () => undefined,
+  walletAddress: "7PVToVBASYgo7c7BfqdditPgud1xnDrSpCgCBaQyL6tY",
+});
+
+test("EDINET sweep: 各社のメタデータを判定して記録する", async () => {
+  const report = await runEdinetSweep({
+    mode: "sweep",
+    tickers: ["7203", "9999"],
+    client: edinetClient((code) =>
+      code === "7203"
+        ? paidEdinet({ filer_name: "トヨタ自動車", doc_id: "S1", doc_description: "半期報告書", submit_datetime: "2026-11-10 15:00", financials_available: false }, "tx1")
+        : paidEdinet({ code: "9999", doc_id: null, filer_name: null, submit_datetime: null }, "tx2")
+    ),
+    weekSpentUsdc: 0,
+    write: false,
+  });
+  assert.deepEqual(report.records.map((r) => r.content?.ok), [true, false]);
+  assert.equal(report.records[0].meta?.docDescription, "半期報告書");
+  assert.equal(report.records[0].meta?.financialsAvailable, false);
+  assert.match(report.records[1].content?.reason ?? "", /書類が特定されていない/);
+});
+
+test("EDINET sweep: 中身の無い応答が5件続いたら、それ以上払わない", async () => {
+  let calls = 0;
+  const codes = Array.from({ length: 20 }, (_, i) => String(1000 + i));
+  const report = await runEdinetSweep({
+    mode: "sweep",
+    tickers: codes,
+    client: edinetClient(() => {
+      calls += 1;
+      return paidEdinet({}, `tx${calls}`);
+    }),
+    weekSpentUsdc: 0,
+    write: false,
+  });
+  assert.equal(calls, 5, "5件目で止まり、6件目には払わない");
+  assert.equal(report.summary.paid, 5);
+});

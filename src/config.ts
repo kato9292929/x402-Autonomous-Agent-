@@ -38,7 +38,9 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     name: "Portfolio Intelligence",
     url: getEnvOrDefault("PORTFOLIO_INTELLIGENCE_URL", "https://x402pi.vercel.app/api/portfolio/analyze"),
     method: "POST",
-    cost: 0.50,
+    // The seller's 402 asks 300000 (USDC 6dp) and the 11/12 settlement moved
+    // 0.30 USDC (Base tx 0x7ea1db…68f4); $0.50 overstated the recorded spend.
+    cost: 0.30,
     chain: "base",
     mode: "B",
   },

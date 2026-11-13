@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>x402 Autonomous Agent</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://db.onlinewebfonts.com/c/0e6de1ec911a2e267ff136bbdd384a44?family=Helvetica+Neue+Light" />
@@ -126,8 +129,9 @@
         <div class="card__body">
           <div class="stats">
             <div class="stat"><span class="stat__n" id="stat-spend">—</span><span class="stat__l">USDC spent</span></div>
-            <div class="stat"><span class="stat__n" id="stat-tx">—</span><span class="stat__l">Settlements</span></div>
-            <div class="stat"><span class="stat__n" id="stat-ok">—</span><span class="stat__l">Calls OK</span></div>
+            <div class="stat"><span class="stat__n" id="stat-tx">—</span><span class="stat__l">Settled</span></div>
+            <div class="stat" title="支払って 200 が返った呼び出し / 実際に呼んだ数(休止中は除く)"><span class="stat__n" id="stat-ok">—</span><span class="stat__l">Calls OK</span></div>
+            <div class="stat" title="Calls OK のうち、本文に中身があったもの(空のリスト・入力の繰り返し・ダミーの値・前日と同じ本文は数えない)"><span class="stat__n" id="stat-content">—</span><span class="stat__l">Content OK</span></div>
           </div>
           <ul class="settle" id="settle"><li class="settle__empty">Loading…</li></ul>
         </div>

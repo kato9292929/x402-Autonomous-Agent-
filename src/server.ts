@@ -10,9 +10,12 @@ import { claimNullifier } from "./world-id/nullifier-store";
 import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessions";
 import { runModeC } from "./modes/modeC";
 import { loadRuns } from "./store/run-store";
+import { backfillContent } from "./content-check";
+import { ENDPOINTS_MODE_B, ENDPOINTS_MODE_C, ENDPOINTS_MODE_D } from "./config";
 import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { loadSweepSummaries } from "./store/sweep-summary";
+import { EDINET_SURFACE, osdBase } from "./paycall/surface";
 import { loadSweepItems } from "./store/sweep-items";
 import { loadProbeRuns } from "./store/probe-store";
 import { PROBE_TARGETS } from "./probe/targets";
@@ -135,7 +138,13 @@ function readBody(req: http.IncomingMessage): Promise<string> {
  * its relative "./styles.css" resolves to "/styles.css" — these must be served
  * from site/ rather than falling through to 404.
  */
-const SITE_ASSETS = new Set(["/styles.css", "/ui.js"]);
+const SITE_ASSETS = new Set([
+  "/styles.css",
+  "/ui.js",
+  "/favicon.ico",
+  "/favicon-32.png",
+  "/apple-touch-icon.png",
+]);
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
@@ -486,6 +495,8 @@ export function startHttpServer(): void {
         ".js": "text/javascript; charset=utf-8",
         ".mjs": "text/javascript; charset=utf-8",
         ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".ico": "image/x-icon",
       };
       try {
         const body = fs.readFileSync(filePath);
@@ -511,10 +522,13 @@ export function startHttpServer(): void {
     if (urlPath === "/api/runs" && req.method === "GET") {
       const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
       const limit = Math.min(200, Math.max(1, parseInt(q ?? "60", 10) || 60));
+      const idByUrl = new Map([...ENDPOINTS_MODE_B, ...ENDPOINTS_MODE_C, ...ENDPOINTS_MODE_D].map((e) => [e.url, e.id]));
       loadRuns(limit)
         .then((runs) => {
           res.setHeader("Access-Control-Allow-Origin", "*");
-          sendJson(res, 200, { runs });
+          // Runs from before content-check.ts are judged from the body they kept.
+          const judged = runs.map((r) => ({ ...r, results: r.results.map((x) => backfillContent(x, (u) => idByUrl.get(u))) }));
+          sendJson(res, 200, { runs: judged });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/runs error:", err);
@@ -529,7 +543,14 @@ export function startHttpServer(): void {
       loadSweepSummaries()
         .then((sweeps) => {
           res.setHeader("Access-Control-Allow-Origin", "*");
-          sendJson(res, 200, { sweeps });
+          // Sweeps recorded before the summary carried its route and unit get
+          // them from the surface config (same route and price since W37).
+          const filled = sweeps.map((sw) => {
+            const surf = sw.surface === EDINET_SURFACE.id ? EDINET_SURFACE : undefined;
+            if (!surf || sw.endpoint) return sw;
+            return { ...sw, endpoint: surf.describe?.endpoint, unit: surf.describe?.unit, unitUsd: surf.priceUsd };
+          });
+          sendJson(res, 200, { sweeps: filled, osdBase: osdBase() });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/sweeps error:", err);
@@ -554,7 +575,15 @@ export function startHttpServer(): void {
           const targets = Object.fromEntries(
             PROBE_TARGETS.map((t) => [t.id, t.name])
           );
-          sendJson(res, 200, { probes, targets });
+          // Suspended sellers are out of the sweep; the card lists them apart,
+          // with since/reason, and leaves their rows in older runs out.
+          const suspended = PROBE_TARGETS.filter((t) => t.suspended).map((t) => ({
+            id: t.id,
+            name: t.name,
+            since: t.suspended!.since,
+            reason: t.suspended!.reason,
+          }));
+          sendJson(res, 200, { probes, targets, suspended });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/probes error:", err);

@@ -1,77 +1,61 @@
 /**
- * EDINET 実財務スキーマ(osd #51)のパースと単位換算。区分A: フィールド名に対して完結。
- * 実値は区分B(有料 inspect)で確認するが、パースの規律(fail loud・捏造しない・単位整合)は
- * ここで固定する。
+ * osd /api/edinet/{code} returns disclosure metadata only (financials paused,
+ * null with financials_available:false). A paid answer counts as content when
+ * it names a document.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  parseEdinetFinancials,
-  jpyToMillions,
-  EDINET_FINANCIAL_FIELDS,
-  EDINET_SOURCE,
-} from "../edinet/schema";
+import { checkEdinetBody, parseEdinetMetadata, EDINET_REQUIRED_FIELDS } from "../edinet/schema";
+import { contentCounts } from "../jobs/catalyst-sweep";
 
-test("financials_available:true — 生JPY をそのまま読む(捏造しない)", () => {
-  const body = {
-    sales: 203748000000,
-    operating_income: 10253000000,
-    net_income: 7100000000,
-    period: "2025-04-01/2026-03-31",
-    doc_id: "S100ABCD",
-    submit_datetime: "2026-06-20T15:00:00+09:00",
-    financials_available: true,
-    source: EDINET_SOURCE,
-  };
-  const f = parseEdinetFinancials(body);
-  assert.equal(f.available, true);
-  assert.equal(f.salesJpy, 203748000000);
-  assert.equal(f.operatingIncomeJpy, 10253000000);
-  assert.equal(f.netIncomeJpy, 7100000000);
-  assert.equal(f.period, "2025-04-01/2026-03-31");
-  assert.equal(f.docId, "S100ABCD");
-  assert.equal(f.source, EDINET_SOURCE);
+// The shape osd documents at GET /api/edinet (read 2026-11-13).
+const meta = {
+  filer_name: "トヨタ自動車株式会社",
+  doc_id: "S100XXXX",
+  doc_type_code: "140",
+  doc_description: "四半期報告書－第122期第2四半期",
+  submit_datetime: "2026-11-10 15:00",
+  period: { start: "2026-07-01", end: "2026-09-30" },
+  sales: null,
+  operating_income: null,
+  net_income: null,
+  financials_available: false,
+  source: "出典：金融庁 EDINET",
+};
+
+test("a metadata answer is content; its null figures are not required", () => {
+  assert.deepEqual(checkEdinetBody(meta), { ok: true });
+  const m = parseEdinetMetadata(meta);
+  assert.equal(m.filerName, "トヨタ自動車株式会社");
+  assert.equal(m.docDescription, "四半期報告書－第122期第2四半期");
+  assert.equal(m.period, "2026-07-01〜2026-09-30");
+  assert.equal(m.financialsAvailable, false);
 });
 
-test("生JPY → 百万円(÷1e6)。catalyst の百万円表記と桁が揃う", () => {
-  // 東京エレクトロンデバイス売上: EDINET 生JPY 203,748,000,000 → 203,748 百万円
-  // (catalyst 側の revenue 203748 と一致)
-  assert.equal(jpyToMillions(203748000000), 203748);
-  assert.equal(jpyToMillions(10253000000), 10253);
-  assert.equal(jpyToMillions(null), null);
-  assert.equal(jpyToMillions(undefined), null);
-  assert.equal(jpyToMillions(Number.NaN), null);
+test("an answer without a document is missing, with what is missing", () => {
+  assert.match(checkEdinetBody({ code: "9999", doc_id: null, filer_name: null, submit_datetime: null }).reason!, /書類が特定されていない/);
+  assert.match(checkEdinetBody({ code: "9999", error: "no report in window" }).reason!, /no report in window/);
+  assert.deepEqual(checkEdinetBody({ ...meta, submit_datetime: "" }), { ok: false, reason: "欠けた項目: submit_datetime" });
+  assert.equal(checkEdinetBody(null).ok, false);
+  assert.deepEqual([...EDINET_REQUIRED_FIELDS], ["doc_id", "filer_name", "submit_datetime"]);
 });
 
-test("financials_available:false — 財務は null(空を財務に見せない)", () => {
-  const f = parseEdinetFinancials({
-    sales: null, operating_income: null, net_income: null,
-    doc_id: "S100XXXX", period: "2025", financials_available: false,
+test("nothing is filled in: absent fields stay absent", () => {
+  assert.deepEqual(parseEdinetMetadata({ doc_id: "S1" }), {
+    filerName: undefined, docId: "S1", docTypeCode: undefined, docDescription: undefined,
+    submitDatetime: undefined, period: undefined, financialsAvailable: undefined,
   });
-  assert.equal(f.available, false);
-  assert.equal(f.salesJpy, null);
-  assert.equal(f.operatingIncomeJpy, null);
-  assert.equal(f.docId, "S100XXXX", "書類は特定できている");
 });
 
-test("financials_available が無いレスポンスは throw(旧仕様/想定外を握りつぶさない)", () => {
-  // type=2・14日窓の旧レスポンス(window_days/count)を想定
-  assert.throws(
-    () => parseEdinetFinancials({ window_days: 14, count: 0, cache: "weekly", code: "2760" }),
-    /financials_available/
-  );
-  assert.throws(() => parseEdinetFinancials(null), /not an object/);
-});
-
-test("財務値が数値でなければ null(推測補完しない)", () => {
-  const f = parseEdinetFinancials({ sales: "N/A", operating_income: {}, net_income: null, financials_available: true });
-  assert.equal(f.salesJpy, null);
-  assert.equal(f.operatingIncomeJpy, null);
-});
-
-test("スキーマ定数は単一定義(UI・sweep・消費側が参照)", () => {
-  assert.deepEqual(EDINET_FINANCIAL_FIELDS, [
-    "sales", "operating_income", "net_income", "period",
-    "doc_id", "submit_datetime", "financials_available", "source",
+test("sweep counts: content, missing by reason, and answers carrying figures", () => {
+  const paid = (ok: boolean, reason?: string, fin?: boolean) => ({
+    at: "x", ticker: "1", outcome: "paid" as const, latencyMs: 1,
+    content: ok ? { ok } : { ok, reason }, meta: { financialsAvailable: fin },
+  });
+  const c = contentCounts([
+    paid(true, undefined, false), paid(true, undefined, false),
+    paid(false, "書類が特定されていない: x"), paid(false, "欠けた項目: doc_id"),
+    { at: "x", ticker: "2", outcome: "skipped", latencyMs: 0 },
   ]);
+  assert.deepEqual(c, { ok: 2, missing: 2, financials: 0, reasons: { 書類が特定されていない: 1, 欠けた項目: 1 } });
 });

@@ -538,7 +538,7 @@ test("plannedCallCount: 402 を確認した読み取り専用ルートを数え�
 
 // ── 停止中の売り手 ───────────────────────────────────────────────────────────
 
-test("sweep: 停止中の先は叩かず、理由を記録に残す", async () => {
+test("sweep: 停止中の先は対象外(叩かず、行も作らない)", async () => {
   let calls = 0;
   const client: ProbeClient = {
     fetch: async () => {
@@ -556,10 +556,7 @@ test("sweep: 停止中の先は叩かず、理由を記録に残す", async () =
     write: false,
   });
   assert.equal(calls, 0, "停止中の先には一度もリクエストしない");
-  assert.equal(report.records.length, 1, "行は消さずに残す");
-  assert.equal(report.records[0].outcome, "skipped");
-  assert.match(report.records[0].reason ?? "", /停止中\(2026-10-20\)/);
-  assert.match(report.records[0].reason ?? "", /502/);
+  assert.equal(report.records.length, 0, "毎週の skip 行は作らない(理由は /api/probes の suspended で出す)");
   assert.equal(report.runSpentUsdc, 0);
 });
 

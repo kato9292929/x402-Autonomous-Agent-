@@ -36,7 +36,7 @@ const GROUPS = [
     eps: [
       { method: 'GET', path: 'x402amd.vercel.app/api/macro/dashboard', price: '$0.30', daily: true, desc: 'APACマクロ。金利・為替・フロー・リスク regime。' },
       { method: 'GET', path: 'x402yi.vercel.app/api/yield/scan', price: '$0.20', daily: true, desc: 'DeFiの利回りスキャン。プール別のAPYとスマートマネー残高。' },
-      { method: 'POST', path: 'x402pi.vercel.app/api/portfolio/analyze', price: '$0.50', daily: true, desc: 'ウォレットアドレスを渡すとポートフォリオを分析。' },
+      { method: 'POST', path: 'x402pi.vercel.app/api/portfolio/analyze', price: '$0.30', daily: true, desc: 'ウォレットアドレスを渡すとポートフォリオを分析。' },
       { method: 'GET', path: 'x402-jrey.vercel.app/api/realestate/yield?area=tokyo', price: '$0.30', daily: true, desc: '日本の不動産利回り。エリア指定。' },
       { method: 'GET', path: 'x402nansenpolymarket.vercel.app/api/divergence/scan', price: '$0.15', daily: true, desc: '予測市場とオンチェーンフローの乖離スキャン。' },
       { method: 'GET', path: 'x402-hl.vercel.app/api/hyperliquid/scan', price: '$0.20', desc: 'Hyperliquidの建玉・ファンディングとスマートマネーの偏り。' },
@@ -52,8 +52,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 /** Stats row of a panel, in the Latest run card's markup. */
 function setStats(id, stats) {
-  document.getElementById(id).innerHTML = stats.map(([n, l]) =>
-    `<div class="stat"><span class="stat__n">${esc(n)}</span><span class="stat__l">${esc(l)}</span></div>`).join('');
+  // An optional third item is the stat's definition, shown on hover.
+  document.getElementById(id).innerHTML = stats.map(([n, l, def]) =>
+    `<div class="stat"${def ? ` title="${esc(def)}"` : ''}><span class="stat__n">${esc(n)}</span><span class="stat__l">${esc(l)}</span></div>`).join('');
 }
 const shortDate = (at) => {
   const d = new Date(at);
@@ -197,8 +198,21 @@ async function loadRun() {
 
     document.getElementById('stat-spend').textContent = money(spend);
     document.getElementById('stat-tx').textContent = paid.length;
-    document.getElementById('stat-ok').textContent =
-      attempted.filter((r) => r.status === 'success').length + '/' + attempted.length;
+    const okCalls = attempted.filter((r) => r.status === 'success');
+    document.getElementById('stat-ok').textContent = okCalls.length + '/' + attempted.length;
+    // Content OK: of the OK calls, those whose body carried something. A call
+    // whose body was not kept in full (before 11/13) cannot be judged and is
+    // left out of both sides rather than guessed.
+    const judged = okCalls.filter((r) => r.content);
+    const emptyBody = (r) => r.status === 'success' && r.content && r.content.ok === false;
+    const contentEl = document.getElementById('stat-content');
+    if (contentEl) {
+      contentEl.textContent = judged.length
+        ? judged.filter((r) => r.content.ok).length + '/' + judged.length
+        : '—';
+      contentEl.parentElement.title = contentEl.parentElement.title.split('\n')[0] +
+        (judged.length < okCalls.length ? `\n本文が残っておらず判定できない ${okCalls.length - judged.length} 件は数えていない` : '');
+    }
 
     if (settle) {
       // Figures the agent actually received, keyed by path, so each row can show
@@ -219,11 +233,13 @@ async function loadRun() {
       const shown = results.filter((r) => r.txHash || r.status === 'degraded' || r.status === 'error');
       const dailyHtml = shown.map((r) => {
         const cooldown = isCooldown(r);
-        const bad = r.status === 'degraded' || r.status === 'error';
-        const badge = cooldown ? '休止' : r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : '';
+        const hollow = emptyBody(r);
+        const bad = r.status === 'degraded' || r.status === 'error' || hollow;
+        const badge = cooldown ? '休止' : r.status === 'degraded' ? '劣化' : r.status === 'error' ? '失敗' : hollow ? '中身なし' : '';
         const reason = r.status === 'degraded'
           ? (r.degradedReason || 'fallback data')
-          : r.status === 'error' ? (r.error || 'failed') : '';
+          : r.status === 'error' ? (r.error || 'failed')
+          : hollow ? (r.content.reason || '中身なし') : '';
         const facts = factsByPath.get(pathOf(r.endpoint || '')) || [];
         const line = bad
           ? `<div class="settle__reason">${esc(String(reason).slice(0, 90))}</div>`
@@ -292,19 +308,24 @@ async function loadEdinetPage() {
     list.querySelector('.settle__more')?.remove();
     list.insertAdjacentHTML('beforeend', items.map((it, i) => {
       const label = it.name ? `${it.name} (${it.ticker})` : (it.ticker || '—');
-      // 財務(百万円)は実値があるときだけ。financials_available:false は正直に出す。
-      const hasFin = it.salesM != null || it.operatingIncomeM != null;
-      const line = hasFin
-        ? facts([`売上 ${fmtM(it.salesM)}`, `営利 ${fmtM(it.operatingIncomeM)}`, '百万円'])
-        : it.financialsAvailable === false
-          ? '<div class="settle__facts settle__facts--raw">書類は特定・財務は未取得</div>'
+      // What the answer named: the disclosure's metadata. Sweeps before 11/13
+      // did not keep the body, so their rows carry the settlement only.
+      const m = it.meta || {};
+      const missing = it.content && it.content.ok === false;
+      const line = missing
+        ? reason(it.content.reason || '中身なし')
+        : it.meta
+          ? facts([m.docDescription, m.submitDatetime && `提出 ${String(m.submitDatetime).slice(0, 10)}`, m.period && `期間 ${m.period}`])
           : '';
-      return row({ name: `<span class="settle__idx">#${start + i + 1}</span> ${esc(label)}`, cost: money(it.amountUsdc), tx: txLink(it.tx), line });
+      return row({
+        name: `<span class="settle__idx">#${start + i + 1}</span> ${esc(label)}`, badge: missing ? '中身なし' : '', bad: missing,
+        cost: money(it.amountUsdc), tx: txLink(it.tx), line,
+      });
     }).join(''));
     edinet.offset = start + items.length;
     edinet.total = page.total || 0;
     if (edinet.offset < edinet.total) list.insertAdjacentHTML('beforeend', `<li class="settle__empty settle__more">${edinet.offset}/${edinet.total}件 — スクロールで続きを読み込む</li>`);
-    else list.insertAdjacentHTML('beforeend', note('EDINET の全提出者 約4,000社のうち、今週 AA が per-call で実決済した社。各 per-call は最新の有報／四半期報告書の実財務(売上・営業利益・純利益、生JPY)を返す。株価は含まない。出典：金融庁 EDINET。'));
+    else list.insertAdjacentHTML('beforeend', note('EDINET の全提出者 約4,000社のうち、今週 AA が per-call で実決済した社。1コールで買うのは1社の最新の開示書類のメタデータ(提出者・書類ID・書類種別・提出日時・会計期間)。売上・利益などの財務値は osd が提供を止めており、応答には入らない。株価も含まない。出典：金融庁 EDINET。'));
   } catch (e) {
     list.insertAdjacentHTML('beforeend', empty(`読み込めなかった (${e})`));
     edinet.total = edinet.offset;   // stop paging
@@ -318,11 +339,26 @@ async function loadEdinet() {
     const res = await fetch('/api/sweeps');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     // Catalyst の週次記録はこの枠に出さない(本体は osd 側のスコア付き予測)。
-    const s = ((await res.json()).sweeps || []).find((x) => x.surface === 'edinet');
+    const sp = await res.json();
+    const payloadBase = (sp.osdBase || '').replace(/^https?:\/\//, '');
+    const s = (sp.sweeps || []).find((x) => x.surface === 'edinet');
     if (!s) { list.innerHTML = empty('まだ記録がない。'); return; }
     document.getElementById('edinet-when').textContent = [s.week, shortDate(s.at)].filter(Boolean).join(' · ');
-    setStats('edinet-stats', [[money(s.totalUsdc), 'USDC spent'], [String(s.settlements ?? '—'), 'Settlements']]);
-    list.innerHTML = '';
+    const c = s.content;
+    setStats('edinet-stats', [
+      [money(s.totalUsdc), 'USDC spent'], [String(s.settlements ?? '—'), 'Settlements'],
+      [c ? `${c.ok}/${c.ok + c.missing}` : '—', 'Content OK',
+        c ? '書類を特定できた応答(書類ID・提出者・提出日時がそろう)/ 判定した応答' : 'この週は応答の本文を保存していないため判定できない(11/13 以降の週から記録)'],
+    ]);
+    // What one call buys: the paid route and its unit, above the list.
+    const head = [
+      s.endpoint && note(`買っているもの: <code class="settle__path">${esc((payloadBase || '') + s.endpoint)}</code> を1社1コール ${s.unitUsd != null ? "$" + Number(s.unitUsd).toFixed(3) : "—"}(Solana USDC)。中身は${esc(s.unit || '開示書類のメタデータ')}。`),
+      c && (c.missing || c.financials) ? note(`内訳: 中身あり ${c.ok}件・欠け ${c.missing}件` +
+        (Object.keys(c.reasons || {}).length ? `(${Object.entries(c.reasons).map(([k, n]) => `${esc(k)} ${n}`).join('、')})` : '') +
+        `・財務値入り ${c.financials}件`) : '',
+      s.stopped ? `<li class="settle__reason">${esc(s.stopped)}</li>` : '',
+    ].filter(Boolean).join('');
+    list.innerHTML = head;
     Object.assign(edinet, { week: s.week, offset: 0, total: s.settlements || 0 });
     await loadEdinetPage();
     list.addEventListener('scroll', () => {
@@ -357,17 +393,32 @@ async function loadProbe() {
     // The newest PAID run; a discovery run settles nothing.
     const run = (payload.probes || []).find((r) => r.mode === 'sweep');
     if (!run) { list.innerHTML = empty('まだ記録がない。'); return; }
-    const rows = run.records || [];
+    // Suspended sellers are out of the sweep. Older runs still carry a skipped
+    // row for them; leave those out and list the sellers once, under 停止中.
+    const suspended = payload.suspended || [];
+    const off = new Set(suspended.map((x) => x.id));
+    const rows = (run.records || []).filter((r) => !off.has(r.target));
     const paid = rows.filter((r) => r.outcome === 'paid');
     const sellers = new Set(paid.map((r) => r.target));
     document.getElementById('probe-when').textContent = [run.week, shortDate(run.at)].filter(Boolean).join(' · ');
     setStats('probe-stats', [[money(run.runSpentUsdc), 'USDC spent'], [String(sellers.size), 'Sellers'], [`${paid.length}/${rows.length}`, 'Paid']]);
 
-    const bySeller = (run.summaries || []).map((s) => row({
-      name: esc(sellerName(s.target)),
-      badge: `成功 ${Math.round((s.successRate || 0) * 100)}%`, badgeOk: true,
-      cost: s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) + '/call' : '—',
-      line: facts([`${s.paidCalls}/${s.calls} 決済`, s.skipped && `${s.skipped} skip`, s.errors && `${s.errors} err`]),
+    const bySeller = (run.summaries || []).filter((s) => !off.has(s.target)).map((s) => {
+      // A seller with no paid call shows why: the skip reason of its first row.
+      const allSkipped = s.paidCalls === 0 && s.skipped > 0 && !s.errors;
+      const why = rows.find((r) => r.target === s.target && r.outcome !== 'paid' && r.reason);
+      return row({
+        name: esc(sellerName(s.target)),
+        badge: allSkipped ? '買わず' : `成功 ${Math.round((s.successRate || 0) * 100)}%`,
+        badgeOk: s.paidCalls > 0 && !s.errors, bad: s.paidCalls === 0,
+        cost: s.paidCalls > 0 ? money6(s.measuredPerCallUsdc) + '/call' : '—',
+        line: facts([`${s.paidCalls}/${s.calls} 決済`, s.skipped && `${s.skipped} skip`, s.errors && `${s.errors} err`]) +
+          (s.paidCalls === 0 && why ? reason(`理由: ${why.reason}`) : ''),
+      });
+    }).join('');
+    const offRows = suspended.map((x) => row({
+      name: esc(x.name), badge: '停止中', bad: true, cost: `${x.since} から`,
+      line: reason(x.reason),
     })).join('');
     const calls = rows.map((r) => {
       const ok = r.outcome === 'paid';
@@ -380,6 +431,7 @@ async function loadProbe() {
       });
     }).join('');
     list.innerHTML = group('売り手別') + bySeller + group('コール別 · 提示 → 実課金') + calls +
+      (offRows ? group('停止中 · 実行対象外') + offRows : '') +
       note('自社の外にある第三者の x402 売り手に週1回支払い、実費と内容を測っている。提示額は売り手の 402 から、実課金は決済レスポンスから取る。');
   } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
 }
@@ -422,7 +474,11 @@ async function loadMxe() {
     const okRuns = p.aggregates.reduce((a, g) => a + g.ok, 0);
     const pays = records.reduce((a, r) => a + (r.paymentTxs || []).length, 0);
     document.getElementById('mxe-when').textContent = records[0] ? shortDate(records[0].at) : '—';
-    setStats('mxe-stats', [[`${okFns}/5`, 'Functions'], [String(okRuns), 'Runs'], [String(pays), 'Payments']]);
+    const DEF_FNS = '5機能のうち、直近の記録が成功だった機能の数';
+    const DEF_RUNS = 'これまでに成功した計算の累計(停止中の記録は数えない)';
+    const DEF_PAYS = '直近30件の記録にある x402 支払い tx の数';
+    setStats('mxe-stats', [[`${okFns}/5`, 'Functions', DEF_FNS], [String(okRuns), 'Runs', DEF_RUNS], [String(pays), 'Payments', DEF_PAYS]]);
+    const stageLabel = (s) => (p.stageLabels && p.stageLabels[s]) || s;
 
     const byFn = p.aggregates.map((g) => {
       const f = p.functions.find((x) => x.fn === g.fn) || {};
@@ -431,11 +487,13 @@ async function loadMxe() {
       const lastOk = last && last.status === 'ok';
       return row({
         name: `${g.fn}. ${esc(g.label)}`,
-        badge: f.enabled === false ? '無効' : !last ? '記録なし' : lastOk ? '成功' : '失敗',
-        badgeOk: f.enabled !== false && lastOk, bad: last && !lastOk,
+        badge: f.enabled === false ? '無効' : f.paused ? '停止中' : !last ? '記録なし' : lastOk ? '成功' : '失敗',
+        badgeOk: f.enabled !== false && !f.paused && lastOk, bad: f.paused || (last && !lastOk),
         cost: usd(g.costUsd && g.costUsd.mean),
-        line: facts([
+        line: (f.paused ? reason(`${shortDate(f.paused.at)} から停止: ${f.paused.reason}`) : '') + facts([
           `${g.ok}/${g.runs} 成功`,
+          g.paused && `停止中の記録 ${g.paused}`,
+          last && !lastOk && last.stage && `直近の失敗: ${stageLabel(last.stage)}`,
           `平均 ${ms(g.latencyMs && g.latencyMs.mean)}`,
           g.unitCostRatio && `単価比 ${g.unitCostRatio.mean.toFixed(2)}`,
           g.compared && `比較 ${g.compared}`,
@@ -454,12 +512,26 @@ async function loadMxe() {
             r.unitCostRatio != null && `単価比 ${r.unitCostRatio.toFixed(2)}`,
             r.comparison && `比較(${r.comparison.method}) ${JSON.stringify(r.comparison.result)}`])
         : reason(r.error || 'failed');
+      const badge = ok ? '' : r.status === 'paused' ? '停止中' : `失敗: ${stageLabel(r.stage || 'queue')}`;
       return row({
-        name: `#${r.fn} ${esc(mxeResult(r) || '—')}`, badge: ok ? '' : '失敗', bad: !ok,
+        name: `#${r.fn} ${esc(mxeResult(r) || '—')}`, badge, bad: !ok,
         cost: `${shortDate(r.at)} · ${usd(r.costUsd)}`, tx: comp + payLinks, line,
       });
     }).join('');
-    list.innerHTML = group('機能別 · 平均') + byFn + group('記録 · 新しい順') + recs +
+    const fs = (p.failuresByStage && p.failuresByStage.stages) || [];
+    const byStage = fs.map((x) => row({
+      name: esc(x.label), badge: `${x.count}件`, bad: x.stage !== 'paused',
+      cost: `${shortDate(x.first)}–${shortDate(x.last)}`,
+      line: facts([`機能 ${x.fns.join('・')}`]) + (x.sample ? reason(x.sample) : ''),
+    })).join('');
+    const rs = p.rentSweep;
+    const rentLine = rs ? note(`計算アカウントの rent: ${shortDate(rs.at)} の回収で ${rs.claimed}件・${(rs.claimedLamports / 1e9).toFixed(4)} SOL を回収。` +
+      (rs.stillQueued ? ` 未実行のまま期限前の ${rs.stillQueued}件(${(rs.stillQueuedLamports / 1e9).toFixed(4)} SOL)は期限後に毎回の実行で回収する。` : '')) : '';
+    const defs = note(`Functions = 直近の記録が成功した機能の数/5。Runs = 成功した計算の累計。Payments = 直近30件にある支払い tx の数。` +
+      `同じ段階で ${p.breakerDays || 3} 日続けて失敗した機能は止め、手動で再開するまで実行しない。`);
+    list.innerHTML = defs + group('機能別 · 平均') + byFn +
+      (byStage ? group(`失敗の段階 · ${shortDate(p.failuresByStage.since)} 以降`) + byStage + rentLine : rentLine) +
+      group('記録 · 新しい順') + recs +
       note('判定は Arcium のクラスタ、支払いは x402 で Solana mainnet。機能1・2・4 の相手方は AA 自身の内部エージェントで、外部需要の証拠ではない。devnet の SOL に市場価格はないため、USD は mainnet の SOL/USD で換算した目安。' +
         (p.jobEnabled ? ' 毎日 07:30 JST に実行。' : ' 定時実行は停止中。'));
   } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
