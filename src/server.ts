@@ -15,6 +15,7 @@ import { ENDPOINTS_MODE_B, ENDPOINTS_MODE_C, ENDPOINTS_MODE_D } from "./config";
 import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { loadSweepSummaries } from "./store/sweep-summary";
+import { EDINET_SURFACE, osdBase } from "./paycall/surface";
 import { loadSweepItems } from "./store/sweep-items";
 import { loadProbeRuns } from "./store/probe-store";
 import { PROBE_TARGETS } from "./probe/targets";
@@ -542,7 +543,14 @@ export function startHttpServer(): void {
       loadSweepSummaries()
         .then((sweeps) => {
           res.setHeader("Access-Control-Allow-Origin", "*");
-          sendJson(res, 200, { sweeps });
+          // Sweeps recorded before the summary carried its route and unit get
+          // them from the surface config (same route and price since W37).
+          const filled = sweeps.map((sw) => {
+            const surf = sw.surface === EDINET_SURFACE.id ? EDINET_SURFACE : undefined;
+            if (!surf || sw.endpoint) return sw;
+            return { ...sw, endpoint: surf.describe?.endpoint, unit: surf.describe?.unit, unitUsd: surf.priceUsd };
+          });
+          sendJson(res, 200, { sweeps: filled, osdBase: osdBase() });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/sweeps error:", err);

@@ -22,6 +22,18 @@ export interface SweepSummary {
   totalUsdc: number;
   /** A representative settlement tx (Solscan). */
   sampleTx?: string;
+  /** The paid route, e.g. /api/edinet/{code}, and what one call buys. */
+  endpoint?: string;
+  unit?: string;
+  unitUsd?: number;
+  /**
+   * Of the settled answers: those with content, those without (by
+   * surface.checkBody), and those carrying financial figures. Absent for
+   * sweeps before 2026-11-13, whose bodies were not kept.
+   */
+  content?: { ok: number; missing: number; financials: number; reasons: Record<string, number> };
+  /** Why the sweep stopped early, when it did. */
+  stopped?: string;
 }
 
 const redisKey = (surface: string) => `sweep_last:${surface}`;
