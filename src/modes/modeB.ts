@@ -88,7 +88,10 @@ function saveExternalData(
 export async function runModeB(): Promise<RunLog> {
   const startMs = Date.now();
   const date = todayDate();
-  console.log(`[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.length} endpoints`);
+  console.log(
+    `[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.filter((e) => !e.disabled).length} endpoints` +
+      ` (${ENDPOINTS_MODE_B.filter((e) => e.disabled).length} stopped)`
+  );
 
   const log: RunLog = {
     timestamp: new Date().toISOString(),
@@ -105,6 +108,11 @@ export async function runModeB(): Promise<RunLog> {
   const endpointIdByUrl = new Map(ENDPOINTS_MODE_B.map((ep) => [ep.url, ep.id]));
 
   for (const ep of ENDPOINTS_MODE_B) {
+    // Stopped outright (config.disabled): no call, no cooldown probe, no row.
+    if (ep.disabled) {
+      console.log(`[MODE B] ■ ${ep.name} — 購入停止(${ep.disabled.since}): ${ep.disabled.reason}`);
+      continue;
+    }
     // Skip an endpoint stuck serving fallback data — don't pay for degraded data
     // every day. A low-frequency probe still buys it to detect a return to live.
     const cd = await loadCooldown(ep.id);

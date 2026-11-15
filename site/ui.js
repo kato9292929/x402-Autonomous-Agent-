@@ -3,7 +3,8 @@
 /* ── Endpoint catalog ──────────────────────────────────────────────────────
    Hosts are the x402jp.com custom domains. Prices and descriptions match the
    published catalog on x402jp.com/products.html. `daily` marks the endpoints
-   this agent calls on its 06:00 JST schedule. */
+   this agent calls on its 06:00 JST schedule; `stopped` the ones it no longer
+   buys (empty answers every day; config.ts `disabled`). */
 const GROUPS = [
   {
     name: 'Japan Inflation Nowcall',
@@ -34,15 +35,15 @@ const GROUPS = [
     name: 'Intelligence',
     note: '決済は Base USDC。',
     eps: [
-      { method: 'GET', path: 'x402amd.vercel.app/api/macro/dashboard', price: '$0.30', daily: true, desc: 'APACマクロ。金利・為替・フロー・リスク regime。' },
+      { method: 'GET', path: 'x402amd.vercel.app/api/macro/dashboard', price: '$0.30', stopped: true, desc: 'APACマクロ。金利・為替・フロー・リスク regime。' },
       { method: 'GET', path: 'x402yi.vercel.app/api/yield/scan', price: '$0.20', daily: true, desc: 'DeFiの利回りスキャン。プール別のAPYとスマートマネー残高。' },
       { method: 'POST', path: 'x402pi.vercel.app/api/portfolio/analyze', price: '$0.30', daily: true, desc: 'ウォレットアドレスを渡すとポートフォリオを分析。' },
       { method: 'GET', path: 'x402-jrey.vercel.app/api/realestate/yield?area=tokyo', price: '$0.30', daily: true, desc: '日本の不動産利回り。エリア指定。' },
-      { method: 'GET', path: 'x402nansenpolymarket.vercel.app/api/divergence/scan', price: '$0.15', daily: true, desc: '予測市場とオンチェーンフローの乖離スキャン。' },
+      { method: 'GET', path: 'x402nansenpolymarket.vercel.app/api/divergence/scan', price: '$0.15', stopped: true, desc: '予測市場とオンチェーンフローの乖離スキャン。' },
       { method: 'GET', path: 'x402-hl.vercel.app/api/hyperliquid/scan', price: '$0.20', desc: 'Hyperliquidの建玉・ファンディングとスマートマネーの偏り。' },
-      { method: 'GET', path: 'smartmoneyscreener.vercel.app/api/screener/smart-money', price: '$0.05', daily: true, desc: 'スマートマネーが買っているトークンのスクリーニング。' },
-      { method: 'GET', path: 'x402oif.vercel.app/api/feed/apac-daily', price: '$0.10', daily: true, desc: 'APACの日次オンチェーンサマリー。' },
-      { method: 'GET', path: 'x402oif.vercel.app/api/feed/whale-alert', price: '$0.20', daily: true, desc: '大口転送のアラート。' },
+      { method: 'GET', path: 'smartmoneyscreener.vercel.app/api/screener/smart-money', price: '$0.05', stopped: true, desc: 'スマートマネーが買っているトークンのスクリーニング。' },
+      { method: 'GET', path: 'x402oif.vercel.app/api/feed/apac-daily', price: '$0.10', stopped: true, desc: 'APACの日次オンチェーンサマリー。' },
+      { method: 'GET', path: 'x402oif.vercel.app/api/feed/whale-alert', price: '$0.20', stopped: true, desc: '大口転送のアラート。' },
       { method: 'GET', path: 'odo-gamma.vercel.app/funding/nowcast/current', price: '$0.01', daily: true, desc: 'perpのファンディング・ナウキャスト。バスケット別。' },
     ],
   },
@@ -80,6 +81,7 @@ function renderGroups() {
           <span class="pill ${ep.free ? 'pill--ok' : 'pill--pay'}">${ep.free ? '200' : '402'}</span>
           <span class="ep__price">${ep.free ? 'free' : esc(ep.price)}</span>
           ${ep.daily ? '<span class="chip-on">daily ✓</span>' : ''}
+          ${ep.stopped ? '<span class="chip-stop">購入停止</span>' : ''}
         </div>
         <p class="ep__desc">${esc(ep.desc)}</p>
         <div class="ep__sample" data-sample></div>
@@ -171,7 +173,12 @@ async function loadRun() {
   try {
     const res = await fetch('/api/runs?limit=40');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const runs = (await res.json()).runs || [];
+    const payload = await res.json();
+    const runs = payload.runs || [];
+    // Endpoints no longer bought: left out of the rows (older days still carry
+    // them) and listed once, under 購入停止.
+    const stoppedEps = payload.stopped || [];
+    const stoppedUrls = new Set(stoppedEps.map((x) => x.url));
     if (!runs.length) {
       if (settle) settle.innerHTML = '<li class="settle__empty">No runs recorded yet.</li>';
       return;
@@ -185,7 +192,7 @@ async function loadRun() {
     const latestDay = dayKey(ordered[ordered.length - 1].timestamp);
     const today = ordered.filter((r) => dayKey(r.timestamp) === latestDay);
 
-    const results = today.flatMap((r) => r.results || []);
+    const results = today.flatMap((r) => r.results || []).filter((r) => !stoppedUrls.has(r.endpoint));
     const paid = results.filter((r) => r.txHash);
     const spend = today.reduce((a, r) => a + (Number(r.totalCostUsdc) || 0), 0);
 
@@ -258,8 +265,16 @@ async function loadRun() {
           ${line}
         </li>`;
       }).join('');
+      const stoppedHtml = stoppedEps.length
+        ? `<li class="settle__group">購入停止 · ${esc(stoppedEps[0].since)} から</li>` + stoppedEps.map((x) => `
+        <li class="settle__row settle__row--bad">
+          <div class="settle__head"><span class="settle__name">${esc(x.name)} <span class="settle__badge">購入停止</span></span></div>
+          <div class="settle__reason" title="${esc(x.reason)}">${esc(x.reason)}</div>
+        </li>`).join('') +
+          (payload.modeA && payload.modeA.stopped ? `<li class="settle__note">Mode A(判断)も停止中: ${esc(payload.modeA.stopped)}</li>` : '')
+        : '';
       // The weekly sweeps have their own cards; this one is the daily run only.
-      settle.innerHTML = dailyHtml || '<li class="settle__empty">No settlements yet.</li>';
+      settle.innerHTML = (dailyHtml || '<li class="settle__empty">No settlements yet.</li>') + stoppedHtml;
     }
   } catch (e) {
     if (settle) settle.innerHTML = `<li class="settle__empty">Could not load run data (${esc(String(e))}).</li>`;

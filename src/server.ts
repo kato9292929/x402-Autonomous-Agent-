@@ -11,7 +11,8 @@ import { storeSession, getSession, deleteSession } from "./world-id/idkit-sessio
 import { runModeC } from "./modes/modeC";
 import { loadRuns } from "./store/run-store";
 import { backfillContent } from "./content-check";
-import { ENDPOINTS_MODE_B, ENDPOINTS_MODE_C, ENDPOINTS_MODE_D } from "./config";
+import { ENDPOINTS_MODE_B, ENDPOINTS_MODE_C, ENDPOINTS_MODE_D, stoppedEndpoints } from "./config";
+import { modeAInputStopped } from "./modes/modeA";
 import { buildSamples } from "./store/samples";
 import { loadDecisions } from "./store/decision-store";
 import { loadSweepSummaries } from "./store/sweep-summary";
@@ -528,7 +529,7 @@ export function startHttpServer(): void {
           res.setHeader("Access-Control-Allow-Origin", "*");
           // Runs from before content-check.ts are judged from the body they kept.
           const judged = runs.map((r) => ({ ...r, results: r.results.map((x) => backfillContent(x, (u) => idByUrl.get(u))) }));
-          sendJson(res, 200, { runs: judged });
+          sendJson(res, 200, { runs: judged, stopped: stoppedEndpoints(), modeA: { stopped: modeAInputStopped() ?? null } });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/runs error:", err);
