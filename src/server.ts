@@ -20,6 +20,7 @@ import { EDINET_SURFACE, osdBase } from "./paycall/surface";
 import { loadSweepItems } from "./store/sweep-items";
 import { loadProbeRuns } from "./store/probe-store";
 import { loadSpBuyRuns, VERDICT_LABELS, DAILY_CAP_USD, spBuyEnabled } from "./spbuy/run";
+import { applyReconciled } from "./spbuy/reconciled";
 import { PROBE_TARGETS } from "./probe/targets";
 import { buildDashboardPage } from "./dashboard";
 import { handleMxeApi } from "./mxe/api";
@@ -571,7 +572,8 @@ export function startHttpServer(): void {
       loadSpBuyRuns(limit)
         .then((runs) => {
           res.setHeader("Access-Control-Allow-Origin", "*");
-          sendJson(res, 200, { runs, labels: VERDICT_LABELS, dailyCapUsd: DAILY_CAP_USD(), enabled: spBuyEnabled() });
+          // Transfers found on chain after a run are laid over it (reconciled.ts).
+          sendJson(res, 200, { runs: runs.map((r) => applyReconciled(r)), labels: VERDICT_LABELS, dailyCapUsd: DAILY_CAP_USD(), enabled: spBuyEnabled() });
         })
         .catch((err: unknown) => {
           console.error("[SERVER] /api/spbuy error:", err);

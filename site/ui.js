@@ -422,7 +422,8 @@ async function spBuySection() {
         badge: good ? '' : (labels[r.verdict] || r.verdict), bad: !good,
         cost: r.amount_usd != null ? money6(r.amount_usd) : `${money6(r.quoted_usd ?? r.price_usd)} 未払い`,
         tx: r.tx ? txLink(r.tx) : '',
-        line: facts([r.category, r.network && chainLabel(r.network), `Probe の判定 ${r.selection && r.selection.probeDate}: 説明どおり`]) +
+        line: facts([r.category, r.network && chainLabel(r.network), `Probe の判定 ${r.selection && r.selection.probeDate}: 説明どおり`,
+          r.tx_source === 'onchain_search' && '決済ヘッダなし・送金はチェーンで確認']) +
           (good ? '' : reason(fails.length ? fails.join(' / ') : r.verdict_reason)),
       });
     }).join('');

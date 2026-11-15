@@ -181,6 +181,12 @@ export interface ProbeClient {
   solanaAddress?: string;
   /** Networks this client can actually settle on. */
   networks?: string[];
+  /**
+   * The payment header (PAYMENT-SIGNATURE / X-PAYMENT) sent with the most
+   * recent paid request, so a payment can be found on chain when the seller
+   * answers without a settlement header.
+   */
+  lastPaymentHeader?: () => string | null;
 }
 
 function networkOf(r: PaymentRequirements): string {
@@ -328,9 +334,21 @@ export function buildProbeClient(
     // No headers returned → proceed to the normal payment path.
   });
 
-  const paying = wrapFetchWithPayment(fetch, http);
+  // Keep the payment header we send: the paid retry carries it.
+  let sentHeader: string | null = null;
+  const capturing: typeof fetch = async (input, init) => {
+    const h = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const ph = h.get("PAYMENT-SIGNATURE") ?? h.get("X-PAYMENT");
+    if (ph) sentHeader = ph;
+    return fetch(input, init);
+  };
+  const paying = wrapFetchWithPayment(capturing, http);
   return {
-    fetch: paying,
+    fetch: async (input, init) => {
+      sentHeader = null;
+      return paying(input, init);
+    },
+    lastPaymentHeader: () => sentHeader,
     takeChallenge: () => {
       const c = last;
       last = undefined;

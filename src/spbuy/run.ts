@@ -28,6 +28,7 @@ import { readWeekSpend, recordWeekSpend } from "../probe/budget";
 import { upstashCommand, upstashConfigured } from "../store/upstash-rest";
 import { decideCall, loadCooldown, nextState, saveCooldown } from "../modes/fallback-cooldown";
 import { contentChecks, outputFromPaymentRequired, type Check } from "./judge";
+import { findSettlement as findSettlementOnChain, sentPaymentFromHeader } from "./settle-search";
 import {
   loadSources,
   OWN_PAYTO,
@@ -83,6 +84,8 @@ export interface SpBuyRecord {
   /** The cheapest leg the unpaid 402 offered that the agent can pay. */
   quoted_usd: number | null;
   tx: string | null;
+  /** "header" when the seller's settlement header named it; "onchain_search" when it was found on chain. */
+  tx_source: "header" | "onchain_search" | null;
   network: string | null;
   amount_usd: number | null;
   response_sha256: string | null;
@@ -91,6 +94,8 @@ export interface SpBuyRecord {
   summary: string | null;
   body_head: string | null;
   checks: Check[] | null;
+  /** When the paid call did not answer 200: the 402's error field and the body's first 300 characters. */
+  error_body: string | null;
   verdict: Verdict;
   verdict_reason: string;
   /** Seller Probe said 説明どおり; this purchase did not get that. */
@@ -264,6 +269,8 @@ export interface SpBuyOptions {
   spentToday?: number;
   write?: boolean;
   now?: Date;
+  /** Looks for a payment on chain when no settlement header came back (settle-search.ts). */
+  findSettlement?: typeof findSettlementOnChain;
 }
 
 export async function runSpBuy(opts: SpBuyOptions = {}): Promise<SpBuyRun> {
@@ -331,6 +338,7 @@ export async function runSpBuy(opts: SpBuyOptions = {}): Promise<SpBuyRun> {
       http_status: null,
       quoted_usd: null,
       tx: null,
+      tx_source: null,
       network: null,
       amount_usd: null,
       response_sha256: null,
@@ -338,6 +346,7 @@ export async function runSpBuy(opts: SpBuyOptions = {}): Promise<SpBuyRun> {
       summary: null,
       body_head: null,
       checks: null,
+      error_body: null,
       latency_ms: 0,
     };
     const pf = await preflight(req, t, fetchImpl);
@@ -363,11 +372,25 @@ export async function runSpBuy(opts: SpBuyOptions = {}): Promise<SpBuyRun> {
       status = res.status;
       ct = res.headers.get("content-type");
       body = Buffer.from(await res.arrayBuffer());
+      if (status !== 200) {
+        let x402Error = "";
+        const pr = res.headers.get("PAYMENT-REQUIRED");
+        if (pr) {
+          try {
+            x402Error = String(JSON.parse(Buffer.from(pr, "base64").toString("utf8")).error ?? "");
+          } catch {
+            /* unreadable */
+          }
+        }
+        const text = body.toString("utf8").replace(/\s+/g, " ").trim().slice(0, 300);
+        base.error_body = [x402Error && `402 error: ${x402Error}`, text].filter(Boolean).join(" | ") || null;
+      }
       const h = res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
       if (h) {
         try {
           const s = decodePaymentResponseHeader(h);
           base.tx = s.transaction ?? null;
+          base.tx_source = base.tx ? "header" : null;
           base.network = s.network ? String(s.network) : pf.network;
           const amt = (s as { amount?: string }).amount;
           base.amount_usd = amt !== undefined ? Number(BigInt(amt)) / 1e6 : pf.quoted;
@@ -378,6 +401,17 @@ export async function runSpBuy(opts: SpBuyOptions = {}): Promise<SpBuyRun> {
       }
     } catch (err) {
       error = String(err instanceof Error ? err.message : err).slice(0, 200);
+    }
+    // No settlement header: look for what we signed on chain, as Seller Probe does.
+    if (!base.tx) {
+      const sent = sentPaymentFromHeader(client.lastPaymentHeader?.() ?? null, client.solanaAddress);
+      const found = sent ? await (opts.findSettlement ?? findSettlementOnChain)(sent, { fetchImpl }) : null;
+      if (found) {
+        base.tx = found.tx;
+        base.tx_source = found.source;
+        base.network = pf.network;
+        base.amount_usd = pf.quoted;
+      }
     }
     base.http_status = status || null;
     base.latency_ms = Date.now() - started;
@@ -401,6 +435,8 @@ export async function runSpBuy(opts: SpBuyOptions = {}): Promise<SpBuyRun> {
       if (base.checks.some((c) => c.result === "fail")) base.body_head = body.toString("utf8").slice(0, 500);
     }
     const v = verdictOf({ status, tx: base.tx, bodyLength: body.length, checks: base.checks, error });
+    if (base.error_body) v.reason += ` — ${base.error_body.slice(0, 160)}`;
+    if (base.tx_source === "onchain_search") v.reason += " (settlement header missing; transfer found on chain)";
     const rec: SpBuyRecord = { ...base, verdict: v.verdict, verdict_reason: v.reason, disagrees: v.verdict !== "as_described" };
     run.records.push(rec);
     console.log(`[SP-BUY] ${t.host} ${new URL(t.url).pathname} → ${v.verdict}${rec.tx ? ` tx ${rec.tx}` : ""} ${rec.amount_usd ?? ""}`);
