@@ -18,6 +18,22 @@ import type { MxeFunction, MxeTradeRecord } from "./record";
 import { STAGE_LABELS, stageOf, type MxeStage } from "./stage";
 
 export const BREAKER_DAYS = 3;
+
+/**
+ * Network-wide outages of the Arcium devnet cluster, established from chain
+ * data: runs inside one are not counted toward a pause, so a function is not
+ * stopped for a failure that was nobody's program.
+ *
+ *   2026-11-06 22:21 – 2026-11-15 09:51 UTC: both cluster-456 nodes
+ *   (callback authorities 2fYMTn21…, 5QPtFKv3…) signed no successful callback
+ *   for any program; the first successes after it include AA's own.
+ */
+export const KNOWN_OUTAGES: Array<{ from: string; to: string }> = [
+  { from: "2026-11-06T22:21:54Z", to: "2026-11-15T09:51:31Z" },
+];
+
+const inOutage = (at: string) =>
+  KNOWN_OUTAGES.some((o) => Date.parse(at) >= Date.parse(o.from) && Date.parse(at) <= Date.parse(o.to));
 const KEY = "mxe_breaker";
 
 export interface BreakerState {
@@ -78,7 +94,7 @@ const jstDay = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600_000)
 export function shouldPause(records: MxeTradeRecord[], fn: MxeFunction, state: BreakerState = {}): BreakerState["paused"] {
   const since = state.resumedAt ? Date.parse(state.resumedAt) : -Infinity;
   const rs = records.filter(
-    (r) => r.fn === fn && Date.parse(r.at) > since && r.status !== "paused" && r.status !== "disabled"
+    (r) => r.fn === fn && Date.parse(r.at) > since && r.status !== "paused" && r.status !== "disabled" && !inOutage(r.at)
   );
   const byDay = new Map<string, MxeTradeRecord[]>();
   for (const r of rs) byDay.set(jstDay(r.at), [...(byDay.get(jstDay(r.at)) ?? []), r]);

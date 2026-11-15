@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stageOf } from "../mxe/stage";
-import { shouldPause } from "../mxe/breaker";
+import { shouldPause, KNOWN_OUTAGES } from "../mxe/breaker";
 import { offsetsOf } from "../mxe/rent";
 import type { MxeTradeRecord } from "../mxe/record";
 
@@ -34,13 +34,13 @@ test("stages are read from the errors the records carry", () => {
 
 // Runs at 07:30 JST = 22:30 UTC the day before.
 const day = (d: number, fn: 1 | 5 = 1, status: MxeTradeRecord["status"] = "failed", error = WAIT) =>
-  rec(`2026-11-${String(d).padStart(2, "0")}T22:30:00Z`, fn, status, error);
+  rec(`2026-10-${String(d).padStart(2, "0")}T22:30:00Z`, fn, status, error);
 
 test("three run days failing at one stage pause the function", () => {
   const p = shouldPause([day(6), day(7), day(8)], 1);
   assert.ok(p);
   assert.equal(p!.stage, "callback_wait");
-  assert.deepEqual(p!.days, ["2026-11-07", "2026-11-08", "2026-11-09"]);
+  assert.deepEqual(p!.days, ["2026-10-07", "2026-10-08", "2026-10-09"]);
 });
 
 test("two days, a success, or mixed stages do not", () => {
@@ -62,8 +62,8 @@ test("function 5's four searches a day must all fail the same way", () => {
 
 test("runs before a resume do not count", () => {
   const runs = [day(6), day(7), day(8)];
-  assert.equal(shouldPause(runs, 1, { resumedAt: "2026-11-08T00:00:00Z" }), undefined);
-  assert.ok(shouldPause([...runs, day(9), day(10)], 1, { resumedAt: "2026-11-07T00:00:00Z" }));
+  assert.equal(shouldPause(runs, 1, { resumedAt: "2026-10-08T00:00:00Z" }), undefined);
+  assert.ok(shouldPause([...runs, day(9), day(10)], 1, { resumedAt: "2026-10-07T00:00:00Z" }));
 });
 
 test("paused records are not counted as failures", () => {
@@ -83,4 +83,14 @@ test("rent sweep reads every computation offset from recent devnet records", () 
   };
   const old: MxeTradeRecord = { ...rec("2020-01-01T00:00:00Z", 1, "ok"), computationOffset: "9" };
   assert.deepEqual(offsetsOf([r, old]).sort(), ["1", "3"]);
+});
+
+test("runs inside the 11/6–11/15 cluster outage do not count toward a pause", () => {
+  assert.equal(KNOWN_OUTAGES.length, 1);
+  // The 11/13, 11/14 and 11/15 (JST) runs all timed out during the outage.
+  const outageRuns = ["2026-11-12T22:30:00Z", "2026-11-13T22:30:00Z", "2026-11-14T22:30:00Z"].map((at) => rec(at, 1, "failed", WAIT));
+  assert.equal(shouldPause(outageRuns, 1), undefined);
+  // After it, three failing days pause again as usual.
+  const after = ["2026-11-15T22:30:00Z", "2026-11-16T22:30:00Z", "2026-11-17T22:30:00Z"].map((at) => rec(at, 1, "failed", WAIT));
+  assert.ok(shouldPause([...outageRuns, ...after], 1));
 });
