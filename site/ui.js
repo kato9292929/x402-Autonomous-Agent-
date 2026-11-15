@@ -397,10 +397,53 @@ const chainLabel = (c) => {
   return c;
 };
 
+/* Daily path: external endpoints Seller Probe judged 説明どおり, bought every
+   morning the way Seller Probe bought them. Rendered above the weekly probe in
+   the same card, each under its own heading. */
+async function spBuySection() {
+  try {
+    const res = await fetch('/api/spbuy?limit=1');
+    if (!res.ok) return null;
+    const p = await res.json();
+    const run = (p.runs || [])[0];
+    if (!run) return { stats: null, html: group('毎朝 · Seller Probe 連動') + empty('まだ実行していない。') };
+    const labels = p.labels || {};
+    const recs = run.records || [];
+    const paid = recs.filter((r) => r.tx);
+    const ok = recs.filter((r) => r.verdict === 'as_described');
+    const ops = new Set(paid.map((r) => r.operator));
+    const rows = recs.map((r) => {
+      const good = r.verdict === 'as_described';
+      let pathName = r.url;
+      try { pathName = new URL(r.url).pathname; } catch { /* keep the URL */ }
+      const fails = (r.checks || []).filter((c) => c.result === 'fail').map((c) => `${c.name}: ${c.detail}`);
+      return row({
+        name: `${esc(r.host)} <code class="settle__path">${esc(pathName)}</code>`,
+        badge: good ? '' : (labels[r.verdict] || r.verdict), bad: !good,
+        cost: r.amount_usd != null ? money6(r.amount_usd) : `${money6(r.quoted_usd ?? r.price_usd)} 未払い`,
+        tx: r.tx ? txLink(r.tx) : '',
+        line: facts([r.category, r.network && chainLabel(r.network), `Probe の判定 ${r.selection && r.selection.probeDate}: 説明どおり`]) +
+          (good ? '' : reason(fails.length ? fails.join(' / ') : r.verdict_reason)),
+      });
+    }).join('');
+    const nc = run.notCalled || [];
+    const skipped = nc.length
+      ? note(`今日は買わなかった ${nc.length} 件: ${esc(nc.slice(0, 3).map((n) => `${n.host}(${n.reason})`).join('、'))}${nc.length > 3 ? ' ほか' : ''}`)
+      : '';
+    return {
+      stats: [[String(paid.length), 'Bought'], [String(ops.size), 'Operators'], [`${ok.length}/${paid.length}`, 'Content OK'], [money(run.spentUsd), 'USDC']],
+      when: run.date,
+      html: group(`毎朝 · Seller Probe 連動 · ${run.date}`) + rows + skipped +
+        note(`Seller Probe が直近 14 日に「説明どおり」と判定した外部エンドポイントを、その判定のときと同じ要求で毎朝 1 回ずつ買う(1 回 $0.01 以下、1 日 $${Number(run.dailyCapUsd).toFixed(2)} まで、1 事業者 2 本まで)。中身の判定は Seller Probe と同じ 5 つの確認。`),
+    };
+  } catch { return null; }
+}
+
 async function loadProbe() {
   const list = document.getElementById('probe-list');
   if (!list) return;
   try {
+    const daily = await spBuySection();
     const res = await fetch('/api/probes?limit=12');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const payload = await res.json();
@@ -415,8 +458,15 @@ async function loadProbe() {
     const rows = (run.records || []).filter((r) => !off.has(r.target));
     const paid = rows.filter((r) => r.outcome === 'paid');
     const sellers = new Set(paid.map((r) => r.target));
-    document.getElementById('probe-when').textContent = [run.week, shortDate(run.at)].filter(Boolean).join(' · ');
-    setStats('probe-stats', [[money(run.runSpentUsdc), 'USDC spent'], [String(sellers.size), 'Sellers'], [`${paid.length}/${rows.length}`, 'Paid']]);
+    document.getElementById('probe-when').textContent = daily && daily.when
+      ? daily.when
+      : [run.week, shortDate(run.at)].filter(Boolean).join(' · ');
+    // The daily path is the bigger one, so its figures lead; the weekly probe's
+    // own figures move to its heading.
+    setStats('probe-stats', daily && daily.stats
+      ? daily.stats
+      : [[money(run.runSpentUsdc), 'USDC spent'], [String(sellers.size), 'Sellers'], [`${paid.length}/${rows.length}`, 'Paid']]);
+    const weeklyHead = group(`週次プローブ · ${[run.week, shortDate(run.at)].filter(Boolean).join(' · ')} · ${money(run.runSpentUsdc)} · ${paid.length}/${rows.length} 決済`);
 
     const bySeller = (run.summaries || []).filter((s) => !off.has(s.target)).map((s) => {
       // A seller with no paid call shows why: the skip reason of its first row.
@@ -445,9 +495,9 @@ async function loadProbe() {
         line: ok ? facts([chainLabel(r.chain), r.latencyMs != null && `${r.latencyMs}ms`]) : (r.reason ? reason(r.reason) : ''),
       });
     }).join('');
-    list.innerHTML = group('売り手別') + bySeller + group('コール別 · 提示 → 実課金') + calls +
+    list.innerHTML = (daily ? daily.html : '') + weeklyHead + group('売り手別') + bySeller + group('コール別 · 提示 → 実課金') + calls +
       (offRows ? group('停止中 · 実行対象外') + offRows : '') +
-      note('自社の外にある第三者の x402 売り手に週1回支払い、実費と内容を測っている。提示額は売り手の 402 から、実課金は決済レスポンスから取る。');
+      note('週次プローブ: 自社の外にある第三者の x402 売り手(OneSource・2s・Otto AI・Exa)に週1回支払い、実費と内容を測っている。提示額は売り手の 402 から、実課金は決済レスポンスから取る。');
   } catch (e) { list.innerHTML = empty(`Could not load (${e})`); }
 }
 loadProbe();

@@ -232,8 +232,17 @@ export function selectPreferred(
   };
 }
 
-/** Build the paying fetch, or null when the Circle Base wallet is not configured. */
-export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
+/**
+ * Build the paying fetch, or null when the Circle Base wallet is not configured.
+ *
+ * `opts.allow` replaces the weekly probe's budget check (the Seller Probe–driven
+ * daily purchase has its own $0.01 / daily ceilings); `opts.prefer` names the
+ * network to settle on for the current call, read at selection time.
+ */
+export function buildProbeClient(
+  spend: ProbeSpend,
+  opts: { allow?: (priceUsd: number) => boolean; prefer?: () => string | undefined } = {}
+): ProbeClient | null {
   if (process.env.SIGNER_BACKEND !== "circle") return null;
   const walletId = process.env.CIRCLE_EVM_WALLET_ID;
   const walletAddress = process.env.CIRCLE_EVM_WALLET_ADDRESS;
@@ -246,7 +255,11 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
   // The preference runs after the budget policy (@x402/core applies policies,
   // then the selector), so it reorders what is already allowed and cannot
   // reintroduce a requirement a ceiling refused.
-  const base = new x402Client(selectPreferred(preferredNetwork(), preferredAcceptId()))
+  const selector = opts.prefer
+    ? (v: number, reqs: PaymentRequirements[]) => selectPreferred(opts.prefer!(), undefined)(v, reqs)
+    : selectPreferred(preferredNetwork(), preferredAcceptId());
+  const allow = opts.allow ?? ((price: number) => allowsCall(price, spend.run, spend.week).allowed);
+  const base = new x402Client(selector)
     .register("eip155:8453", scheme)
     .registerV1("base", scheme)
     .registerPolicy((_version: number, reqs: PaymentRequirements[]) =>
@@ -257,7 +270,7 @@ export function buildProbeClient(spend: ProbeSpend): ProbeClient | null {
         if (!isSignableLeg(r)) return false;
         const price = priceOf(r);
         if (price === undefined) return false; // 読めない金額は払わない
-        return allowsCall(price, spend.run, spend.week).allowed;
+        return allow(price);
       })
     );
 

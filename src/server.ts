@@ -19,6 +19,7 @@ import { loadSweepSummaries } from "./store/sweep-summary";
 import { EDINET_SURFACE, osdBase } from "./paycall/surface";
 import { loadSweepItems } from "./store/sweep-items";
 import { loadProbeRuns } from "./store/probe-store";
+import { loadSpBuyRuns, VERDICT_LABELS, DAILY_CAP_USD, spBuyEnabled } from "./spbuy/run";
 import { PROBE_TARGETS } from "./probe/targets";
 import { buildDashboardPage } from "./dashboard";
 import { handleMxeApi } from "./mxe/api";
@@ -563,6 +564,22 @@ export function startHttpServer(): void {
     // External x402 probe runs, newest first — what third-party sellers were
     // paid, what they quoted, and what they actually returned. Separate from
     // /api/sweeps, which is our own surfaces (EDINET / catalyst).
+    // The daily Seller Probe-driven external purchase (src/spbuy), newest first.
+    if (urlPath === "/api/spbuy" && req.method === "GET") {
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
+      const limit = Math.min(60, Math.max(1, parseInt(q ?? "7", 10) || 7));
+      loadSpBuyRuns(limit)
+        .then((runs) => {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          sendJson(res, 200, { runs, labels: VERDICT_LABELS, dailyCapUsd: DAILY_CAP_USD(), enabled: spBuyEnabled() });
+        })
+        .catch((err: unknown) => {
+          console.error("[SERVER] /api/spbuy error:", err);
+          if (!res.headersSent) sendJson(res, 500, { error: String(err) });
+        });
+      return;
+    }
+
     if (urlPath === "/api/probes" && req.method === "GET") {
       const q = new URL(req.url ?? "/", "http://localhost").searchParams.get("limit");
       const limit = Math.min(60, Math.max(1, parseInt(q ?? "12", 10) || 12));
