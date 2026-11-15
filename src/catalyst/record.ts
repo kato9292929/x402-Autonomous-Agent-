@@ -37,6 +37,10 @@ export interface CatalystCallRecord {
    * ticker without parsing the Japanese `reason` string. Not a CSV column.
    */
   payable?: boolean;
+  /** Whether the paid body carried content (surface.checkBody). Not a CSV column. */
+  content?: import("../content-check").ContentCheck;
+  /** EDINET: the disclosure the answer named. Not a CSV column. */
+  meta?: import("../edinet/schema").EdinetMetadata;
 }
 
 export const CSV_HEADER = [

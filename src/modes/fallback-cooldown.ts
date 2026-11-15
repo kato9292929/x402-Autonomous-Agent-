@@ -39,6 +39,8 @@ export interface CooldownState {
   lastProbeDate?: string;
   /** When the cooldown started. */
   since?: string;
+  /** Why the last counted day was not live (fallback marker or empty content). */
+  lastReason?: string;
 }
 
 export function initialState(endpointId: string): CooldownState {
@@ -145,5 +147,8 @@ export async function saveCooldown(state: CooldownState): Promise<void> {
 
 /** Human-readable cooldown reason for the dashboard row. */
 export function cooldownReason(state: CooldownState): string {
-  return `cooldown: ${state.consecutiveFallback}日連続で劣化データのため購入停止中(live復帰を確認中)`;
+  return (
+    `cooldown: ${state.consecutiveFallback}日連続で劣化データ・中身なしのため購入停止中(live復帰を確認中)` +
+    (state.lastReason ? ` — 直近: ${state.lastReason}` : "")
+  );
 }

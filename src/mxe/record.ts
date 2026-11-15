@@ -32,7 +32,8 @@ export type MxeNetwork = "arcium-localnet" | "arcium-devnet" | "arcium-mainnet";
 export type MxeStatus =
   | "ok" // computation finalized and its callback event was read
   | "failed" // something went wrong; `error` says what. No result is invented.
-  | "disabled"; // the function's flag is off; recorded so a gap is visible
+  | "disabled" // the function's flag is off; recorded so a gap is visible
+  | "paused"; // not run: paused after repeated failures at one stage (see breaker.ts)
 
 /** 相手方の区分. */
 export type Counterparty =
@@ -75,6 +76,8 @@ export interface MxeTradeRecord {
     /** Execution fee the Arcium program recorded for this computation, in lamports. */
     baseFeeLamports?: number;
     priorityFeeLamports?: number;
+    /** Rent returned from the computation account after it finalized (claim_computation_rent). */
+    rentReclaimedLamports?: number;
   }[];
   /** 計算ID: the deciding computation's offset (u64, decimal). Set only after its queue tx confirmed. */
   computationOffset?: string;
@@ -105,6 +108,8 @@ export interface MxeTradeRecord {
   comparison?: MxeComparison;
   counterparty: Counterparty;
   error?: string;
+  /** Where a failed run stopped (stage.ts). Older records are classified from `error`. */
+  stage?: import("./stage").MxeStage;
 }
 
 /** 単価比. Undefined unless both sides are positive, finite numbers. */
@@ -123,6 +128,7 @@ export interface MxeFunctionAggregate {
   ok: number;
   failed: number;
   disabled: number;
+  paused: number;
   /** Over `ok` runs that measured it. */
   latencyMs?: { mean: number; min: number; max: number; n: number };
   costUsd?: { mean: number; total: number; n: number };
@@ -152,10 +158,11 @@ export function aggregateByFunction(records: MxeTradeRecord[]): MxeFunctionAggre
     return {
       fn,
       label: MXE_FUNCTION_LABELS[fn],
-      runs: rs.length,
+      runs: rs.filter((r) => r.status !== "paused").length,
       ok: ok.length,
       failed: rs.filter((r) => r.status === "failed").length,
       disabled: rs.filter((r) => r.status === "disabled").length,
+      paused: rs.filter((r) => r.status === "paused").length,
       latencyMs: lat && { mean: lat.mean, min: lat.min, max: lat.max, n: lat.n },
       costUsd: usd && { mean: usd.mean, total: usd.total, n: usd.n },
       costSol: sol && { mean: sol.mean, total: sol.total, n: sol.n },

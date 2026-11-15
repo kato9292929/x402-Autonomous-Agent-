@@ -81,6 +81,12 @@ export interface ComputationRun {
   /** The computation's execution fee as the Arcium program recorded it, in lamports. */
   baseFeeLamports?: number;
   priorityFeeLamports?: number;
+  /**
+   * Rent returned from the computation account once it finalized
+   * (claim_computation_rent). `lamports` above is measured before the claim,
+   * so it includes the deposit; subtract this for the net cost.
+   */
+  rentReclaimedLamports?: number;
   /** Events the program emitted in the callback transaction, by name (camelCase). */
   events: { name: string; data: Record<string, unknown> }[];
 }
@@ -229,6 +235,14 @@ export class MxeChain {
     if ("error" in found) throw fail(found.error);
     const { callbackTx, events } = found;
 
+    // The computation account holds a rent deposit until it is claimed back.
+    // Not claiming it was most of the per-run cost (11/13). A failed claim is
+    // logged and left for the next run's sweep; it never fails the computation.
+    const rentReclaimedLamports = await this.claimRent(offset).catch((err) => {
+      console.warn(`[MXE] rent claim for ${account} failed: ${String(err).slice(0, 200)}`);
+      return undefined;
+    });
+
     return {
       circuit,
       offset: offset.toString(),
@@ -238,8 +252,55 @@ export class MxeChain {
       latencyMs,
       lamports: before - after,
       ...fees,
+      rentReclaimedLamports,
       events,
     };
+  }
+
+  /**
+   * Claims a finalized computation's rent back to the signer (its payer).
+   * Returns the lamports returned, or 0 if the account was already closed.
+   */
+  async claimRent(offset: anchor.BN): Promise<number> {
+    const account = getComputationAccAddress(this.cfg.clusterOffset, offset);
+    const info = await this.cfg.connection.getAccountInfo(account, "confirmed");
+    if (!info) return 0;
+    await getArciumProgram(this.provider)
+      .methods.claimComputationRent(offset, this.cfg.clusterOffset)
+      .accountsPartial({ signer: this.authority })
+      .rpc({ commitment: "confirmed" });
+    return info.lamports;
+  }
+
+  /**
+   * For a computation the cluster never executed: once Arcium counts it as
+   * expired, reclaim its fee and then its rent. Throws Arcium's
+   * ComputationNotExpired (6210) until then.
+   */
+  async reclaimExpired(offset: anchor.BN): Promise<number> {
+    const account = getComputationAccAddress(this.cfg.clusterOffset, offset);
+    const info = await this.cfg.connection.getAccountInfo(account, "confirmed");
+    if (!info) return 0;
+    const arcium = getArciumProgram(this.provider);
+    const reclaim = await arcium.methods
+      .reclaimExpiredComputationFee(offset, this.cfg.programId)
+      .accountsPartial({ signer: this.authority })
+      .instruction();
+    const claim = await arcium.methods
+      .claimComputationRent(offset, this.cfg.clusterOffset)
+      .accountsPartial({ signer: this.authority })
+      .instruction();
+    await this.provider.sendAndConfirm(new Transaction().add(reclaim, claim), [], { commitment: "confirmed" });
+    return info.lamports;
+  }
+
+  /** Status of a computation account ("queued", "finalized", ...), or undefined if it is gone. */
+  async computationStatus(offset: anchor.BN): Promise<string | undefined> {
+    const account = getComputationAccAddress(this.cfg.clusterOffset, offset);
+    const acc = (await getArciumProgram(this.provider).account.computationAccount.fetchNullable(account, "confirmed")) as {
+      status: Record<string, unknown>;
+    } | null;
+    return acc ? Object.keys(acc.status)[0] : undefined;
   }
 
   /** The computation's successful callback transaction and its events. */
@@ -322,12 +383,23 @@ export class MxeChain {
 
   /** Current cluster time, for RFQ deadlines (`Clock::unix_timestamp`). */
   async clusterTime(): Promise<number> {
-    const slot = await this.cfg.connection.getSlot("confirmed");
-    const t = await this.cfg.connection.getBlockTime(slot);
     // Not the local clock: a deadline checked against the wrong time would
-    // only fail later, inside the program.
-    if (t === null) throw new Error(`no block time for slot ${slot}`);
-    return t;
+    // only fail later, inside the program. The newest confirmed slot can be
+    // skipped or not yet stored by the RPC ("Block not available for slot",
+    // 11/4 F2), so step back a slot and retry; a few slots off is under 2s.
+    const slot = await this.cfg.connection.getSlot("confirmed");
+    let last: unknown;
+    for (let back = 0; back < 6; back++) {
+      try {
+        const t = await this.cfg.connection.getBlockTime(slot - back);
+        if (t !== null) return t;
+        last = new Error(`no block time for slot ${slot - back}`);
+      } catch (err) {
+        last = err;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    throw new Error(`failed to get block time near slot ${slot}: ${String(last)}`);
   }
 }
 
@@ -344,6 +416,7 @@ export function computationEntry(r: ComputationRun) {
     cuAmount: r.cuAmount,
     baseFeeLamports: r.baseFeeLamports,
     priorityFeeLamports: r.priorityFeeLamports,
+    rentReclaimedLamports: r.rentReclaimedLamports,
   };
 }
 

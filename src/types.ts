@@ -20,6 +20,13 @@ export interface EndpointResult {
   fullData?: Record<string, unknown>;
   /** x402 Seller Probe lookup made before paying (probe-gate.ts); a "skip" means nothing was paid. */
   probe?: import("./probe-gate").ProbeCheck;
+  /** Whether the paid body carried anything (content-check.ts). Absent when no body came back. */
+  content?: import("./content-check").ContentCheck;
+  /**
+   * The start of the body (JSON, ≤ 1500 chars) when the full body is not kept,
+   * so an empty or echo-only answer can be read back from the record.
+   */
+  bodySample?: string;
 }
 
 export interface RunLog {

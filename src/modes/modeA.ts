@@ -78,8 +78,28 @@ function findModeBResult(
   return modeBLog.results.find((r) => r.endpoint === ep.url);
 }
 
-export async function runModeA(modeBLog?: RunLog): Promise<void> {
+/**
+ * Whether Mode A can run: its only input is the Smart Money Screener, which
+ * Mode B stopped buying on 2026-11-15 (empty every day). Without it Mode A
+ * would record a SKIP every day that says nothing, so it records nothing.
+ */
+export function modeAInputStopped(): string | undefined {
+  const sms = ENDPOINTS_MODE_B.find((e) => e.id === "smart-money-screener");
+  if (!sms) return "Smart Money Screener is not configured";
+  return sms.disabled ? `Smart Money Screener 購入停止(${sms.disabled.since}): ${sms.disabled.reason}` : undefined;
+}
+
+export async function runModeA(
+  modeBLog?: RunLog,
+  opts: { evenIfInputStopped?: boolean } = {}
+): Promise<void> {
   const startMs = Date.now();
+  const stopped = modeAInputStopped();
+  if (stopped && !opts.evenIfInputStopped) {
+    // No decision and no run record: there is no input to decide from.
+    console.log(`[MODE A] 停止中 — 入力が無いため判断を出さない(${stopped})`);
+    return;
+  }
   console.log("[MODE A] Daily decision run started");
 
   const agentId = process.env.ERC8004_AGENT_ID ?? DEFAULT_AGENT_ID;

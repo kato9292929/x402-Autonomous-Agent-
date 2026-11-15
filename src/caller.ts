@@ -2,6 +2,7 @@ import { decodePaymentResponseHeader } from "@x402/fetch";
 import { fetchWithPayment } from "./x402";
 import { getRequestBody } from "./bodies";
 import { detectDegraded } from "./stub-detector";
+import { checkContent } from "./content-check";
 import { checkProbe } from "./probe-gate";
 import type { EndpointConfig } from "./config";
 import type { EndpointResult } from "./types";
@@ -168,6 +169,21 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
     failureCounts.set(ep.id, 0);
 
     const detection = detectDegraded(data);
+    // What we sent, so a body that only repeats it is not counted as content.
+    const sent: Record<string, unknown> = { ...(body ?? {}) };
+    for (const [k, v] of new URL(ep.url).searchParams) sent[k] = v;
+    const content = detection.degraded
+      ? { ok: false, reason: detection.reason }
+      : await checkContent(ep.id, data, sent).catch((err) => {
+          console.warn(`[CALLER:${ep.chain}] content check failed for ${ep.name}: ${String(err)}`);
+          return undefined;
+        });
+    if (content && !content.ok && !detection.degraded) {
+      console.warn(`[CALLER:${ep.chain}] ∅ ${ep.name} — paid, no content: ${content.reason}`);
+    }
+    const kept = ep.captureFullData
+      ? { fullData: data }
+      : { bodySample: JSON.stringify(data).slice(0, 1500) };
     if (detection.degraded) {
       console.warn(`[CALLER:${ep.chain}] ~ ${ep.name} — degraded: ${detection.reason}`);
       return {
@@ -181,7 +197,8 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
         degradedReason: detection.reason,
         durationMs: Date.now() - startMs,
         probe,
-        ...(ep.captureFullData ? { fullData: data } : {}),
+        content,
+        ...kept,
       };
     }
 
@@ -195,7 +212,8 @@ export async function callEndpoint(ep: EndpointConfig): Promise<EndpointResult> 
       settledNetwork,
       durationMs: Date.now() - startMs,
       probe,
-      ...(ep.captureFullData ? { fullData: data } : {}),
+      content,
+      ...kept,
     };
   } catch (err) {
     const prev = failureCounts.get(ep.id) ?? 0;

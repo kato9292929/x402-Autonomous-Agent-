@@ -88,7 +88,10 @@ function saveExternalData(
 export async function runModeB(): Promise<RunLog> {
   const startMs = Date.now();
   const date = todayDate();
-  console.log(`[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.length} endpoints`);
+  console.log(
+    `[MODE B] Daily briefing started — ${ENDPOINTS_MODE_B.filter((e) => !e.disabled).length} endpoints` +
+      ` (${ENDPOINTS_MODE_B.filter((e) => e.disabled).length} stopped)`
+  );
 
   const log: RunLog = {
     timestamp: new Date().toISOString(),
@@ -105,6 +108,11 @@ export async function runModeB(): Promise<RunLog> {
   const endpointIdByUrl = new Map(ENDPOINTS_MODE_B.map((ep) => [ep.url, ep.id]));
 
   for (const ep of ENDPOINTS_MODE_B) {
+    // Stopped outright (config.disabled): no call, no cooldown probe, no row.
+    if (ep.disabled) {
+      console.log(`[MODE B] ■ ${ep.name} — 購入停止(${ep.disabled.since}): ${ep.disabled.reason}`);
+      continue;
+    }
     // Skip an endpoint stuck serving fallback data — don't pay for degraded data
     // every day. A low-frequency probe still buys it to detect a return to live.
     const cd = await loadCooldown(ep.id);
@@ -129,13 +137,16 @@ export async function runModeB(): Promise<RunLog> {
     // Fold this outcome into the endpoint's cooldown state: a degraded result is
     // fallback, a success is live (and clears any cooldown). A probe that comes
     // back live resumes normal daily buying.
+    // A paid body with nothing in it (content-check.ts) counts as a fallback day.
+    const empty = result.status === "success" && result.content?.ok === false;
     const outcome: CallOutcome =
-      result.status === "success" ? "live" : result.status === "degraded" ? "fallback" : "error";
+      result.status === "success" && !empty ? "live" : result.status === "degraded" || empty ? "fallback" : "error";
     const wasCooled = cd.inCooldown;
     const ns = nextState(cd, date, outcome, plan.probe);
+    if (outcome === "fallback") ns.lastReason = result.content?.reason ?? result.degradedReason;
     await saveCooldown(ns);
     if (!wasCooled && ns.inCooldown) {
-      console.warn(`[MODE B] ⏸ ${ep.name} — entered cooldown (${ns.consecutiveFallback} degraded days)`);
+      console.warn(`[MODE B] ⏸ ${ep.name} — entered cooldown (${ns.consecutiveFallback} degraded/empty days: ${ns.lastReason ?? ""})`);
     } else if (wasCooled && !ns.inCooldown) {
       console.log(`[MODE B] ▶ ${ep.name} — recovered to live, cooldown cleared`);
     }

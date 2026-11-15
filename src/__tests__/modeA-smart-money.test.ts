@@ -71,7 +71,9 @@ async function runWithPaymentWatch(
   const jsonl = path.join(TMP, "data", "decisions", "mode-a-decisions.jsonl");
   fs.rmSync(jsonl, { force: true });
   try {
-    await runModeA(modeBLog);
+    // The decision logic is kept for when an input returns; run it regardless
+    // of the screener's 購入停止.
+    await runModeA(modeBLog, { evenIfInputStopped: true });
   } finally {
     x402.fetchWithPayment = previous;
   }
@@ -187,4 +189,13 @@ test("Smart Money Screener は Base を叩き、本文を保存する", () => {
   const ep = ENDPOINTS_MODE_B.find((e) => e.id === "smart-money-screener")!;
   assert.match(ep.url, /chain=base/);
   assert.equal(ep.captureFullData, true, "Mode A が行を読むには本文が要る");
+});
+
+test("Smart Money Screener が購入停止なら、Mode A は判断を出さない(記録0件)", async () => {
+  const { runModeA, modeAInputStopped } = await import("../modes/modeA");
+  assert.match(modeAInputStopped() ?? "", /購入停止/);
+  const jsonl = path.join(TMP, "data", "decisions", "mode-a-decisions.jsonl");
+  fs.rmSync(jsonl, { force: true });
+  await runModeA(undefined);
+  assert.equal(fs.existsSync(jsonl), false, "decision を書かない");
 });

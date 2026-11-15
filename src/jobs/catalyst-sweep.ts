@@ -32,6 +32,7 @@ import {
 import { allowsCall, isoWeekKey, readWeekSpend, recordWeekSpend } from "../probe/budget";
 import { saveSweepSummary } from "../store/sweep-summary";
 import { saveSweepItems, type SweepItem } from "../store/sweep-items";
+import { parseEdinetMetadata } from "../edinet/schema";
 import { CATALYST_SURFACE, EDINET_SURFACE, osdBase, type PaycallSurface } from "../paycall/surface";
 import {
   appendCsv,
@@ -44,6 +45,12 @@ import {
 
 /** Consecutive errors from the one seller before the whole sweep is abandoned. */
 const MAX_CONSECUTIVE_ERRORS = 3;
+/**
+ * Consecutive paid answers without content before the sweep stops paying.
+ * Every call settles before its body is read, so this bounds what an empty
+ * seller can cost in one sweep to EMPTY_STOP calls.
+ */
+export const EMPTY_STOP = Number(process.env.SWEEP_EMPTY_STOP ?? 5) || 5;
 const DISCOVERY_TIMEOUT_MS = 15_000;
 
 const reader = new x402HTTPClient(new x402Client());
@@ -216,7 +223,9 @@ async function sweepItem(
     if (!res.ok) {
       return { ...base, outcome: "error", reason: `HTTP ${res.status}`, summary: summarizeBody(payload) };
     }
-    return { ...base, outcome: settleHeader ? "paid" : "free", summary: summarizeBody(payload) };
+    const content = surface.checkBody?.(payload);
+    const meta = surface.id === "edinet" ? parseEdinetMetadata(payload) : undefined;
+    return { ...base, outcome: settleHeader ? "paid" : "free", summary: summarizeBody(payload), content, meta };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const challenge = client.takeChallenge();
@@ -245,6 +254,24 @@ async function sweepItem(
     }
     return { ...base, outcome: "error", reason: msg };
   }
+}
+
+/** Paid answers by content verdict, for the sweep summary. */
+export function contentCounts(records: CatalystCallRecord[]): NonNullable<import("../store/sweep-summary").SweepSummary["content"]> {
+  const paid = records.filter((r) => r.outcome === "paid");
+  const reasons: Record<string, number> = {};
+  for (const r of paid) {
+    if (r.content && !r.content.ok) {
+      const k = (r.content.reason ?? "?").replace(/:.*$/, "");
+      reasons[k] = (reasons[k] ?? 0) + 1;
+    }
+  }
+  return {
+    ok: paid.filter((r) => r.content?.ok).length,
+    missing: paid.filter((r) => r.content && !r.content.ok).length,
+    financials: paid.filter((r) => r.meta?.financialsAvailable === true).length,
+    reasons,
+  };
 }
 
 // ── entry point ──────────────────────────────────────────────────────────────
@@ -276,6 +303,8 @@ export async function runSweep(
 
   const records: CatalystCallRecord[] = [];
 
+  let stopped: string | undefined;
+
   if (options.mode === "discovery") {
     // Homogeneous items: poke a sample to confirm wiring, don't read 200 identical 402s.
     const sample = tickers.slice(0, surface.run0Sample);
@@ -294,6 +323,7 @@ export async function runSweep(
     console.log(`[${tag}] paying wallet: ${client.walletAddress}`);
 
     let consecutiveErrors = 0;
+    let consecutiveEmpty = 0;
     for (const item of tickers) {
       if (spend.week >= surface.weeklyCapUsd) {
         console.warn(`[${tag}] 週上限到達で中断 (week $${spend.week.toFixed(4)})`);
@@ -311,7 +341,16 @@ export async function runSweep(
       consecutiveErrors = record.outcome === "error" ? consecutiveErrors + 1 : 0;
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         console.warn(`[${tag}] ${MAX_CONSECUTIVE_ERRORS} 回連続エラー — sweep 中断(売り手側の障害とみなす)`);
+        stopped = `${MAX_CONSECUTIVE_ERRORS} 回連続エラーで中断`;
         break;
+      }
+      if (record.outcome === "paid" && record.content) {
+        consecutiveEmpty = record.content.ok ? 0 : consecutiveEmpty + 1;
+        if (consecutiveEmpty >= EMPTY_STOP) {
+          stopped = `中身の無い応答が ${EMPTY_STOP} 件続いたため中断(直近: ${record.content.reason ?? "?"})`;
+          console.warn(`[${tag}] ${stopped}`);
+          break;
+        }
       }
     }
   }
@@ -330,10 +369,18 @@ export async function runSweep(
       settlements: summary.paid,
       totalUsdc: summary.totalUsdc,
       sampleTx: summary.sampleTx,
+      endpoint: surface.describe?.endpoint,
+      unit: surface.describe?.unit,
+      unitUsd: surface.priceUsd,
+      content: surface.checkBody ? contentCounts(records) : undefined,
+      stopped,
     });
     const items: SweepItem[] = records
       .filter((r) => r.outcome === "paid" && r.txHash)
-      .map((r) => ({ ticker: r.ticker, amountUsdc: r.actualUsdc ?? surface.priceUsd, tx: r.txHash, at: r.at }));
+      .map((r) => ({
+        ticker: r.ticker, amountUsdc: r.actualUsdc ?? surface.priceUsd, tx: r.txHash, at: r.at,
+        name: r.meta?.filerName, meta: r.meta, content: r.content,
+      }));
     await saveSweepItems(surface.id, week, items);
   }
 

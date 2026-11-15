@@ -10,11 +10,18 @@ export interface EndpointConfig {
   chain: "base" | "solana" | "arc" | "polygon" | "bnb";
   mode: "B" | "C" | "D";
   captureFullData?: boolean;
+  /**
+   * Set when the endpoint is not bought at all (not a cooldown: no daily call
+   * and no recovery probe). Past runs keep their records; the card lists it
+   * under 購入停止 with this reason.
+   */
+  disabled?: { since: string; reason: string };
 }
 
 export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   {
     id: "apac-macro-dashboard",
+    disabled: { since: "2026-11-15", reason: "10月末から毎日 dataMode=fallback(クールダウン中だった)" },
     name: "APAC Macro Dashboard",
     url: getEnvOrDefault("APAC_MACRO_URL", "https://x402amd.vercel.app/api/macro/dashboard"),
     method: "GET",
@@ -38,7 +45,9 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
     name: "Portfolio Intelligence",
     url: getEnvOrDefault("PORTFOLIO_INTELLIGENCE_URL", "https://x402pi.vercel.app/api/portfolio/analyze"),
     method: "POST",
-    cost: 0.50,
+    // The seller's 402 asks 300000 (USDC 6dp) and the 11/12 settlement moved
+    // 0.30 USDC (Base tx 0x7ea1db…68f4); $0.50 overstated the recorded spend.
+    cost: 0.30,
     chain: "base",
     mode: "B",
   },
@@ -53,6 +62,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   },
   {
     id: "divergence-analyzer",
+    disabled: { since: "2026-11-15", reason: "11/4 から毎日 results 0件" },
     name: "Divergence Analyzer",
     url: getEnvOrDefault("DIVERGENCE_ANALYZER_URL", "https://x402nansenpolymarket.vercel.app/api/divergence/scan"),
     method: "GET",
@@ -68,6 +78,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   // data no one opens. Restore by re-adding this entry — nothing else changed.
   {
     id: "smart-money-screener",
+    disabled: { since: "2026-11-15", reason: "11/4 から毎日 tokens 0件・total_scanned 0(Nansen が base・solana を扱っていないという警告)" },
     name: "Smart Money Screener",
     url: getEnvOrDefault(
       "SMART_MONEY_SCREENER_URL",
@@ -88,6 +99,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   },
   {
     id: "onchain-feed-apac",
+    disabled: { since: "2026-11-15", reason: "11/4 から summary_ja が毎日同じ文面" },
     name: "Onchain Intelligence Feed (APAC Daily)",
     url: getEnvOrDefault("ONCHAIN_FEED_APAC_URL", "https://x402oif.vercel.app/api/feed/apac-daily"),
     method: "GET",
@@ -97,6 +109,7 @@ export const ENDPOINTS_MODE_B: EndpointConfig[] = [
   },
   {
     id: "onchain-feed-whale",
+    disabled: { since: "2026-11-15", reason: "transfers の tx_hash が実在しない値(0xabc123)" },
     name: "Onchain Intelligence Feed (Whale Alert)",
     url: getEnvOrDefault("ONCHAIN_FEED_WHALE_URL", "https://x402oif.vercel.app/api/feed/whale-alert"),
     method: "GET",
@@ -256,3 +269,10 @@ export const ENDPOINTS_MODE_D: EndpointConfig[] = [
     captureFullData: true,
   },
 ];
+
+/** Endpoints that are configured but not bought (EndpointConfig.disabled). */
+export function stoppedEndpoints(): Array<{ id: string; name: string; url: string; since: string; reason: string }> {
+  return [...ENDPOINTS_MODE_B, ...ENDPOINTS_MODE_C, ...ENDPOINTS_MODE_D]
+    .filter((e) => e.disabled)
+    .map((e) => ({ id: e.id, name: e.name, url: e.url, since: e.disabled!.since, reason: e.disabled!.reason }));
+}

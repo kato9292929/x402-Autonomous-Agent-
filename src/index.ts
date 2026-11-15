@@ -8,6 +8,7 @@ import { runModeB } from "./modes/modeB";
 import { runModeC, queueModeC } from "./modes/modeC";
 import { runModeD } from "./modes/modeD";
 import { runOsdConsumption } from "./jobs/osd-consumption";
+import { runSpBuy, spBuyEnabled } from "./spbuy/run";
 import { runExternalProbe } from "./jobs/external-probe";
 import { runCatalystSweep, runEdinetSweep } from "./jobs/catalyst-sweep";
 import { runCatalystAutopilot, runEdinetAutopilot } from "./jobs/catalyst-autopilot";
@@ -32,6 +33,10 @@ async function dailyRun(): Promise<void> {
   await runModeA(modeBLog);
   await runModeD();
   await runOsdConsumption();
+  // External endpoints Seller Probe found 説明どおり, bought the way it bought them.
+  if (spBuyEnabled()) {
+    await runSpBuy().catch((err: unknown) => console.error(`[SP-BUY] run failed: ${String(err)}`));
+  }
 }
 
 async function weeklyRun(): Promise<void> {

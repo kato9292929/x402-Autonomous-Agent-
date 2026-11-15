@@ -21,6 +21,9 @@ import { SCOREBOARD_SLOTS } from "./slots";
 import { submitSealedRating } from "./functions";
 import { ComputationFailed, computationEntry } from "./chain";
 import { buildChain, storedScoreboardId } from "../jobs/mxe-trades";
+import { failuresByStage, stageOf, STAGE_LABELS } from "./stage";
+import { BREAKER_DAYS, loadBreaker } from "./breaker";
+import { lastRentSweep } from "./rent";
 
 const limiter = new RateLimiter(INTAKE_LIMITS);
 const MAX_BODY = 4096;
@@ -72,14 +75,28 @@ export async function handleMxeApi(req: http.IncomingMessage, res: http.ServerRe
 
   if (path === "/api/mxe" && req.method === "GET") {
     const limit = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("limit") ?? 100);
+    const q = new URL(req.url ?? "/", "http://localhost").searchParams;
     const all = await loadMxeRecords();
     const fns = [1, 2, 3, 4, 5] as MxeFunction[];
+    const [breaker, rentSweep] = await Promise.all([loadBreaker(), lastRentSweep()]);
+    // Failures by stage over a window (default: the last 14 days).
+    const since = q.get("since") ?? new Date(Date.now() - 14 * 86_400_000).toISOString();
     json(res, 200, {
       jobEnabled: mxeJobEnabled(),
-      functions: fns.map((fn) => ({ fn, label: MXE_FUNCTION_LABELS[fn], enabled: functionEnabled(fn) })),
+      functions: fns.map((fn) => ({
+        fn,
+        label: MXE_FUNCTION_LABELS[fn],
+        enabled: functionEnabled(fn),
+        paused: breaker[fn]?.paused ?? null,
+        resumedAt: breaker[fn]?.resumedAt ?? null,
+      })),
+      breakerDays: BREAKER_DAYS,
+      stageLabels: STAGE_LABELS,
+      failuresByStage: { since, stages: failuresByStage(all, since) },
+      rentSweep: rentSweep ?? null,
       aggregates: aggregateByFunction(all),
       searchBySize: aggregateSearchBySize(all),
-      records: all.slice(0, Math.min(500, Math.max(1, limit))),
+      records: all.slice(0, Math.min(500, Math.max(1, limit))).map((r) => ({ ...r, stage: stageOf(r) ?? null })),
       total: all.length,
     });
     return true;

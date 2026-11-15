@@ -47,7 +47,7 @@ const GROUPS: Group[] = [
     eps: [
       { method: "GET", path: "x402amd.vercel.app/api/macro/dashboard", price: "$0.30", desc: "APACマクロ。金利・為替・フロー・リスク regime。" },
       { method: "GET", path: "x402yi.vercel.app/api/yield/scan", price: "$0.20", desc: "DeFiの利回りスキャン。プール別のAPYとスマートマネー残高。" },
-      { method: "POST", path: "x402pi.vercel.app/api/portfolio/analyze", price: "$0.50", desc: "ウォレットアドレスを渡すとポートフォリオを分析。" },
+      { method: "POST", path: "x402pi.vercel.app/api/portfolio/analyze", price: "$0.30", desc: "ウォレットアドレスを渡すとポートフォリオを分析。" },
       { method: "GET", path: "x402-jrey.vercel.app/api/realestate/yield?area=tokyo", price: "$0.30", desc: "日本の不動産利回り。エリア指定。" },
       { method: "GET", path: "x402nansenpolymarket.vercel.app/api/divergence/scan", price: "$0.15", desc: "予測市場とオンチェーンフローの乖離スキャン。" },
       { method: "GET", path: "x402-hl.vercel.app/api/hyperliquid/scan", price: "$0.20", desc: "Hyperliquidの建玉・ファンディングとスマートマネーの偏り。" },
@@ -189,6 +189,9 @@ setInterval(loadRun, 60000);
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>x402 · Endpoints</title>
+<link rel="icon" href="/favicon.ico" sizes="48x48" />
+<link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@300..600&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet" />

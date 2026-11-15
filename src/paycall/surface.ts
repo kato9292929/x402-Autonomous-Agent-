@@ -9,6 +9,9 @@
  * would silently not reach the other.
  */
 
+import type { ContentCheck } from "../content-check";
+import { checkEdinetBody, EDINET_ENDPOINT, EDINET_UNIT } from "../edinet/schema";
+
 /** Official Solana USDC mint. Shared default for every surface. */
 export const OFFICIAL_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
@@ -34,6 +37,13 @@ export interface PaycallSurface {
   weeklyCapUsd: number;
   /** How many items run 0 pokes with an unpaid 402 read (they are homogeneous). */
   run0Sample: number;
+  /**
+   * Judges a paid body (content-check). When set, the sweep records the
+   * verdict per item and stops after EMPTY_STOP empty answers in a row.
+   */
+  checkBody?: (body: unknown) => ContentCheck;
+  /** What one call buys, shown on the card: the paid route and the unit. */
+  describe?: { endpoint: string; unit: string };
 }
 
 /** Base URL shared by every surface (osd). */
@@ -75,9 +85,8 @@ export const CATALYST_SURFACE: PaycallSurface = loadSurface("catalyst", "/api/ca
 // EDINET pays /api/edinet/{code} but its own base returns only a descriptor, so
 // it borrows catalyst's roster (the same 197 codes; /api/edinet accepts the
 // 4-digit ticker as the code, no transform).
-export const EDINET_SURFACE: PaycallSurface = loadSurface(
-  "edinet",
-  "/api/edinet",
-  "EDINET",
-  "/api/catalyst"
-);
+export const EDINET_SURFACE: PaycallSurface = {
+  ...loadSurface("edinet", "/api/edinet", "EDINET", "/api/catalyst"),
+  checkBody: checkEdinetBody,
+  describe: { endpoint: EDINET_ENDPOINT, unit: EDINET_UNIT },
+};

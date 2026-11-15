@@ -48,7 +48,10 @@ import {
   type MxeNetwork,
   type MxeTradeRecord,
 } from "../mxe/record";
-import { saveMxeRecord } from "../store/mxe-store";
+import { loadMxeRecords, saveMxeRecord } from "../store/mxe-store";
+import { stageOf } from "../mxe/stage";
+import { loadBreaker, saveBreaker, shouldPause } from "../mxe/breaker";
+import { sweepRent } from "../mxe/rent";
 import { loadProbeRuns } from "../store/probe-store";
 import { loadRuns } from "../store/run-store";
 import { upstashCommand, upstashConfigured } from "../store/upstash-rest";
@@ -138,6 +141,7 @@ function failed(rec: MxeTradeRecord, err: unknown, runsSoFar: ComputationRun[] =
     out.queueTx = err.queueTx;
   }
   if (runsSoFar.length) out.computations = runsSoFar.map(computationEntry);
+  out.stage = stageOf(out);
   return out;
 }
 
@@ -162,6 +166,7 @@ function withTrade(rec: MxeTradeRecord, payments: Payment[], tradeMicro: bigint,
   if (bad.length) {
     out.status = "failed";
     out.error = `payment failed: ${bad.map((p) => p.error).join("; ")}${diag}`;
+    out.stage = "payment";
   }
   return out;
 }
@@ -453,9 +458,50 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
     return records;
   }
 
+  // Rent left in earlier computation accounts goes back to the queuer first.
+  const history = await loadMxeRecords(400);
+  try {
+    const s = await sweepRent(chain, history);
+    console.log(
+      `[MXE] rent sweep: ${s.claimed}/${s.checked} claimed (${(s.claimedLamports / 1e9).toFixed(6)} SOL), ` +
+        `${s.stillQueued} never executed and not yet expired (${(s.stillQueuedLamports / 1e9).toFixed(6)} SOL locked)` +
+        `${s.errors.length ? `, ${s.errors.length} error(s): ${s.errors.slice(0, 3).join(" | ")}` : ""}`
+    );
+  } catch (err) {
+    console.error(`[MXE] rent sweep failed: ${String(err)}`);
+  }
+
+  // A function that failed the same way on its last three run days is paused
+  // (breaker.ts) and written down as paused instead of being run again.
+  const breaker = await loadBreaker();
+  const runnable: MxeFunction[] = [];
+  const pausedRecords: MxeTradeRecord[] = [];
+  for (const fn of fns) {
+    const state = breaker[fn] ?? {};
+    let paused = state.paused;
+    if (!paused) {
+      paused = shouldPause(history, fn, state);
+      if (paused) await saveBreaker(fn, { ...state, paused });
+    }
+    if (!paused) {
+      runnable.push(fn);
+      continue;
+    }
+    const rec: MxeTradeRecord = {
+      ...baseRecord(fn, network, INTERNAL_FUNCTIONS.has(fn) ? "internal" : "self"),
+      status: "paused",
+      stage: "paused",
+      error: `paused since ${paused.at}: ${paused.reason} — resume with \`npm run mxe:resume -- ${fn}\``,
+    };
+    await saveMxeRecord(rec);
+    pausedRecords.push(rec);
+    console.log(`[MXE] function ${fn} paused — ${paused.reason}`);
+  }
+  if (runnable.length === 0) return pausedRecords;
+
   return withSellerServer(async (sellBase) => {
     const ctx: Ctx = { chain, network, solUsd: await solUsd(), sellBase, runSpentUsd: 0, walletDiag };
-    const records: MxeTradeRecord[] = [];
+    const records: MxeTradeRecord[] = [...pausedRecords];
     const runners: Record<MxeFunction, () => Promise<MxeTradeRecord | MxeTradeRecord[]>> = {
       1: () => runF1(ctx),
       2: () => runF2(ctx),
@@ -463,7 +509,7 @@ export async function runMxeJob(): Promise<MxeTradeRecord[]> {
       4: () => runF4(ctx),
       5: () => runF5(ctx),
     };
-    for (const fn of fns) {
+    for (const fn of runnable) {
       console.log(`[MXE] function ${fn} — ${MXE_FUNCTION_LABELS[fn]}`);
       const out = await runners[fn]();
       for (const r of Array.isArray(out) ? out : [out]) {
