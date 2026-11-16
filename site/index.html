@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -49,6 +49,9 @@
       </button>
 
       <div class="nav__right">
+        <button class="nav__item nav__lang" id="lang-toggle" type="button"
+                data-ja="EN" data-en="日本語" data-ja-title="Switch to English" data-en-title="日本語に切り替え"
+                data-ja-aria="Switch to English" data-en-aria="日本語に切り替え">EN</button>
         <button class="chamfer chamfer--nav" type="button" id="endpoints-open"
                 aria-expanded="false" aria-controls="endpoints">
           <span class="chamfer__glass" aria-hidden="true"></span>
@@ -78,7 +81,9 @@
 
       <div class="lede">
         <h1 class="lede__title">x402<br />Autonomous Agent</h1>
-        <p class="lede__body">
+        <p class="lede__body"
+           data-ja="オンチェーンの ID を持つエージェントが、必要なデータを 1 コールずつ買い、そのたびに USDC で決済します。"
+           data-en="An agent with an on-chain identity that buys the data it needs, one call at a time, and settles every call in USDC.">
           An agent with an on-chain identity that buys the data it needs, one
           call at a time, and settles every call in USDC.
         </p>
@@ -106,10 +111,10 @@
           <ul class="settle" id="mxe-list"><li class="settle__empty">Loading…</li></ul>
         </div>
       </section>
-      <section class="card card--panel" id="panel-edinet" aria-label="EDINET 週次">
+      <section class="card card--panel" id="panel-edinet" aria-label="EDINET weekly" data-ja-aria="EDINET 週次" data-en-aria="EDINET weekly">
         <div class="card__frost" aria-hidden="true"></div>
         <div class="card__head">
-          <h2 class="card__title">EDINET 週次</h2>
+          <h2 class="card__title" data-ja="EDINET 週次" data-en="EDINET weekly">EDINET weekly</h2>
           <span class="card__index" id="edinet-when">—</span>
         </div>
         <div class="card__body">
@@ -130,8 +135,8 @@
           <div class="stats">
             <div class="stat"><span class="stat__n" id="stat-spend">—</span><span class="stat__l">USDC spent</span></div>
             <div class="stat"><span class="stat__n" id="stat-tx">—</span><span class="stat__l">Settled</span></div>
-            <div class="stat" title="支払って 200 が返った呼び出し / 実際に呼んだ数(休止中は除く)"><span class="stat__n" id="stat-ok">—</span><span class="stat__l">Calls OK</span></div>
-            <div class="stat" title="Calls OK のうち、本文に中身があったもの(空のリスト・入力の繰り返し・ダミーの値・前日と同じ本文は数えない)"><span class="stat__n" id="stat-content">—</span><span class="stat__l">Content OK</span></div>
+            <div class="stat" data-ja-title="支払って 200 が返った呼び出し / 実際に呼んだ数(休止中は除く)" data-en-title="Calls that were paid and answered 200 / calls made (paused endpoints excluded)"><span class="stat__n" id="stat-ok">—</span><span class="stat__l">Calls OK</span></div>
+            <div class="stat" data-ja-title="Calls OK のうち、本文に中身があったもの(空のリスト・入力の繰り返し・ダミーの値・前日と同じ本文は数えない)" data-en-title="Of Calls OK, those whose body had content (empty lists, echoed input, placeholder values and a body unchanged from the day before are not counted)"><span class="stat__n" id="stat-content">—</span><span class="stat__l">Content OK</span></div>
           </div>
           <ul class="settle" id="settle"><li class="settle__empty">Loading…</li></ul>
         </div>
@@ -157,7 +162,9 @@
         </button>
       </div>
 
-      <p class="sheet__lede">
+      <p class="sheet__lede"
+         data-ja='機械が支払えるエンドポイントの一覧。<span class="pill pill--pay">402</span> は有料のコールで、クライアントがリクエストごとに USDC で払い、同じ往復でデータを受け取る。<span class="chip-on">daily ✓</span> はこのエージェントが毎日 06:00 JST に呼ぶもの、<span class="chip-stop">購入停止</span> は今は買っていないもの。'
+         data-en='Machine-payable endpoints. <span class="pill pill--pay">402</span> means the call is priced — a client pays per request in USDC and gets the data back in the same round trip. Rows marked <span class="chip-on">daily ✓</span> are the ones this agent calls every day at 06:00 JST; <span class="chip-stop">Stopped</span> ones are no longer bought.'>
         Machine-payable endpoints. <span class="pill pill--pay">402</span> means the call is
         priced — a client pays per request in USDC and gets the data back in the same round trip.
         Rows marked <span class="chip-on">daily ✓</span> are the ones this agent calls every day at 06:00 JST.

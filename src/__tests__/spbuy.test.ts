@@ -166,3 +166,64 @@ test("run: a 402 that pays us, or asks more than $0.01, is not paid", async () =
   assert.equal(paid, 0);
   assert.deepEqual(run.records.map((r) => r.verdict_reason).map((r) => /自社|上限/.test(r)), [true, true]);
 });
+
+import { sentPaymentFromHeader, signaturesOfWireTx } from "../spbuy/settle-search";
+
+test("payment header: Base gives the EIP-3009 nonce, Solana our signature (not the empty fee-payer slot)", () => {
+  const evm = b64({ x402Version: 2, payload: { authorization: { from: "0xae7c", to: "0x9fb3", value: "1000", nonce: "0xabc" }, signature: "0xsig" } });
+  assert.deepEqual(sentPaymentFromHeader(evm), { chain: "base", from: "0xae7c", nonce: "0xabc" });
+  // wire tx: 2 signature slots, fee payer's empty, ours filled
+  const ours = Buffer.alloc(64, 7);
+  const wire = Buffer.concat([Buffer.from([2]), Buffer.alloc(64, 0), ours, Buffer.from([1, 2, 3])]);
+  const svm = sentPaymentFromHeader(b64({ x402Version: 2, payload: { transaction: wire.toString("base64") } }), "7PVTo");
+  assert.equal(svm?.chain, "solana");
+  assert.deepEqual(svm && svm.chain === "solana" ? svm.signatures.length : 0, 1);
+  assert.equal(signaturesOfWireTx(wire).length, 1);
+  assert.equal(sentPaymentFromHeader(null), null);
+});
+
+test("run: 200 without a settlement header → the transfer is looked up on chain and counted", async () => {
+  const items = [item({ id: "h", host: "h.example" })];
+  const header = b64({ x402Version: 2, payload: { authorization: { from: "0xae7c", nonce: "0x01" } } });
+  let asked: unknown = null;
+  const run = await runSpBuy({
+    sources: { items, generatedAt: null, catalog: new Map() },
+    fetchImpl: (async () => challenge("2000")) as unknown as typeof fetch,
+    client: {
+      fetch: async () => new Response('{"symbol":"AAPL","price":1}', { status: 200, headers: { "content-type": "application/json" } }),
+      takeChallenge: () => undefined,
+      walletAddress: "0xae7c",
+      lastPaymentHeader: () => header,
+    },
+    findSettlement: async (sent) => {
+      asked = sent;
+      return { tx: "0xfound", source: "onchain_search" as const };
+    },
+    spentToday: 0,
+    now: NOW,
+    write: false,
+  });
+  assert.deepEqual(asked, { chain: "base", from: "0xae7c", nonce: "0x01" });
+  const r = run.records[0];
+  assert.equal(r.tx, "0xfound");
+  assert.equal(r.tx_source, "onchain_search");
+  assert.equal(r.verdict, "as_described");
+  assert.match(r.verdict_reason, /header missing/);
+  assert.equal(run.spentUsd, 0.002);
+});
+
+import { applyReconciled } from "../spbuy/reconciled";
+
+test("transfers found on chain afterwards are laid over the stored run, not written into it", () => {
+  const rec = {
+    url: "https://glim.sh/api/v1/web/fetch", tx: null, http_status: 200, response_bytes: 100,
+    checks: [{ name: "not_empty", result: "pass", detail: "100 bytes" }], verdict: "not_settled",
+  } as any;
+  const run = { date: "2026-11-16", spentUsd: 0.15, records: [rec] } as any;
+  const out = applyReconciled(run);
+  assert.equal(out.records[0].verdict, "as_described");
+  assert.equal(out.records[0].tx_source, "onchain_search");
+  assert.equal(out.spentUsd, 0.152);
+  assert.equal(run.records[0].tx, null, "the stored run is untouched");
+  assert.equal(applyReconciled({ ...run, date: "2026-11-17" }).records[0].tx, null, "other days unaffected");
+});
