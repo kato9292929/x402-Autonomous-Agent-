@@ -144,6 +144,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 const SITE_ASSETS = new Set([
   "/styles.css",
   "/ui.js",
+  "/i18n.js",
   "/favicon.ico",
   "/favicon-32.png",
   "/apple-touch-icon.png",
