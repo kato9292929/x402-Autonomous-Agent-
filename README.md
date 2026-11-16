@@ -42,6 +42,7 @@ All settlements below are real, on mainnet, and independently verifiable. Solana
 | Autonomous agent per-call payment via the production path (`pay-once`) | Solana | agent keypair `6JKV…vEzA` | `2LS9cuXRn6nuay3N2XB3nMrE7HJ2fzTjdi1ndnfW237nxmX3BWd7r3vjsTSoUqDf8UrsTM4JRjQLdfG89AKmhtwU` |
 | Agent pays a live PRODUCE endpoint (Japan Inflation Nowcast) → 200 + data | Solana | agent keypair `6JKV…vEzA` | `gkBs7zRZvbwBEVCb5R7p9FadVaZQsytEVkxbrqHUmg7ASSyiB8bH6cEC5dGoNtcaUDCvi3XoNhF446nAavWgL3V` |
 | Agent pays a **third-party** endpoint chosen from Seller Probe's verdicts (OneSource, block number, $0.001) | Base | Circle DCW `0xAE7C…feC8` | `0x5181d0556f3713e69baf881f7150f0b3026753b6fcafcaf291365ed1d7a7b6ff` |
+| A deal decided by a **sealed Arcium computation** (function 1, reservation-price match; callback on devnet `3CZ5YQx8…`) is paid over x402 | Solana | buyer agent (Circle DCW) | `4Jhdt5H6uenGGYJHmZAZMwdopHQFJGTgXei4F99c5WVas54PxRNvfWUHv4GAPfgEqVbM2U57avdEeF45Lvgi28Yf` |
 
 > Every daily and weekly settlement is listed with its tx on [aa.x402jp.com](https://aa.x402jp.com). Open any signature on [Solscan](https://solscan.io) or hash on [Basescan](https://basescan.org) to confirm success and the USDC transfer to the seller.
 
@@ -57,7 +58,7 @@ Schedules run on Railway with node-cron (times in JST).
 | Daily 06:00 | **Mode A** — decision | **Stopped since 2026-11-15** (see below). |
 | Daily 06:00 | **Mode D / osd consumption** | Buys the stack's own OSD Alpha endpoints (US/JP portfolios, scorecards, catalysts) on Solana, and submits and follows up dated catalysts on osd. |
 | Daily 06:00 | **Daily external purchase** | Buys third-party endpoints that x402 Seller Probe judged "as described", the way Seller Probe bought them. |
-| Daily 07:30 | **Arcium MXE** | Five sealed-computation functions on the Arcium devnet cluster, paid with x402 on Solana mainnet. |
+| Daily 07:30 | **Arcium MXE** | Five sealed agent-to-agent functions on Arcium (devnet cluster 456); the deals they decide are paid with x402 on Solana mainnet. |
 | Mon 06:00 | **Mode C** | Queues high-impact actions for human approval gated by World ID. |
 | Mon 09:00 | **External probe** | Pays a fixed set of third-party sellers (OneSource, 2s, Otto AI, Exa) to measure real cost and content. |
 | Wed 09:00 | **Catalyst sweep** | One per-call payment per company for the ~200-company catalyst roster. |
@@ -89,9 +90,21 @@ Each call is sent unpaid first and paid only if that answers 402 with a leg the 
 
 First run (2026-11-16): 39 endpoints from 23 operators; 38 paid, 37 delivered as described, $0.170.
 
-### Arcium MXE
+### Arcium MXE — sealed agent-to-agent deals
 
-Five functions run as sealed computations on Arcium's devnet cluster (offset 456) and settle with x402 on Solana mainnet: reservation-price matching, a sealed-quote RFQ, seller scores without revealing raters, group purchase without revealing participants, and endpoint search with a hidden intent. Failures are classified by stage; a function that fails at the same stage three days in a row is paused until resumed by hand (`npm run mxe:resume`); computation-account rent is reclaimed every run. In functions 1, 2 and 4 the counterparty is the agent's own internal agent — not evidence of external demand. The 2026-11-06 → 11-15 cluster outage is documented in [`docs/arcium-devnet-outage-2026-11.md`](docs/arcium-devnet-outage-2026-11.md).
+Agents that pay each other per call leak more than the payment: a price ask reveals a limit, a quote reveals a floor, a rating reveals a counterparty, a search reveals intent. The agent runs five such steps as **sealed computations on Arcium** (MXE program `B2nEZuSActZNBkcVPmo1eJeHQgToDmrHuBkZk52kZsUd`, devnet cluster 456), each beside the public method it replaces, and settles the resulting deals **over x402 on Solana mainnet** in USDC:
+
+| # | Function | Revealed |
+|---|---|---|
+| 1 | Reservation-price matching | match or not; the midpoint only on a match |
+| 2 | Sealed-quote RFQ | winner and winning price only |
+| 3 | Seller scores, evaluator hidden | per-seller aggregates only (public ciphertext-only intake) |
+| 4 | Group purchase, participants hidden | target reached; each share to its own buyer |
+| 5 | Endpoint search, intent hidden | match bitmask, encrypted to the querier |
+
+Daily since 2026-11-03 at 07:30 JST. Outside bring-up and the 2026-11-06 → 11-15 cluster outage, 31 of 32 runs succeeded, reaching the same decisions as the public methods; latency 4–9 s per function (an RFQ with two quotes ~14 s). At micro-payment deal sizes the computation costs 60–360× the deal — a measured cost of privacy, reported as such. Failures are classified by stage, a function failing at the same stage three days in a row is paused, and computation rent is reclaimed every run.
+
+**Full write-up with results, on-chain txs and limits: [`docs/arcium.md`](docs/arcium.md).** Circuit and program design: [`mxe/README.md`](mxe/README.md). Outage report: [`docs/arcium-devnet-outage-2026-11.md`](docs/arcium-devnet-outage-2026-11.md).
 
 ### EDINET weekly: what one call buys
 

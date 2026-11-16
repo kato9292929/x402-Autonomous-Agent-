@@ -286,11 +286,18 @@ export class MxeChain {
       .reclaimExpiredComputationFee(offset, this.cfg.programId)
       .accountsPartial({ signer: this.authority })
       .instruction();
-    const claim = await arcium.methods
-      .claimComputationRent(offset, this.cfg.clusterOffset)
-      .accountsPartial({ signer: this.authority })
-      .instruction();
-    await this.provider.sendAndConfirm(new Transaction().add(reclaim, claim), [], { commitment: "confirmed" });
+    // Sent alone: reclaiming an expired computation already closes its account,
+    // so a claim_computation_rent in the same transaction failed with
+    // AccountNotInitialized (0xbc4) and rolled the reclaim back (64 accounts
+    // on the 11-16 sweep). Claim separately only if the account is still there.
+    await this.provider.sendAndConfirm(new Transaction().add(reclaim), [], { commitment: "confirmed" });
+    if (await this.cfg.connection.getAccountInfo(account, "confirmed")) {
+      const claim = await arcium.methods
+        .claimComputationRent(offset, this.cfg.clusterOffset)
+        .accountsPartial({ signer: this.authority })
+        .instruction();
+      await this.provider.sendAndConfirm(new Transaction().add(claim), [], { commitment: "confirmed" });
+    }
     return info.lamports;
   }
 
